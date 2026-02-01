@@ -1,7 +1,7 @@
 # Authored By Certified 
 # Fixed for platforms/Youtube.py
-# NUCLEAR EDITION: 16-Core Aria2c Download + Instant Direct Stream + RAM Disk
-# FIX: Sanitize URL before passing to yt-dlp
+# NUCLEAR EDITION: 16-Core Aria2c + Anti-Throttle + Force IPv4
+# FIX: Bypass YouTube Speed Throttling via Android Client Masquerading
 
 import asyncio
 import os
@@ -24,7 +24,7 @@ except ImportError:
     def time_to_seconds(t): return 0
 
 class Config:
-    # استخدام الرام (Shm) للسرعة القصوى
+    # استخدام الرام للسرعة القصوى
     if os.path.exists("/dev/shm"):
         DOWNLOAD_PATH = "/dev/shm/AnnieDownloads"
     else:
@@ -134,11 +134,15 @@ class YouTubeAPI:
         d, _ = await self.track(link, videoid)
         return d.get("thumb")
 
+    # 🔥 الدالة المسؤولة عن التحميل الخلفي (تم التعديل لفك الخنق) 🔥
     def _background_download(self, link, final_path, is_video):
         try:
+            # 1. إجبار Aria2c على استخدام IPv4 فقط
             aria2_args = [
                 "-x", "16", "-s", "16", "-j", "16", "-k", "1M",
-                "--file-allocation=none", "--disable-ipv6=true"
+                "--file-allocation=none", 
+                "--disable-ipv6=true", # 👈 إجبار IPv4
+                "--async-dns=false"
             ]
             
             fmt = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
@@ -150,13 +154,23 @@ class YouTubeAPI:
                 "geo_bypass": True,
                 "nocheckcertificate": True,
                 "quiet": True,
+                "force_ipv4": True, # 👈 إجبار yt-dlp على IPv4
+                
+                # 🔥 السحر لفك الخنق: انتحال شخصية أندرويد 🔥
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "web"],
+                        "skip": ["dash", "hls"],
+                    }
+                },
+                
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([link])
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Background Download Error: {e}")
 
     async def download(
         self,
@@ -170,25 +184,18 @@ class YouTubeAPI:
         title: Union[bool, str] = None,
     ) -> Tuple[Optional[str], bool]:
         
-        # ✅ FIX: إصلاح مشكلة الرابط الوهمي googleusercontent
-        # إذا كان الرابط وهمي، نستخرج الـ ID ونحوله لرابط يوتيوب حقيقي
+        # تنظيف الرابط
         if "googleusercontent.com" in link:
             try:
-                # الرابط يكون في الغالب .../youtube.com/1[VID_ID]
-                # الرقم 1 أو 5 هو الـ prefix، نحذفه ونأخذ الـ ID
                 vid_part = link.split("youtube.com/")[-1]
-                # إزالة الرقم الأول (1 أو 2 أو 5)
                 real_vid_id = vid_part[1:] if vid_part[0].isdigit() else vid_part
                 link = f"https://www.youtube.com/watch?v={real_vid_id}"
-            except:
-                pass # لو فشل التحويل، نتركه كما هو ونأمل خيرًا
+            except: pass
 
-        if videoid: 
-            link = f"https://www.youtube.com/watch?v={videoid}"
+        if videoid: link = f"https://www.youtube.com/watch?v={videoid}"
 
         loop = asyncio.get_running_loop()
 
-        # توليد ID للملف
         try:
             if "v=" in link: vid_id = link.split("v=")[1].split("&")[0]
             else: vid_id = str(int(time.time()))
@@ -201,18 +208,20 @@ class YouTubeAPI:
         if os.path.exists(ram_path) and os.path.getsize(ram_path) > 1024:
             return ram_path, False
 
-        # 2. تحديد الجودة (إذا طلب المستخدم جودة محددة عبر format_id)
+        # 2. تحميل محدد الجودة (بدون بث مباشر)
         if format_id:
-            # تحميل مباشر بالجودة المطلوبة (بدون بث مباشر لتفادي المشاكل مع الصيغ المحددة)
             def _specific_download():
                 try:
+                    aria2_args = ["-x", "16", "-k", "1M", "--disable-ipv6=true"]
                     ydl_opts = {
                         "format": f"{format_id}+140" if songvideo else format_id,
                         "outtmpl": ram_path,
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
+                        "force_ipv4": True, # 👈 IPv4
+                        "extractor_args": {"youtube": {"player_client": ["android"]}}, # 👈 Anti-Throttle
                         "external_downloader": "aria2c",
-                        "external_downloader_args": ["-x", "16", "-k", "1M"],
+                        "external_downloader_args": aria2_args,
                     }
                     if songaudio:
                         ydl_opts["postprocessors"] = [{"key": "FFmpegExtractAudio","preferredcodec": "mp3"}]
@@ -229,9 +238,16 @@ class YouTubeAPI:
             dl_path = await loop.run_in_executor(self.pool, _specific_download)
             return dl_path, False
 
-        # 3. البث المباشر (للحالات العامة)
+        # 3. البث المباشر (Direct Stream) مع فك الخنق
         try:
-            cmd = ["yt-dlp", "-g", "--cookies", get_cookie_file() or ""]
+            # إضافة --force-ipv4 و انتحال الأندرويد في سطر الأوامر
+            cmd = [
+                "yt-dlp", "-g",
+                "--cookies", get_cookie_file() or "",
+                "--force-ipv4",  # 👈 إجبار IPv4
+                "--extractor-args", "youtube:player_client=android", # 👈 فك الخنق
+            ]
+            
             if video:
                 cmd.extend(["-f", "best[height<=720]"])
             else:
@@ -246,7 +262,7 @@ class YouTubeAPI:
 
             if stdout:
                 direct_link = stdout.decode().split("\n")[0].strip()
-                # بدء التحميل في الخلفية للكاش
+                # التحميل في الخلفية (مع إعدادات فك الخنق الجديدة)
                 loop.run_in_executor(self.pool, self._background_download, link, ram_path, video)
                 return direct_link, True
         except:
@@ -260,7 +276,9 @@ class YouTubeAPI:
                     "format": fmt,
                     "outtmpl": ram_path,
                     "cookiefile": get_cookie_file(),
-                    "quiet": True
+                    "quiet": True,
+                    "force_ipv4": True, # 👈 IPv4
+                    "extractor_args": {"youtube": {"player_client": ["android"]}} # 👈 Anti-Throttle
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([link])
@@ -278,6 +296,8 @@ class YouTubeAPI:
         if "&" in link: link = link.split("&")[0]
         cmd = (
             f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
+            f"--force-ipv4 "
+            f"--extractor-args 'youtube:player_client=android' "
             f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
             f"2>/dev/null"
         )
@@ -289,7 +309,7 @@ class YouTubeAPI:
 
     async def formats(self, link: str, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
-        ytdl_opts = {"quiet": True, "cookiefile": get_cookie_file()}
+        ytdl_opts = {"quiet": True, "cookiefile": get_cookie_file(), "force_ipv4": True}
         with yt_dlp.YoutubeDL(ytdl_opts) as ydl:
             formats_available = []
             try:
