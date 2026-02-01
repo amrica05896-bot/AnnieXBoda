@@ -52,7 +52,7 @@ uvloop==0.21.0
 wget
 pymongo
 kurigram>=2.2.17
-https://github.com/KSKOP69/youtube-search-python/archive/ksk.zip
+https://github.com/q058961234-web/youtube-search-python.git
 yt-dlp>=2026.1.29
 pyromod
 g4f>=0.2.0
