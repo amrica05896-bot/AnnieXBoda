@@ -1,11 +1,11 @@
 # Authored By Certified Coders © 2026
-# System: Song Plugin (Clean Text & Custom Triggers)
-# Features: No Emojis, Removed standalone /video command, Direct Stream
+# System: Song Plugin (Clean Text & Error Free)
+# Features: Fixes Thumbnails, Empty Media, and Throttling compatibility.
 
 import os
 import re
+import asyncio
 import traceback
-import yt_dlp
 from pyrogram import enums, filters
 from pyrogram.types import (
     InlineKeyboardButton,
@@ -58,10 +58,10 @@ async def unlock_buttons(client, message):
     await message.reply_text("**تم تفعيل ازرار البحث والخيارات.**")
 
 # ==========================================================
-# 1. المعالج الذكي (Regex) - ابعتلي / هات / تنزيل
+# 1. المعالج الذكي (Regex)
 # ==========================================================
 
-# ⚠️ تم التعديل: إزالة (video|فيديو|فيد) من القائمة ليعمل فقط مع الجمل الكاملة
+# تم إزالة (video|فيديو|فيد) من بداية الأمر، ليعمل فقط مع الجمل
 @app.on_message(filters.regex(r"^/?(ابعتلي|هات|هاتلي|تنزيل|تحميل|song)(\s+.+)?$") & filters.group & ~BANNED_USERS)
 async def smart_song_handler(client, message: Message):
     # فحص القفل
@@ -84,10 +84,10 @@ async def smart_song_handler(client, message: Message):
     # تحديد نوع الطلب (هل يريد فيديو؟)
     is_video_request = False
     
-    # التحقق مما إذا كان المستخدم كتب "فيديو" داخل الجملة (مثال: ابعتلي فيديو كذا)
+    # فحص الكلمات الدلالية داخل الجملة
     if "فيديو" in query or "video" in query or "فيد" in query:
         is_video_request = True
-        # تنظيف كلمة فيديو من البحث عشان النتائج تكون دقيقة
+        # تنظيف كلمة فيديو من البحث
         query = query.replace("فيديو", "").replace("video", "").replace("فيد", "").strip()
 
     # هل النص رابط؟
@@ -140,17 +140,16 @@ async def yut_command(client, message):
     url = message.text.split(None, 1)[1]
     
     is_video = False
-    # التحقق من طلب الفيديو (يوت فيديو / يوت فيد)
+    # التحقق من طلب الفيديو
     if "فيد" in message.text or "video" in message.text or "فيديو" in message.text:
         is_video = True
-        # تنظيف الكلمات الزائدة من الرابط أو اسم الأغنية
         url = url.replace("فيديو", "").replace("فيد", "").replace("video", "").strip()
     
     # هل هو رابط يوتيوب؟
     if "youtu" in url:
         await direct_download_handler(client, message, url, is_video)
     else:
-        # لو مش رابط (اسم أغنية)، نحوله للبحث الذكي
+        # لو مش رابط، نحوله لأمر ذكي
         message.text = f"تنزيل {url}"
         if is_video:
              message.text = f"ابعتلي فيديو {url}"
@@ -158,7 +157,7 @@ async def yut_command(client, message):
 
 
 # ==========================================================
-# 3. دالة التحميل والرفع
+# 3. دالة التحميل والرفع (مع الإصلاحات الجذرية)
 # ==========================================================
 
 async def direct_download_handler(client, message, url, is_video_force=False):
@@ -170,10 +169,24 @@ async def direct_download_handler(client, message, url, is_video_force=False):
         quality_msg = "جودة عالية (Sudo)"
 
     try:
-        title, duration_min, duration_sec, thumbnail, vidid = await YouTube.details(url)
-        title = title.title()
-        
-        # استدعاء دالة التحميل من Youtube.py
+        # جلب التفاصيل
+        details = await YouTube.details(url)
+        if details:
+            title, _, duration_sec, thumbnail_url, vidid = details
+        else:
+            title, duration_sec, thumbnail_url, vidid = "Unknown Track", 0, None, None
+
+        # 🔥 إصلاح [Errno 2]: تحميل الصورة وحفظ مسارها محلياً
+        # نعتمد على دالة download_thumb الموجودة في ملف Youtube.py الجديد
+        thumb_path = None
+        if thumbnail_url:
+            try:
+                # محاولة تحميل الصورة وحفظها كملف
+                thumb_path = await YouTube.download_thumb(thumbnail_url)
+            except:
+                thumb_path = None
+
+        # تحميل الوسائط (فيديو/صوت)
         file_path, is_direct_link = await YouTube.download(
             url,
             mystic,
@@ -182,18 +195,23 @@ async def direct_download_handler(client, message, url, is_video_force=False):
             title=title
         )
 
+        # 🔥 إصلاح [WEBPAGE_MEDIA_EMPTY]: التأكد من وجود الملف
+        if not file_path or (not is_direct_link and not os.path.exists(file_path)):
+            return await mystic.edit_text("**فشل التحميل من المصدر أو الملف فارغ.**")
+
         if is_direct_link:
              await mystic.edit_text("**جاري التشغيل (بث مباشر سريع)...**")
         else:
              await mystic.edit_text(f"**جاري الرفع...**\n{quality_msg}")
         
+        # الرفع
         if is_video_force:
             await client.send_video(
                 message.chat.id,
                 video=file_path,
                 caption=f"**{title}**\n\n{quality_msg}\n**طلب:** {message.from_user.mention}",
                 duration=duration_sec,
-                thumb=thumbnail,
+                thumb=thumb_path, # نرسل مسار الملف وليس الرابط
                 supports_streaming=True
             )
         else:
@@ -204,15 +222,19 @@ async def direct_download_handler(client, message, url, is_video_force=False):
                 duration=duration_sec,
                 title=title,
                 performer="Annie Bot",
-                thumb=thumbnail
+                thumb=thumb_path # نرسل مسار الملف وليس الرابط
             )
         
         await mystic.delete()
         
+        # تنظيف الملفات
         if not is_direct_link and os.path.exists(file_path):
             os.remove(file_path)
+        if thumb_path and os.path.exists(thumb_path):
+            os.remove(thumb_path)
 
     except Exception as e:
+        traceback.print_exc()
         await mystic.edit_text(f"**خطأ:** {e}")
 
 
@@ -315,64 +337,74 @@ async def song_download_cb(client, query):
     mystic = await query.edit_message_text("**جاري التحميل...**")
 
     yturl = f"https://www.youtube.com/watch?v={vidid}"
-    cookie_path = get_cookie_path()
-
+    
     try:
-        title, duration_min, duration_sec, thumbnail, _ = await YouTube.details(vidid)
-        title = title.title()
-    except:
-        title = "Unknown Track"
-        duration_sec = 0
-        thumbnail = None
+        # جلب المعلومات والصورة
+        details = await YouTube.details(yturl)
+        if details:
+            title, _, duration_sec, thumbnail_url, _ = details
+        else:
+            title, duration_sec, thumbnail_url = "Unknown Track", 0, None
+        
+        # تحميل الصورة المصغرة محلياً
+        thumb_path = None
+        if thumbnail_url:
+            try:
+                thumb_path = await YouTube.download_thumb(thumbnail_url)
+            except: thumb_path = None
 
-    try: thumb_image_path = await query.message.download()
-    except: thumb_image_path = None
+    except:
+        title, duration_sec, thumb_path = "Unknown", 0, None
+
+    try: user_thumb = await query.message.download()
+    except: user_thumb = None
+    
+    # استخدام صورة المستخدم إذا وجدت، وإلا الصورة المحملة
+    final_thumb = user_thumb if user_thumb else thumb_path
 
     if stype == "video":
         try:
-            file_path, is_direct = await YouTube.download(
+            file_path, _ = await YouTube.download(
                 yturl,
                 mystic,
                 songvideo=True,
                 format_id=format_id,
                 title=title
             )
-        except Exception as e:
-            return await mystic.edit_text(f"**فشل التحميل:** {e}")
+            if not file_path or not os.path.exists(file_path):
+                 raise Exception("Download Failed")
 
-        await mystic.edit_text("**جاري الرفع...**")
-        
-        try:
+            await mystic.edit_text("**جاري الرفع...**")
+            
             await client.send_video(
                 query.message.chat.id,
                 video=file_path,
                 caption=f"**{title}**\n\n**طلب:** {query.from_user.mention}",
                 duration=duration_sec,
-                thumb=thumb_image_path or thumbnail,
+                thumb=final_thumb,
                 supports_streaming=True
             )
             await mystic.delete()
         except Exception as e:
             traceback.print_exc()
-            return await mystic.edit_text(f"**فشل الرفع:** {e}")
+            await mystic.edit_text(f"**فشل الرفع:** {e}")
 
-        if not is_direct and os.path.exists(file_path): os.remove(file_path)
+        if os.path.exists(file_path): os.remove(file_path)
 
     elif stype == "audio":
         try:
-            file_path, is_direct = await YouTube.download(
+            file_path, _ = await YouTube.download(
                 yturl,
                 mystic,
                 songaudio=True,
                 format_id=format_id,
                 title=title
             )
-        except Exception as e:
-            return await mystic.edit_text(f"**فشل التحميل:** {e}")
+            if not file_path or not os.path.exists(file_path):
+                 raise Exception("Download Failed")
 
-        await mystic.edit_text("**جاري الرفع...**")
-        
-        try:
+            await mystic.edit_text("**جاري الرفع...**")
+            
             await client.send_audio(
                 query.message.chat.id,
                 audio=file_path,
@@ -380,13 +412,15 @@ async def song_download_cb(client, query):
                 duration=duration_sec,
                 title=title,
                 performer="Annie Bot",
-                thumb=thumb_image_path or thumbnail
+                thumb=final_thumb
             )
             await mystic.delete()
-        except Exception:
+        except Exception as e:
             traceback.print_exc()
-            return await mystic.edit_text("**فشل الرفع.**")
+            await mystic.edit_text(f"**فشل الرفع:** {e}")
 
-        if not is_direct and os.path.exists(file_path): os.remove(file_path)
+        if os.path.exists(file_path): os.remove(file_path)
     
-    if thumb_image_path and os.path.exists(thumb_image_path): os.remove(thumb_image_path)
+    # تنظيف الصور
+    if user_thumb and os.path.exists(user_thumb): os.remove(user_thumb)
+    if thumb_path and os.path.exists(thumb_path): os.remove(thumb_path)
