@@ -1,5 +1,4 @@
-
-# Authored By Certified 
+# Authored By Certified Coders © 2025
 # Fixed for platforms/Youtube.py
 # NUCLEAR EDITION: 16-Core Aria2c Download + Instant Direct Stream + RAM Disk
 
