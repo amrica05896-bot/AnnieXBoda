@@ -4,7 +4,7 @@ import asyncio
 from pyrogram import filters
 from pyrogram.enums import ChatType
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-from pytubefix import Search
+from youtubesearchpython.__future__ import VideosSearch
 
 import config
 from AnnieXMedia import app
