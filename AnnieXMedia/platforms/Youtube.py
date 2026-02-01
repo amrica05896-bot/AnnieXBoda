@@ -1,7 +1,7 @@
 # Authored By Certified Coders © 2026
-# System: YouTubeAPI | Fixed for "Android Cookie Conflict"
-# Fix: Separated Android (No Cookies) from Web (With Cookies)
-# Result: No more "Skipping client android" or "Format not available" errors.
+# System: YouTubeAPI | JS Solver Edition
+# Fixes: "Signature solving failed" & "n challenge solving failed"
+# Added: Remote Components (ejs:github) to solve JS challenges
 
 import asyncio
 import os
@@ -155,13 +155,13 @@ class YouTubeAPI:
 
     @asyncify
     def _track_fallback(self, q):
-        # ✅ تم التعديل: إزالة Android واستخدام Web+Cookies لضمان العثور على الفيديو
         options = {
             "format": "best",
             "noplaylist": True,
             "quiet": True,
             "extract_flat": "in_playlist",
-            "cookiefile": cookies(), # كوكيز + ويب = أمان
+            "cookiefile": cookies(),
+            "remote_components": ["ejs:github"], # ✅ تم التفعيل
         }
         with YoutubeDL(options) as ydl:
             info_dict = ydl.extract_info(f"ytsearch: {q}", download=False)
@@ -191,7 +191,7 @@ class YouTubeAPI:
         
         if videoid: link = self.base + link
         
-        # ✅ تم التعديل: جميع دوال التحميل تستخدم (Web + Cookies) لتفادي خطأ الأندرويد
+        # ✅ تم تفعيل remote_components في كل الدوال لحل مشكلة JS Challenge
         
         @asyncify
         def audio_dl():
@@ -202,7 +202,8 @@ class YouTubeAPI:
                 "noplaylist": True,
                 "nocheckcertificate": True,
                 "quiet": True,
-                "cookiefile": cookies(), # هنا كوكيز، إذن لا نستخدم Android
+                "cookiefile": cookies(),
+                "remote_components": ["ejs:github"], # ✅
             }
             with YoutubeDL(ydl_opts) as x:
                 info = x.extract_info(link, False)
@@ -221,6 +222,7 @@ class YouTubeAPI:
                 "nocheckcertificate": True,
                 "quiet": True,
                 "cookiefile": cookies(),
+                "remote_components": ["ejs:github"], # ✅
             }
             with YoutubeDL(ydl_opts) as x:
                 info = x.extract_info(link, False)
@@ -239,6 +241,7 @@ class YouTubeAPI:
                 "nocheckcertificate": True,
                 "quiet": True,
                 "cookiefile": cookies(),
+                "remote_components": ["ejs:github"], # ✅
             }
             with YoutubeDL(ydl_opts) as x:
                 info = x.extract_info(link)
@@ -256,6 +259,7 @@ class YouTubeAPI:
                 "quiet": True,
                 "postprocessors": [{"key": "FFmpegExtractAudio","preferredcodec": "mp3","preferredquality": "192"}],
                 "cookiefile": cookies(),
+                "remote_components": ["ejs:github"], # ✅
             }
             with YoutubeDL(ydl_opts) as x:
                 info = x.extract_info(link)
@@ -270,14 +274,13 @@ class YouTubeAPI:
             downloaded_file = await video_dl()
             return downloaded_file, False
         else:
-            # 🔥 البث المباشر (Direct Stream) 🔥
-            # هنا فقط نستخدم Android ولكن **بدون كوكيز**
+            # 🔥 البث المباشر (أندرويد + Remote Components) 🔥
             try:
                 cmd = [
                     "yt-dlp",
                     "-g",
-                    # لاحظ: شيلنا --cookies من هنا عشان الأندرويد يشتغل
-                    "--extractor-args", "youtube:player_client=android", 
+                    "--extractor-args", "youtube:player_client=android",
+                    "--remote-components", "ejs:github", # ✅ تم التفعيل هنا
                     "-f", "bestaudio[ext=m4a]/bestaudio/best",
                     link
                 ]
@@ -290,7 +293,6 @@ class YouTubeAPI:
                     direct_link = stdout.decode().split("\n")[0].strip()
                     return direct_link, True
                 else:
-                    # لو الأندرويد فشل، نرجع للتحميل العادي (Web + Cookies)
                     return await audio_dl(), False
             except:
                 return await audio_dl(), False
@@ -298,10 +300,11 @@ class YouTubeAPI:
     async def playlist(self, link, limit, user_id, videoid: Union[bool, str] = None):
         if videoid: link = self.listbase + link
         if "&" in link: link = link.split("&")[0]
-        # للقوائم: نستخدم أندرويد بدون كوكيز للسرعة
+        # للقوائم:
         cmd = (
             f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
             f"--extractor-args 'youtube:player_client=android' "
+            f"--remote-components ejs:github " # ✅
             f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
             f"2>/dev/null"
         )
