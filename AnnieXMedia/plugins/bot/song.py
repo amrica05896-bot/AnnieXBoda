@@ -1,6 +1,7 @@
 # Authored By Certified Coders © 2026
 # System: Song Plugin (Flora Style)
 # Speed: Nuclear (Direct YouTube Class Usage)
+# Fix: Removed 'pykeyboard' dependency (Pure Pyrogram)
 
 import os
 import re
@@ -14,12 +15,11 @@ from pyrogram.types import (
     InputMediaVideo,
     Message,
 )
-from pykeyboard import InlineKeyboard
 
 # استيرادات AnnieXMedia
 from config import BANNED_USERS, SONG_DOWNLOAD_DURATION, SONG_DOWNLOAD_DURATION_LIMIT
 from AnnieXMedia import app
-from AnnieXMedia.platforms.Youtube import YouTube  # الملف اللي لسه معدلينه
+from AnnieXMedia.platforms.Youtube import YouTube
 from AnnieXMedia.utils.formatters import convert_bytes
 from AnnieXMedia.utils.inline.song import song_markup
 
@@ -47,7 +47,6 @@ async def song_commad_group(client, message: Message):
 
         mystic = await message.reply_text("**جـارٍ الـمـعـالـجـة...**")
         
-        # جلب التفاصيل باستخدام الكلاس السريع
         try:
             title, duration_min, duration_sec, thumbnail, vidid = await YouTube.details(url)
         except:
@@ -69,7 +68,6 @@ async def song_commad_group(client, message: Message):
         )
 
     else:
-        # البحث بالاسم
         query = message.text.split(None, 1)[1]
         mystic = await message.reply_text("**جـارٍ الـبـحـث...**")
 
@@ -112,23 +110,21 @@ async def song_helper_cb(client, query):
     try: await query.answer("جاري جلب الصيغ المتاحة...", show_alert=True)
     except: pass
 
-    # هنا بيعتمد على دالة formats في ملف YouTube.py اللي احنا ظبطناه
     try:
         formats_available, link = await YouTube.formats(vidid, True)
     except Exception:
         return await query.edit_message_text("**فشل في جلب الجودات المتاحة.**")
 
-    keyboard = InlineKeyboard()
+    # ✅ استبدال pykeyboard بـ List عادية
+    keyboard = []
     done = []
 
-    # معالجة الصوت
     if stype == "audio":
         for x in formats_available:
             check = x["format"]
             if "audio" in check:
                 if x.get("filesize") is None: continue
                 
-                # تنسيق اسم الجودة
                 form = x.get("format_note", "Audio").title()
                 if form not in done: done.append(form)
                 else: continue
@@ -136,16 +132,15 @@ async def song_helper_cb(client, query):
                 sz = convert_bytes(x["filesize"])
                 fom = x["format_id"]
 
-                keyboard.row(
+                # إضافة زر لكل جودة في صف جديد
+                keyboard.append([
                     InlineKeyboardButton(
                         text=f"{form} ({sz})",
                         callback_data=f"song_download {stype}|{fom}|{vidid}",
-                    ),
-                )
+                    )
+                ])
     
-    # معالجة الفيديو
     else:
-        # جودات الفيديو المدعومة (تصفية عشان الشكل)
         supported_ids = [160, 133, 134, 135, 136, 137, 298, 299, 264, 304, 266]
         
         for x in formats_available:
@@ -156,22 +151,22 @@ async def song_helper_cb(client, query):
             if fid not in supported_ids: continue
 
             sz = convert_bytes(x["filesize"])
-            # استخراج دقة الفيديو (e.g. 720p)
             ap = check.split("-")[1] if "-" in check else check
             
-            keyboard.row(
+            keyboard.append([
                 InlineKeyboardButton(
                     text=f"{ap} ({sz})",
                     callback_data=f"song_download {stype}|{x['format_id']}|{vidid}",
                 )
-            )
+            ])
 
-    keyboard.row(
+    # إضافة أزرار الرجوع والإغلاق في صف واحد
+    keyboard.append([
         InlineKeyboardButton(text="رجوع", callback_data=f"song_back {stype}|{vidid}"),
         InlineKeyboardButton(text="اغلاق", callback_data="close"),
-    )
+    ])
 
-    return await query.edit_message_reply_markup(reply_markup=keyboard)
+    return await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 # ==========================================================
@@ -189,19 +184,17 @@ async def song_download_cb(client, query):
     yturl = f"https://www.youtube.com/watch?v={vidid}"
     cookie_path = get_cookie_path()
 
-    # استخراج البيانات السريعة للرسالة
     try:
+        # استخدام yt-dlp لاستخراج البيانات الأساسية
         with yt_dlp.YoutubeDL({"quiet": True, "cookiefile": cookie_path}) as ytdl:
             x = ytdl.extract_info(yturl, download=False)
     except:
-        # لو فشل الاستخراج السريع، نستخدم بيانات افتراضية
         x = {"title": "Unknown Track", "duration": 0, "uploader": "Unknown"}
 
     title = (x.get("title", "Unknown")).title()
-    title = re.sub(r"\W+", " ", title) # تنظيف الاسم
+    title = re.sub(r"\W+", " ", title)
     duration = x.get("duration", 0)
     
-    # تحميل الصورة المصغرة (Thumbnail) من الرسالة الأصلية
     try:
         thumb_image_path = await query.message.download()
     except:
@@ -209,8 +202,6 @@ async def song_download_cb(client, query):
 
     if stype == "video":
         try:
-            # هنا بننادي على دالة download اللي في ملف Youtube.py
-            # وهي بتتكفل بكل حاجة (Aria2c / Android / Web)
             file_path = await YouTube.download(
                 yturl,
                 mystic,
@@ -221,7 +212,6 @@ async def song_download_cb(client, query):
         except Exception as e:
             return await mystic.edit_text(f"**فشل التحميل:** {e}")
 
-        # تجهيز الفيديو للإرسال
         width = 1280
         height = 720
         try:
@@ -249,7 +239,6 @@ async def song_download_cb(client, query):
             traceback.print_exc()
             return await mystic.edit_text("**فشل الرفع لتليجرام.**")
 
-        # تنظيف
         if os.path.exists(file_path): os.remove(file_path)
 
     elif stype == "audio":
