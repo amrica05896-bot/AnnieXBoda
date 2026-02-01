@@ -1,12 +1,13 @@
 # Authored By Certified 
 # Fixed for platforms/Youtube.py
-# NUCLEAR EDITION: 16-Core Aria2c + Anti-Throttle + Force IPv4
-# FIX: Bypass YouTube Speed Throttling via Android Client Masquerading
+# NUCLEAR EDITION: 16-Core Aria2c + iOS Spoofing + Smart Format Merge
+# FIX: Solved "Cookies Conflict" & "Requested format not available"
 
 import asyncio
 import os
 import re
 import logging
+import aiohttp
 from typing import Union, List, Dict, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -24,7 +25,6 @@ except ImportError:
     def time_to_seconds(t): return 0
 
 class Config:
-    # استخدام الرام للسرعة القصوى
     if os.path.exists("/dev/shm"):
         DOWNLOAD_PATH = "/dev/shm/AnnieDownloads"
     else:
@@ -82,70 +82,58 @@ class YouTubeAPI:
                         return entity.url
         return None if offset in (None,) else text[offset : offset + length]
 
-    async def track(self, link: str, videoid: Union[bool, str] = None):
+    async def details(self, link: str, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
-        link = link.split("&")[0]
-
-        async with _cache_lock:
-            if link in _cache:
-                ts, val = _cache[link]
-                if time.time() - ts < YOUTUBE_META_TTL:
-                    return val[0], val[1]
+        if "&" in link: link = link.split("&")[0]
+        
+        # تنظيف الروابط الوهمية
+        if "googleusercontent.com" in link:
+            try:
+                vid_id = link.split("youtube.com/")[-1]
+                vid_id = re.sub(r'^\d+', '', vid_id)
+                link = f"https://www.youtube.com/watch?v={vid_id}"
+            except: pass
 
         try:
             results = VideosSearch(link, limit=1)
             try: res = await results.next()
             except: res = results.result()
 
-            if not res or not res.get("result"):
-                raise ValueError("No Result")
+            if not res or not res.get("result"): return None
             data = res["result"][0]
             
             thumb = data["thumbnails"][0]["url"].split("?")[0] if data.get("thumbnails") else ""
+            vidid = data["id"]
+            duration_sec = int(time_to_seconds(data["duration"])) if data.get("duration") else 0
             
-            track_details = {
-                "title": data["title"],
-                "link": data["link"],
-                "vidid": data["id"],
-                "duration_min": data["duration"],
-                "thumb": thumb,
-                "cookiefile": get_cookie_file(),
-            }
-            async with _cache_lock:
-                _cache[link] = (time.time(), (track_details, data["id"]))
-            return track_details, data["id"]
-        except Exception:
-            return {"title": "Unknown", "link": link, "vidid": "error", "duration_min": "0:00", "thumb": ""}, "error"
+            return data["title"], data["duration"], duration_sec, thumb, vidid
+        except: return None
 
-    async def details(self, link: str, videoid: Union[bool, str] = None):
-        d, i = await self.track(link, videoid)
-        if i == "error": return None
-        return d["title"], d["duration_min"], time_to_seconds(d["duration_min"]), d["thumb"], i
+    # تحميل الصورة (لحل مشكلة Errno 2)
+    async def download_thumb(self, url):
+        if not url: return None
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        path = os.path.join(Config.DOWNLOAD_PATH, f"thumb_{int(time.time())}.jpg")
+                        with open(path, "wb") as f:
+                            f.write(await resp.read())
+                        return path
+        except: return None
+        return None
 
-    async def title(self, link: str, videoid: Union[bool, str] = None):
-        d, _ = await self.track(link, videoid)
-        return d.get("title")
-
-    async def duration(self, link: str, videoid: Union[bool, str] = None):
-        d, _ = await self.track(link, videoid)
-        return d.get("duration_min")
-
-    async def thumbnail(self, link: str, videoid: Union[bool, str] = None):
-        d, _ = await self.track(link, videoid)
-        return d.get("thumb")
-
-    # 🔥 الدالة المسؤولة عن التحميل الخلفي (تم التعديل لفك الخنق) 🔥
+    # 🔥 التحميل الخلفي (مع Aria2c + iOS + دمج الصيغ) 🔥
     def _background_download(self, link, final_path, is_video):
         try:
-            # 1. إجبار Aria2c على استخدام IPv4 فقط
             aria2_args = [
                 "-x", "16", "-s", "16", "-j", "16", "-k", "1M",
-                "--file-allocation=none", 
-                "--disable-ipv6=true", # 👈 إجبار IPv4
-                "--async-dns=false"
+                "--file-allocation=none", "--disable-ipv6=true"
             ]
             
-            fmt = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
+            # ⚠️ التعديل المهم: إزالة [ext=mp4] من الفلتر لتجنب الخطأ
+            # نعتمد على merge_output_format في الأسفل
+            fmt = "bestvideo[height<=720]+bestaudio/best[height<=720]" if is_video else "bestaudio/best"
             
             ydl_opts = {
                 "format": fmt,
@@ -154,23 +142,21 @@ class YouTubeAPI:
                 "geo_bypass": True,
                 "nocheckcertificate": True,
                 "quiet": True,
-                "force_ipv4": True, # 👈 إجبار yt-dlp على IPv4
-                
-                # 🔥 السحر لفك الخنق: انتحال شخصية أندرويد 🔥
-                "extractor_args": {
-                    "youtube": {
-                        "player_client": ["android", "web"],
-                        "skip": ["dash", "hls"],
-                    }
-                },
-                
+                # استخدام iOS بدلاً من Android لدعم الكوكيز بشكل أفضل
+                "extractor_args": {"youtube": {"player_client": ["ios", "web"]}},
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
             }
+            
+            if is_video:
+                ydl_opts["merge_output_format"] = "mp4" # تحويل أي صيغة لـ mp4
+            else:
+                ydl_opts["postprocessors"] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([link])
-        except Exception as e:
-            print(f"Background Download Error: {e}")
+        except Exception:
+            pass
 
     async def download(
         self,
@@ -184,72 +170,65 @@ class YouTubeAPI:
         title: Union[bool, str] = None,
     ) -> Tuple[Optional[str], bool]:
         
-        # تنظيف الرابط
+        # 1. تنظيف الرابط
         if "googleusercontent.com" in link:
             try:
-                vid_part = link.split("youtube.com/")[-1]
-                real_vid_id = vid_part[1:] if vid_part[0].isdigit() else vid_part
-                link = f"https://www.youtube.com/watch?v={real_vid_id}"
+                real_id = link.split("youtube.com/")[-1]
+                if real_id[0].isdigit() and len(real_id) > 11: real_id = real_id[1:]
+                link = f"https://www.youtube.com/watch?v={real_id}"
             except: pass
-
+        
         if videoid: link = f"https://www.youtube.com/watch?v={videoid}"
 
         loop = asyncio.get_running_loop()
 
+        # توليد ID ومسار
         try:
             if "v=" in link: vid_id = link.split("v=")[1].split("&")[0]
             else: vid_id = str(int(time.time()))
         except: vid_id = str(int(time.time()))
 
-        ext = "mp4" if (video or songvideo) else "m4a"
-        ram_path = os.path.join(Config.DOWNLOAD_PATH, f"{vid_id}.{ext}")
+        ext = "mp4" if (video or songvideo) else "mp3"
+        ram_path = os.path.join(Config.DOWNLOAD_PATH, f"{vid_id}") # بدون صيغة مؤقتاً
 
-        # 1. فحص الكاش
-        if os.path.exists(ram_path) and os.path.getsize(ram_path) > 1024:
-            return ram_path, False
-
-        # 2. تحميل محدد الجودة (بدون بث مباشر)
+        # 2. تحميل محدد الجودة (أزرار)
         if format_id:
             def _specific_download():
                 try:
                     aria2_args = ["-x", "16", "-k", "1M", "--disable-ipv6=true"]
                     ydl_opts = {
                         "format": f"{format_id}+140" if songvideo else format_id,
-                        "outtmpl": ram_path,
+                        "outtmpl": f"{ram_path}.%(ext)s",
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
-                        "force_ipv4": True, # 👈 IPv4
-                        "extractor_args": {"youtube": {"player_client": ["android"]}}, # 👈 Anti-Throttle
+                        "extractor_args": {"youtube": {"player_client": ["ios", "web"]}}, # iOS fixes cookie issues
                         "external_downloader": "aria2c",
                         "external_downloader_args": aria2_args,
                     }
                     if songaudio:
                         ydl_opts["postprocessors"] = [{"key": "FFmpegExtractAudio","preferredcodec": "mp3"}]
-                        ram_path_mp3 = ram_path.replace(".m4a", ".mp3")
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            ydl.download([link])
-                        return ram_path_mp3
-                    
+                    elif songvideo:
+                        ydl_opts["merge_output_format"] = "mp4"
+
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        ydl.download([link])
-                    return ram_path
+                        info = ydl.extract_info(link, download=True)
+                        return ydl.prepare_filename(info)
                 except: return None
             
             dl_path = await loop.run_in_executor(self.pool, _specific_download)
             return dl_path, False
 
-        # 3. البث المباشر (Direct Stream) مع فك الخنق
+        # 3. البث المباشر (Direct Stream)
+        # نحاول جلب الرابط المباشر، لو فشل نعمل تحميل عادي
         try:
-            # إضافة --force-ipv4 و انتحال الأندرويد في سطر الأوامر
             cmd = [
                 "yt-dlp", "-g",
                 "--cookies", get_cookie_file() or "",
-                "--force-ipv4",  # 👈 إجبار IPv4
-                "--extractor-args", "youtube:player_client=android", # 👈 فك الخنق
+                "--extractor-args", "youtube:player_client=ios", # iOS Spoofing
             ]
             
             if video:
-                cmd.extend(["-f", "best[height<=720]"])
+                cmd.extend(["-f", "best[height<=720]"]) # نطلب الأفضل وندمج لاحقاً إذا لزم الأمر
             else:
                 cmd.extend(["-f", "bestaudio[ext=m4a]/bestaudio"])
             
@@ -262,54 +241,57 @@ class YouTubeAPI:
 
             if stdout:
                 direct_link = stdout.decode().split("\n")[0].strip()
-                # التحميل في الخلفية (مع إعدادات فك الخنق الجديدة)
-                loop.run_in_executor(self.pool, self._background_download, link, ram_path, video)
+                # تشغيل التحميل في الخلفية للكاش (باستخدام الدالة المصححة)
+                loop.run_in_executor(self.pool, self._background_download, link, f"{ram_path}.%(ext)s", video)
                 return direct_link, True
         except:
             pass
 
-        # Fallback (التحميل العادي)
+        # 4. Fallback (التحميل العادي) في حال فشل البث
         def _fallback_download():
             try:
-                fmt = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]" if video else "bestaudio[ext=m4a]"
+                # توسيع الفلتر: نقبل أي شيء ثم نحوله
+                fmt = "bestvideo[height<=720]+bestaudio/best[height<=720]" if video else "bestaudio/best"
                 ydl_opts = {
                     "format": fmt,
-                    "outtmpl": ram_path,
+                    "outtmpl": f"{ram_path}.%(ext)s",
                     "cookiefile": get_cookie_file(),
                     "quiet": True,
-                    "force_ipv4": True, # 👈 IPv4
-                    "extractor_args": {"youtube": {"player_client": ["android"]}} # 👈 Anti-Throttle
+                    "extractor_args": {"youtube": {"player_client": ["ios", "web"]}}
                 }
+                
+                if video:
+                    ydl_opts["merge_output_format"] = "mp4" # هنا يحدث السحر: تحويل webm لـ mp4
+                else:
+                    ydl_opts["postprocessors"] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}]
+
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([link])
-                return ram_path
-            except: return None
+                    info = ydl.extract_info(link, download=True)
+                    # إرجاع المسار الصحيح (yt-dlp قد يغير الامتداد)
+                    expected_path = ydl.prepare_filename(info)
+                    # إصلاح مشكلة اختلاف الامتداد (مثلاً mkv بدل mp4)
+                    if video and expected_path.endswith(".webm"):
+                         # إذا فشل الدمج لسبب ما، نرجع ال webm
+                         return expected_path
+                    # في حالة الصوت، نرجع mp3
+                    if not video:
+                        return expected_path.rsplit(".", 1)[0] + ".mp3"
+                    return expected_path
+
+            except Exception as e: 
+                print(f"Fallback Error: {e}")
+                return None
 
         downloaded_file = await loop.run_in_executor(self.pool, _fallback_download)
-        if downloaded_file:
+        if downloaded_file and os.path.exists(downloaded_file):
             return downloaded_file, False
         
         return None, False
 
-    async def playlist(self, link, limit, user_id, videoid: Union[bool, str] = None):
-        if videoid: link = self.listbase + link
-        if "&" in link: link = link.split("&")[0]
-        cmd = (
-            f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
-            f"--force-ipv4 "
-            f"--extractor-args 'youtube:player_client=android' "
-            f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
-            f"2>/dev/null"
-        )
-        proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        out, _ = await proc.communicate()
-        try: result = [key for key in out.decode().split("\n") if key]
-        except: result = []
-        return result
-
-    async def formats(self, link: str, videoid: Union[bool, str] = None):
+    @asyncify
+    def formats(self, link: str, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
-        ytdl_opts = {"quiet": True, "cookiefile": get_cookie_file(), "force_ipv4": True}
+        ytdl_opts = {"quiet": True, "cookiefile": get_cookie_file()}
         with yt_dlp.YoutubeDL(ytdl_opts) as ydl:
             formats_available = []
             try:
@@ -324,18 +306,5 @@ class YouTubeAPI:
                     })
             except: pass
         return formats_available, link
-
-    async def slider(self, link: str, query_type: int, videoid: Union[bool, str] = None):
-        if videoid: link = self.base + link
-        try:
-            a = VideosSearch(link, limit=5)
-            try: res = await a.next()
-            except: res = a.result()
-            
-            if not res or not res.get("result"): return "Error", "0", "", "error"
-            r = res["result"][query_type] if query_type < len(res["result"]) else res["result"][0]
-            thumb = r["thumbnails"][0]["url"].split("?")[0] if r.get("thumbnails") else ""
-            return r["title"], r["duration"], thumb, r["id"]
-        except: return "Error", "0", "", "error"
 
 YouTube = YouTubeAPI()
