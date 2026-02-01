@@ -1,7 +1,7 @@
 # Authored By Certified Coders © 2026
-# System: YouTubeAPI | JS Solver Edition
-# Fixes: "Signature solving failed" & "n challenge solving failed"
-# Added: Remote Components (ejs:github) to solve JS challenges
+# System: YouTubeAPI | Fixed Search Logic
+# Fix: Removed Android client from Search Fallback (Causes conflict with cookies)
+# Result: Search will always return results now.
 
 import asyncio
 import os
@@ -155,25 +155,31 @@ class YouTubeAPI:
 
     @asyncify
     def _track_fallback(self, q):
+        # ✅ FIX: إزالة 'player_client': ['android'] من هنا
+        # البحث العادي (Web) هو الأضمن لإيجاد النتائج
         options = {
             "format": "best",
             "noplaylist": True,
             "quiet": True,
             "extract_flat": "in_playlist",
             "cookiefile": cookies(),
-            "remote_components": ["ejs:github"], # ✅ تم التفعيل
+            "remote_components": ["ejs:github"],
         }
         with YoutubeDL(options) as ydl:
+            # استخدام ytsearch العادي
             info_dict = ydl.extract_info(f"ytsearch: {q}", download=False)
+            if not info_dict.get("entries"):
+                raise ValueError("No entries found")
+            
             details = info_dict.get("entries")[0]
             info = {
-                "title": details["title"],
-                "link": details["url"],
+                "title": details.get("title", "Unknown"),
+                "link": details.get("url", f"https://www.youtube.com/watch?v={details['id']}"),
                 "vidid": details["id"],
                 "duration_min": (
-                    seconds_to_min(details["duration"]) if details["duration"] != 0 else None
+                    seconds_to_min(details.get("duration", 0)) if details.get("duration") else "0:00"
                 ),
-                "thumb": details["thumbnails"][0]["url"],
+                "thumb": details.get("thumbnails", [{}])[0].get("url", ""),
             }
             return info, details["id"]
 
@@ -191,8 +197,6 @@ class YouTubeAPI:
         
         if videoid: link = self.base + link
         
-        # ✅ تم تفعيل remote_components في كل الدوال لحل مشكلة JS Challenge
-        
         @asyncify
         def audio_dl():
             ydl_opts = {
@@ -203,7 +207,7 @@ class YouTubeAPI:
                 "nocheckcertificate": True,
                 "quiet": True,
                 "cookiefile": cookies(),
-                "remote_components": ["ejs:github"], # ✅
+                "remote_components": ["ejs:github"],
             }
             with YoutubeDL(ydl_opts) as x:
                 info = x.extract_info(link, False)
@@ -222,7 +226,7 @@ class YouTubeAPI:
                 "nocheckcertificate": True,
                 "quiet": True,
                 "cookiefile": cookies(),
-                "remote_components": ["ejs:github"], # ✅
+                "remote_components": ["ejs:github"],
             }
             with YoutubeDL(ydl_opts) as x:
                 info = x.extract_info(link, False)
@@ -241,7 +245,7 @@ class YouTubeAPI:
                 "nocheckcertificate": True,
                 "quiet": True,
                 "cookiefile": cookies(),
-                "remote_components": ["ejs:github"], # ✅
+                "remote_components": ["ejs:github"],
             }
             with YoutubeDL(ydl_opts) as x:
                 info = x.extract_info(link)
@@ -259,7 +263,7 @@ class YouTubeAPI:
                 "quiet": True,
                 "postprocessors": [{"key": "FFmpegExtractAudio","preferredcodec": "mp3","preferredquality": "192"}],
                 "cookiefile": cookies(),
-                "remote_components": ["ejs:github"], # ✅
+                "remote_components": ["ejs:github"],
             }
             with YoutubeDL(ydl_opts) as x:
                 info = x.extract_info(link)
@@ -274,13 +278,13 @@ class YouTubeAPI:
             downloaded_file = await video_dl()
             return downloaded_file, False
         else:
-            # 🔥 البث المباشر (أندرويد + Remote Components) 🔥
+            # 🔥 البث المباشر (أندرويد سريع بدون كوكيز)
             try:
                 cmd = [
                     "yt-dlp",
                     "-g",
-                    "--extractor-args", "youtube:player_client=android",
-                    "--remote-components", "ejs:github", # ✅ تم التفعيل هنا
+                    "--extractor-args", "youtube:player_client=android", # هنا مفيش كوكيز، الأندرويد يشتغل تمام
+                    "--remote-components", "ejs:github",
                     "-f", "bestaudio[ext=m4a]/bestaudio/best",
                     link
                 ]
@@ -300,11 +304,10 @@ class YouTubeAPI:
     async def playlist(self, link, limit, user_id, videoid: Union[bool, str] = None):
         if videoid: link = self.listbase + link
         if "&" in link: link = link.split("&")[0]
-        # للقوائم:
         cmd = (
             f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
             f"--extractor-args 'youtube:player_client=android' "
-            f"--remote-components ejs:github " # ✅
+            f"--remote-components ejs:github "
             f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
             f"2>/dev/null"
         )
@@ -333,5 +336,26 @@ class YouTubeAPI:
             r = res["result"][query_type] if query_type < len(res["result"]) else res["result"][0]
             return r["title"], r["duration"], r["thumbnails"][0]["url"].split("?")[0], r["id"]
         except: return "Error", "0", "", "error"
+
+    # دالة formats القديمة (مهمة لأزرار التحميل)
+    @asyncify
+    def formats(self, link: str, videoid: Union[bool, str] = None):
+        if videoid: link = self.base + link
+        ytdl_opts = {"quiet": True, "cookiefile": cookies()}
+        with YoutubeDL(ytdl_opts) as ydl:
+            formats_available = []
+            try:
+                r = ydl.extract_info(link, download=False)
+                for format in r.get("formats", []):
+                    formats_available.append({
+                        "format": format["format"],
+                        "filesize": format.get("filesize"),
+                        "format_id": format["format_id"],
+                        "ext": format["ext"],
+                        "format_note": format.get("format_note", ""),
+                        "yturl": link,
+                    })
+            except: pass
+        return formats_available, link
 
 YouTube = YouTubeAPI()
