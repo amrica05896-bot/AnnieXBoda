@@ -6,7 +6,7 @@ from pyrogram.types import (
     InlineKeyboardMarkup,
     InlineQueryResultPhoto,
 )
-from youtubesearchpython.__future__ import VideosSearch
+from youtubesearchpython.aio import VideosSearch
 
 from AnnieXMedia.utils.inlinequery import answer
 from config import BANNED_USERS
