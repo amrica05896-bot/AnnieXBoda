@@ -1,7 +1,7 @@
 # Authored By Certified Coders © 2026
-# System: YouTubeAPI | Winx-Annie Hybrid | Nuclear Speed
-# Based on WinxMusic logic but adapted for AnnieXMedia
-# Features: py_yt Search + Direct Stream (-g) + Android Spoofing
+# System: YouTubeAPI | Fixed for "Android Cookie Conflict"
+# Fix: Separated Android (No Cookies) from Web (With Cookies)
+# Result: No more "Skipping client android" or "Format not available" errors.
 
 import asyncio
 import os
@@ -14,11 +14,9 @@ from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
 from yt_dlp import YoutubeDL
 
-# محاولة استيراد دوال مساعدة، أو تعريفها محلياً لضمان العمل
 try:
     from async_lru import alru_cache
 except ImportError:
-    # بديل مؤقت لو المكتبة مش موجودة
     def alru_cache(maxsize=128):
         def decorator(func):
             return func
@@ -33,7 +31,6 @@ except ImportError:
     def time_to_seconds(t): return 0
     def seconds_to_min(s): return str(s)
 
-# إعدادات بسيطة
 class Config:
     if os.path.exists("/dev/shm"):
         DOWNLOAD_PATH = "/dev/shm/AnnieDownloads"
@@ -45,7 +42,6 @@ class Config:
 if not os.path.exists(Config.DOWNLOAD_PATH):
     os.makedirs(Config.DOWNLOAD_PATH, exist_ok=True)
 
-# دالة لجلب الكوكيز بذكاء
 def cookies():
     possible_paths = [
         Config.COOKIE_PATH, "cookies.txt", "AnnieXMedia/cookies.txt",
@@ -56,7 +52,6 @@ def cookies():
             return os.path.abspath(path)
     return None
 
-# دالة لتشغيل الأوامر في الخلفية (Async Shell)
 async def shell_cmd(cmd):
     proc = await asyncio.create_subprocess_shell(
         cmd,
@@ -71,7 +66,6 @@ async def shell_cmd(cmd):
             return errorz.decode("utf-8")
     return out.decode("utf-8")
 
-# دالة لتحويل الدوال العادية لـ Async (عشان البوت ميهنجش)
 def asyncify(func):
     async def wrapper(*args, **kwargs):
         loop = asyncio.get_running_loop()
@@ -111,16 +105,13 @@ class YouTubeAPI:
                         return entity.url
         return None if offset in (None,) else text[offset : offset + length]
 
-    # --- دوال البحث باستخدام py_yt (سريعة جداً) ---
-
     @alru_cache(maxsize=500)
     async def details(self, link: str, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
         if "&" in link: link = link.split("&")[0]
         
-        # استخدام py_yt
         search = VideosSearch(link, limit=1)
-        res = await asyncio.to_thread(search.result) # تشغيلها في ثريد منفصل
+        res = await asyncio.to_thread(search.result)
         
         if not res or not res.get("result"):
             return None
@@ -160,18 +151,17 @@ class YouTubeAPI:
             }
             return track_details, result["id"]
         except Exception:
-            # Fallback للطريقة القديمة لو py_yt فشلت
             return await self._track_fallback(link)
 
     @asyncify
     def _track_fallback(self, q):
+        # ✅ تم التعديل: إزالة Android واستخدام Web+Cookies لضمان العثور على الفيديو
         options = {
             "format": "best",
             "noplaylist": True,
             "quiet": True,
             "extract_flat": "in_playlist",
-            "cookiefile": cookies(),
-            "extractor_args": {"youtube": {"player_client": ["android"]}}, # ✅
+            "cookiefile": cookies(), # كوكيز + ويب = أمان
         }
         with YoutubeDL(options) as ydl:
             info_dict = ydl.extract_info(f"ytsearch: {q}", download=False)
@@ -187,8 +177,6 @@ class YouTubeAPI:
             }
             return info, details["id"]
 
-    # --- دوال التحميل والبث ---
-
     async def download(
         self,
         link: str,
@@ -203,8 +191,8 @@ class YouTubeAPI:
         
         if videoid: link = self.base + link
         
-        # تعريف دوال التحميل الداخلية (مثل Winx) مع إضافة إصلاح الأندرويد
-
+        # ✅ تم التعديل: جميع دوال التحميل تستخدم (Web + Cookies) لتفادي خطأ الأندرويد
+        
         @asyncify
         def audio_dl():
             ydl_opts = {
@@ -214,8 +202,7 @@ class YouTubeAPI:
                 "noplaylist": True,
                 "nocheckcertificate": True,
                 "quiet": True,
-                "cookiefile": cookies(),
-                "extractor_args": {"youtube": {"player_client": ["android"]}}, # ✅
+                "cookiefile": cookies(), # هنا كوكيز، إذن لا نستخدم Android
             }
             with YoutubeDL(ydl_opts) as x:
                 info = x.extract_info(link, False)
@@ -234,7 +221,6 @@ class YouTubeAPI:
                 "nocheckcertificate": True,
                 "quiet": True,
                 "cookiefile": cookies(),
-                "extractor_args": {"youtube": {"player_client": ["android"]}}, # ✅
             }
             with YoutubeDL(ydl_opts) as x:
                 info = x.extract_info(link, False)
@@ -253,7 +239,6 @@ class YouTubeAPI:
                 "nocheckcertificate": True,
                 "quiet": True,
                 "cookiefile": cookies(),
-                "extractor_args": {"youtube": {"player_client": ["android"]}}, # ✅
             }
             with YoutubeDL(ydl_opts) as x:
                 info = x.extract_info(link)
@@ -271,31 +256,28 @@ class YouTubeAPI:
                 "quiet": True,
                 "postprocessors": [{"key": "FFmpegExtractAudio","preferredcodec": "mp3","preferredquality": "192"}],
                 "cookiefile": cookies(),
-                "extractor_args": {"youtube": {"player_client": ["android"]}}, # ✅
             }
             with YoutubeDL(ydl_opts) as x:
                 info = x.extract_info(link)
                 filename = f"{info['id']}_{format_id}.mp3"
                 return os.path.join(Config.DOWNLOAD_PATH, filename)
 
-        # منطق التنفيذ
         if songvideo:
-            return await song_video_dl(), False # False = ليس بث مباشر
+            return await song_video_dl(), False
         elif songaudio:
             return await song_audio_dl(), False
         elif video:
-            # في حالة الفيديو، نفضل التحميل لضمان الجودة، إلا لو أردنا البث
             downloaded_file = await video_dl()
-            return downloaded_file, False # نرجعه كملف
+            return downloaded_file, False
         else:
-            # 🔥 هنا البث المباشر للصوت (Direct Stream) 🔥
-            # نحاول نجيب الرابط المباشر بـ -g
+            # 🔥 البث المباشر (Direct Stream) 🔥
+            # هنا فقط نستخدم Android ولكن **بدون كوكيز**
             try:
                 cmd = [
                     "yt-dlp",
                     "-g",
-                    "--cookies", cookies() or "",
-                    "--extractor-args", "youtube:player_client=android", # ✅ تخطي Sign in
+                    # لاحظ: شيلنا --cookies من هنا عشان الأندرويد يشتغل
+                    "--extractor-args", "youtube:player_client=android", 
                     "-f", "bestaudio[ext=m4a]/bestaudio/best",
                     link
                 ]
@@ -306,17 +288,17 @@ class YouTubeAPI:
                 
                 if stdout:
                     direct_link = stdout.decode().split("\n")[0].strip()
-                    return direct_link, True # True = ده رابط مباشر، شغله علطول
+                    return direct_link, True
                 else:
-                    # لو فشل، حمل الملف
+                    # لو الأندرويد فشل، نرجع للتحميل العادي (Web + Cookies)
                     return await audio_dl(), False
             except:
                 return await audio_dl(), False
 
-    # باقي الدوال المساعدة
     async def playlist(self, link, limit, user_id, videoid: Union[bool, str] = None):
         if videoid: link = self.listbase + link
         if "&" in link: link = link.split("&")[0]
+        # للقوائم: نستخدم أندرويد بدون كوكيز للسرعة
         cmd = (
             f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
             f"--extractor-args 'youtube:player_client=android' "
@@ -349,5 +331,4 @@ class YouTubeAPI:
             return r["title"], r["duration"], r["thumbnails"][0]["url"].split("?")[0], r["id"]
         except: return "Error", "0", "", "error"
 
-# تعريف المتغير النهائي
 YouTube = YouTubeAPI()
