@@ -1,5 +1,5 @@
 aiofiles
-aiohttp
+aiohttp[speedups]
 argon2
 apscheduler
 bing_image_downloader
@@ -61,3 +61,6 @@ python-Levenshtein
 mutagen
 pytz
 googletrans
+# 👇 الإضافات الجراحية لزيادة السرعة (Critical Optimizations)
+orjson
+async-lru
