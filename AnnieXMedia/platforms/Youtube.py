@@ -1,52 +1,52 @@
 # Authored By Certified Coders © 2026
-# System: YouTubeAPI | NUCLEAR HYBRID | py_yt Edition
-# Features:
-# 1. Search: py_yt (Fastest Scraping)
-# 2. Stream: -g flag (Instant Start)
-# 3. Mode: Android (No Cookies) -> Fallback to Web (With Cookies)
-# 4. Download: Aria2c (IPv4 Force, No SSL Check)
+# System: YouTubeAPI | Winx-Annie Hybrid | Nuclear Speed
+# Based on WinxMusic logic but adapted for AnnieXMedia
+# Features: py_yt Search + Direct Stream (-g) + Android Spoofing
 
 import asyncio
 import os
 import re
 import logging
-import time
 import yt_dlp
-from typing import Union, List, Dict, Tuple, Optional
-from concurrent.futures import ThreadPoolExecutor
-
-# ✅ استخدام py_yt بدلاً من المكتبة القديمة
+from typing import Union, Tuple, Optional
 from py_yt import VideosSearch
 from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
+from yt_dlp import YoutubeDL
+
+# محاولة استيراد دوال مساعدة، أو تعريفها محلياً لضمان العمل
+try:
+    from async_lru import alru_cache
+except ImportError:
+    # بديل مؤقت لو المكتبة مش موجودة
+    def alru_cache(maxsize=128):
+        def decorator(func):
+            return func
+        return decorator
 
 try:
-    from AnnieXMedia.utils.formatters import time_to_seconds
+    from AnnieXMedia.utils.formatters import time_to_seconds, seconds_to_min
     from AnnieXMedia import LOGGER
 except ImportError:
     logging.basicConfig(level=logging.ERROR)
     def LOGGER(name): return logging.getLogger(name)
     def time_to_seconds(t): return 0
+    def seconds_to_min(s): return str(s)
 
+# إعدادات بسيطة
 class Config:
-    # استخدام الرامات للتخزين المؤقت (سرعة جنونية)
     if os.path.exists("/dev/shm"):
         DOWNLOAD_PATH = "/dev/shm/AnnieDownloads"
     else:
         DOWNLOAD_PATH = os.path.abspath("downloads")
     
     COOKIE_PATH = "AnnieXMedia/assets/cookies.txt"
-    MAX_WORKERS = 16 # استغلال المعالج بالكامل
 
 if not os.path.exists(Config.DOWNLOAD_PATH):
     os.makedirs(Config.DOWNLOAD_PATH, exist_ok=True)
 
-# كاش داخلي لتسريع البحث المتكرر
-_cache: Dict[str, Tuple[float, List[Dict]]] = {}
-_cache_lock = asyncio.Lock()
-YOUTUBE_META_TTL = 3600
-
-def get_cookie_file():
+# دالة لجلب الكوكيز بذكاء
+def cookies():
     possible_paths = [
         Config.COOKIE_PATH, "cookies.txt", "AnnieXMedia/cookies.txt",
         "assets/cookies.txt", "platforms/cookies.txt", "/app/cookies.txt"
@@ -56,18 +56,41 @@ def get_cookie_file():
             return os.path.abspath(path)
     return None
 
+# دالة لتشغيل الأوامر في الخلفية (Async Shell)
+async def shell_cmd(cmd):
+    proc = await asyncio.create_subprocess_shell(
+        cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    out, errorz = await proc.communicate()
+    if errorz:
+        if "unavailable videos are hidden" in (errorz.decode("utf-8")).lower():
+            return out.decode("utf-8")
+        else:
+            return errorz.decode("utf-8")
+    return out.decode("utf-8")
+
+# دالة لتحويل الدوال العادية لـ Async (عشان البوت ميهنجش)
+def asyncify(func):
+    async def wrapper(*args, **kwargs):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
+    return wrapper
+
 class YouTubeAPI:
     def __init__(self):
         self.base = "https://www.youtube.com/watch?v="
         self.regex = r"(?:youtube\.com|youtu\.be)"
         self.listbase = "https://www.youtube.com/playlist?list="
-        self.pool = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS)
+        self.reg = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
     async def exists(self, link: str, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
         return bool(re.search(self.regex, link))
 
-    async def url(self, message_1: Message) -> Union[str, None]:
+    @asyncify
+    def url(self, message_1: Message) -> Union[str, None]:
         messages = [message_1]
         if message_1.reply_to_message:
             messages.append(message_1.reply_to_message)
@@ -88,101 +111,84 @@ class YouTubeAPI:
                         return entity.url
         return None if offset in (None,) else text[offset : offset + length]
 
-    # ✅ دالة البحث الجديدة باستخدام py_yt (معدلة لتعمل Async)
+    # --- دوال البحث باستخدام py_yt (سريعة جداً) ---
+
+    @alru_cache(maxsize=500)
+    async def details(self, link: str, videoid: Union[bool, str] = None):
+        if videoid: link = self.base + link
+        if "&" in link: link = link.split("&")[0]
+        
+        # استخدام py_yt
+        search = VideosSearch(link, limit=1)
+        res = await asyncio.to_thread(search.result) # تشغيلها في ثريد منفصل
+        
+        if not res or not res.get("result"):
+            return None
+
+        result = res["result"][0]
+        title = result["title"]
+        duration_min = result["duration"]
+        thumbnail = result["thumbnails"][0]["url"].split("?")[0]
+        vidid = result["id"]
+        
+        if str(duration_min) == "None":
+            duration_sec = 0
+        else:
+            duration_sec = int(time_to_seconds(duration_min))
+            
+        return title, duration_min, duration_sec, thumbnail, vidid
+
+    @alru_cache(maxsize=500)
     async def track(self, link: str, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
-        link = link.split("&")[0]
-
-        # فحص الكاش أولاً
-        async with _cache_lock:
-            if link in _cache:
-                ts, val = _cache[link]
-                if time.time() - ts < YOUTUBE_META_TTL:
-                    return val[0], val[1]
-
-        loop = asyncio.get_running_loop()
-
-        def _py_yt_search():
-            try:
-                # py_yt search returns a Result object directly
-                search = VideosSearch(link, limit=1)
-                result = search.result()
-                if not result or not result.get("result"):
-                    return None
-                return result["result"][0]
-            except:
-                return None
+        if "&" in link: link = link.split("&")[0]
 
         try:
-            # تشغيل py_yt في الخلفية عشان متهنجش البوت
-            data = await loop.run_in_executor(self.pool, _py_yt_search)
+            search = VideosSearch(link, limit=1)
+            res = await asyncio.to_thread(search.result)
             
-            if not data:
-                raise ValueError("No Result")
-            
+            if not res or not res.get("result"):
+                raise ValueError("No result")
+
+            result = res["result"][0]
             track_details = {
-                "title": data["title"],
-                "link": data["link"],
-                "vidid": data["id"],
-                "duration_min": data["duration"],
-                "thumb": data["thumbnails"][0]["url"].split("?")[0],
-                "cookiefile": get_cookie_file(),
+                "title": result["title"],
+                "link": result["link"],
+                "vidid": result["id"],
+                "duration_min": result["duration"],
+                "thumb": result["thumbnails"][0]["url"].split("?")[0],
             }
-            
-            async with _cache_lock:
-                _cache[link] = (time.time(), (track_details, data["id"]))
-            
-            return track_details, data["id"]
+            return track_details, result["id"]
         except Exception:
-            return {"title": "Unknown", "link": link, "vidid": "error", "duration_min": "0:00", "thumb": ""}, "error"
+            # Fallback للطريقة القديمة لو py_yt فشلت
+            return await self._track_fallback(link)
 
-    async def details(self, link: str, videoid: Union[bool, str] = None):
-        d, i = await self.track(link, videoid)
-        if i == "error": return None
-        return d["title"], d["duration_min"], time_to_seconds(d["duration_min"]), d["thumb"], i
-
-    async def title(self, link: str, videoid: Union[bool, str] = None):
-        d, _ = await self.track(link, videoid)
-        return d.get("title")
-
-    async def duration(self, link: str, videoid: Union[bool, str] = None):
-        d, _ = await self.track(link, videoid)
-        return d.get("duration_min")
-
-    async def thumbnail(self, link: str, videoid: Union[bool, str] = None):
-        d, _ = await self.track(link, videoid)
-        return d.get("thumb")
-
-    # 🔥 التحميل الخلفي (Aria2c Nuclear)
-    # يستخدم فقط إذا فشل البث المباشر
-    def _background_download(self, link, final_path, is_video):
-        try:
-            aria2_args = [
-                "-x", "16", "-s", "16", "-j", "16", "-k", "1M",
-                "--file-allocation=none",
-                "--disable-ipv6=true",        # منع مشاكل الشبكة
-                "--check-certificate=false",  # منع SSL Errors
-                "--async-dns=false"
-            ]
-            
-            fmt = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
-            
-            ydl_opts = {
-                "format": fmt,
-                "outtmpl": final_path,
-                "cookiefile": get_cookie_file(),
-                "geo_bypass": True,
-                "nocheckcertificate": True,
-                "quiet": True,
-                "external_downloader": "aria2c",
-                "external_downloader_args": aria2_args,
+    @asyncify
+    def _track_fallback(self, q):
+        options = {
+            "format": "best",
+            "noplaylist": True,
+            "quiet": True,
+            "extract_flat": "in_playlist",
+            "cookiefile": cookies(),
+            "extractor_args": {"youtube": {"player_client": ["android"]}}, # ✅
+        }
+        with YoutubeDL(options) as ydl:
+            info_dict = ydl.extract_info(f"ytsearch: {q}", download=False)
+            details = info_dict.get("entries")[0]
+            info = {
+                "title": details["title"],
+                "link": details["url"],
+                "vidid": details["id"],
+                "duration_min": (
+                    seconds_to_min(details["duration"]) if details["duration"] != 0 else None
+                ),
+                "thumb": details["thumbnails"][0]["url"],
             }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([link])
-        except Exception:
-            pass
+            return info, details["id"]
 
-    # 🔥 الدالة الجوكر (Stream & Download) 🔥
+    # --- دوال التحميل والبث ---
+
     async def download(
         self,
         link: str,
@@ -196,79 +202,152 @@ class YouTubeAPI:
     ) -> Tuple[Optional[str], bool]:
         
         if videoid: link = self.base + link
-        loop = asyncio.get_running_loop()
-
-        try:
-            if "v=" in link: vid_id = link.split("v=")[1].split("&")[0]
-            else: vid_id = str(int(time.time()))
-        except: vid_id = str(int(time.time()))
-
-        ext = "mp4" if video else "m4a"
-        ram_path = os.path.join(Config.DOWNLOAD_PATH, f"{vid_id}.{ext}")
-
-        # 1. فحص الكاش (لو الملف متحمل جاهز)
-        if os.path.exists(ram_path) and os.path.getsize(ram_path) > 1024:
-            return ram_path, False
-
-        # 2. محاولة البث المباشر (Direct Stream)
-        # ⚠️ الخطة أ: أندرويد بدون كوكيز (أسرع وأقل مشاكل)
-        print(f"🚀 Try 1: Android (No Cookies) for {vid_id}", flush=True)
         
-        cmd_android = [
-            "yt-dlp", "-g",
-            "--extractor-args", "youtube:player_client=android", # أندرويد
-            "--no-warnings", "--quiet"
-            # لاحظ: مفيش --cookies هنا
-        ]
-        if video: cmd_android.extend(["-f", "best[height<=720]"])
-        else: cmd_android.extend(["-f", "bestaudio[ext=m4a]/bestaudio"])
-        cmd_android.append(link)
+        # تعريف دوال التحميل الداخلية (مثل Winx) مع إضافة إصلاح الأندرويد
 
-        process = await asyncio.create_subprocess_exec(
-            *cmd_android, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await process.communicate()
+        @asyncify
+        def audio_dl():
+            ydl_opts = {
+                "format": "bestaudio[ext=m4a]/bestaudio/best",
+                "outtmpl": os.path.join(Config.DOWNLOAD_PATH, "%(id)s.%(ext)s"),
+                "geo_bypass": True,
+                "noplaylist": True,
+                "nocheckcertificate": True,
+                "quiet": True,
+                "cookiefile": cookies(),
+                "extractor_args": {"youtube": {"player_client": ["android"]}}, # ✅
+            }
+            with YoutubeDL(ydl_opts) as x:
+                info = x.extract_info(link, False)
+                xyz = os.path.join(Config.DOWNLOAD_PATH, f"{info['id']}.{info['ext']}")
+                if os.path.exists(xyz): return xyz
+                x.download([link])
+                return xyz
 
-        if stdout:
-            direct_link = stdout.decode().split("\n")[0].strip()
-            # تشغيل التحميل في الخلفية للكاش المستقبلي
-            loop.run_in_executor(self.pool, self._background_download, link, ram_path, video)
-            return direct_link, True
+        @asyncify
+        def video_dl():
+            ydl_opts = {
+                "format": "(bestvideo[height<=?720][width<=?1280][ext=mp4])+(bestaudio[ext=m4a])",
+                "outtmpl": os.path.join(Config.DOWNLOAD_PATH, "%(id)s.%(ext)s"),
+                "geo_bypass": True,
+                "noplaylist": True,
+                "nocheckcertificate": True,
+                "quiet": True,
+                "cookiefile": cookies(),
+                "extractor_args": {"youtube": {"player_client": ["android"]}}, # ✅
+            }
+            with YoutubeDL(ydl_opts) as x:
+                info = x.extract_info(link, False)
+                xyz = os.path.join(Config.DOWNLOAD_PATH, f"{info['id']}.{info['ext']}")
+                if os.path.exists(xyz): return xyz
+                x.download([link])
+                return xyz
 
-        # ⚠️ الخطة ب: ويب مع كوكيز (لو الأندرويد فشل)
-        print(f"⚠️ Try 2: Web + Cookies for {vid_id}", flush=True)
-        
-        cmd_web = [
-            "yt-dlp", "-g",
-            "--cookies", get_cookie_file() or "", # هنا نستخدم الكوكيز
-            "--no-warnings", "--quiet"
-        ]
-        if video: cmd_web.extend(["-f", "best[height<=720]"])
-        else: cmd_web.extend(["-f", "bestaudio[ext=m4a]/bestaudio"])
-        cmd_web.append(link)
+        @asyncify
+        def song_video_dl():
+            ydl_opts = {
+                "format": f"{format_id}+140",
+                "outtmpl": os.path.join(Config.DOWNLOAD_PATH, f"%(id)s_{format_id}.%(ext)s"),
+                "geo_bypass": True,
+                "noplaylist": True,
+                "nocheckcertificate": True,
+                "quiet": True,
+                "cookiefile": cookies(),
+                "extractor_args": {"youtube": {"player_client": ["android"]}}, # ✅
+            }
+            with YoutubeDL(ydl_opts) as x:
+                info = x.extract_info(link)
+                filename = f"{info['id']}_{format_id}.mp4"
+                return os.path.join(Config.DOWNLOAD_PATH, filename)
 
-        process = await asyncio.create_subprocess_exec(
-            *cmd_web, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
+        @asyncify
+        def song_audio_dl():
+            ydl_opts = {
+                "format": format_id,
+                "outtmpl": os.path.join(Config.DOWNLOAD_PATH, f"%(id)s_{format_id}.%(ext)s"),
+                "geo_bypass": True,
+                "noplaylist": True,
+                "nocheckcertificate": True,
+                "quiet": True,
+                "postprocessors": [{"key": "FFmpegExtractAudio","preferredcodec": "mp3","preferredquality": "192"}],
+                "cookiefile": cookies(),
+                "extractor_args": {"youtube": {"player_client": ["android"]}}, # ✅
+            }
+            with YoutubeDL(ydl_opts) as x:
+                info = x.extract_info(link)
+                filename = f"{info['id']}_{format_id}.mp3"
+                return os.path.join(Config.DOWNLOAD_PATH, filename)
 
-        if stdout:
-            direct_link = stdout.decode().split("\n")[0].strip()
-            loop.run_in_executor(self.pool, self._background_download, link, ram_path, video)
-            return direct_link, True
-        
-        # 3. الخطة ج: التحميل الكامل (Fallback) لو البث فشل تماماً
-        print(f"❌ Stream Failed. Downloading...", flush=True)
-        loop.run_in_executor(self.pool, self._background_download, link, ram_path, video)
-        
-        # ننتظر قليلاً حتى يبدأ التحميل
-        for _ in range(10):
-            if os.path.exists(ram_path) and os.path.getsize(ram_path) > 1024:
-                return ram_path, False
-            await asyncio.sleep(1)
+        # منطق التنفيذ
+        if songvideo:
+            return await song_video_dl(), False # False = ليس بث مباشر
+        elif songaudio:
+            return await song_audio_dl(), False
+        elif video:
+            # في حالة الفيديو، نفضل التحميل لضمان الجودة، إلا لو أردنا البث
+            downloaded_file = await video_dl()
+            return downloaded_file, False # نرجعه كملف
+        else:
+            # 🔥 هنا البث المباشر للصوت (Direct Stream) 🔥
+            # نحاول نجيب الرابط المباشر بـ -g
+            try:
+                cmd = [
+                    "yt-dlp",
+                    "-g",
+                    "--cookies", cookies() or "",
+                    "--extractor-args", "youtube:player_client=android", # ✅ تخطي Sign in
+                    "-f", "bestaudio[ext=m4a]/bestaudio/best",
+                    link
+                ]
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await proc.communicate()
+                
+                if stdout:
+                    direct_link = stdout.decode().split("\n")[0].strip()
+                    return direct_link, True # True = ده رابط مباشر، شغله علطول
+                else:
+                    # لو فشل، حمل الملف
+                    return await audio_dl(), False
+            except:
+                return await audio_dl(), False
 
-        return None, False
-
+    # باقي الدوال المساعدة
     async def playlist(self, link, limit, user_id, videoid: Union[bool, str] = None):
         if videoid: link = self.listbase + link
-        if "&" in link: link = link.split
+        if "&" in link: link = link.split("&")[0]
+        cmd = (
+            f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
+            f"--extractor-args 'youtube:player_client=android' "
+            f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
+            f"2>/dev/null"
+        )
+        out = await shell_cmd(cmd)
+        try: result = [key for key in out.split("\n") if key]
+        except: result = []
+        return result
+
+    async def title(self, link: str, videoid: Union[bool, str] = None):
+        d, _ = await self.track(link, videoid)
+        return d.get("title")
+
+    async def duration(self, link: str, videoid: Union[bool, str] = None):
+        d, _ = await self.track(link, videoid)
+        return d.get("duration_min")
+
+    async def thumbnail(self, link: str, videoid: Union[bool, str] = None):
+        d, _ = await self.track(link, videoid)
+        return d.get("thumb")
+
+    async def slider(self, link: str, query_type: int, videoid: Union[bool, str] = None):
+        if videoid: link = self.base + link
+        try:
+            search = VideosSearch(link, limit=5)
+            res = await asyncio.to_thread(search.result)
+            r = res["result"][query_type] if query_type < len(res["result"]) else res["result"][0]
+            return r["title"], r["duration"], r["thumbnails"][0]["url"].split("?")[0], r["id"]
+        except: return "Error", "0", "", "error"
+
+# تعريف المتغير النهائي
+YouTube = YouTubeAPI()
