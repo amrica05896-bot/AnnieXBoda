@@ -1,272 +1,287 @@
 # Authored By Certified Coders © 2026
-# System: Song Plugin | Playlist Support | MongoDB Fixed | Pyromod
-# Optimized for AnnieXMedia Bot Folder Structure
+# System: Song Plugin (Flora Style)
+# Speed: Nuclear (Direct YouTube Class Usage)
 
-import asyncio
 import os
 import re
-import time
-from pyrogram import filters, enums
+import traceback
+import yt_dlp
+from pyrogram import enums, filters
 from pyrogram.types import (
-    InlineKeyboardMarkup, 
-    Message, 
-    InputMediaAudio, 
-    InputMediaVideo
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaAudio,
+    InputMediaVideo,
+    Message,
 )
-from motor.motor_asyncio import AsyncIOMotorClient
+from pykeyboard import InlineKeyboard
 
-# استيراد الإعدادات وكائن البوت الرئيسي
-from config import (
-    BANNED_USERS, 
-    SONG_DOWNLOAD_DURATION, 
-    SONG_DOWNLOAD_DURATION_LIMIT, 
-    OWNER_ID, 
-    MONGO_DB_URI
-)
+# استيرادات AnnieXMedia
+from config import BANNED_USERS, SONG_DOWNLOAD_DURATION, SONG_DOWNLOAD_DURATION_LIMIT
 from AnnieXMedia import app
-from AnnieXMedia.platforms.Youtube import YouTube 
-from AnnieXMedia.platforms.YTProcessor import Processor 
+from AnnieXMedia.platforms.Youtube import YouTube  # الملف اللي لسه معدلينه
+from AnnieXMedia.utils.formatters import convert_bytes
 from AnnieXMedia.utils.inline.song import song_markup
 
+# دالة مساعدة لجلب مسار الكوكيز
+def get_cookie_path():
+    possible = ["AnnieXMedia/assets/cookies.txt", "cookies.txt", "/app/cookies.txt"]
+    for p in possible:
+        if os.path.exists(p): return p
+    return None
+
 # ==========================================================
-# الإعـدادات الـتـقـنـيـة والاتـصـال بـالـقـاعـدة
+# أوامـر الـبـحـث (song / video)
 # ==========================================================
 
-# معالجة OWNER_ID لضمان عمله سواء كان رقماً أو قائمة
-SUDO_USERS = OWNER_ID if isinstance(OWNER_ID, list) else [OWNER_ID]
+@app.on_message(filters.command(["song", "بحث", "اغنية", "تحميل", "video", "فيديو", "فيد"], prefixes=["/", "!", "", "."]) & filters.group & ~BANNED_USERS)
+async def song_commad_group(client, message: Message):
+    if len(message.command) < 2:
+        return await message.reply_text("**يا حب اكتب اسم الاغنية او الرابط للبحث.**")
 
-_mongo_client_ = AsyncIOMotorClient(MONGO_DB_URI)
-mongodb = _mongo_client_.Annie
-songdb = mongodb.song_settings
+    url = await YouTube.url(message)
 
-async def get_config(key):
-    """جلب الإعدادات من قاعدة البيانات"""
-    try:
-        data = await songdb.find_one({"_id": "song_config"})
-        if not data: return False
-        return data.get(key, False)
-    except: return False
+    if url:
+        if not await YouTube.exists(url):
+            return await message.reply_text("**رابط اليوتيوب ده مش شغال او محظور.**")
 
-async def set_config(key, value):
-    """تحديث الإعدادات في قاعدة البيانات"""
-    try:
-        await songdb.update_one({"_id": "song_config"}, {"$set": {key: value}}, upsert=True)
+        mystic = await message.reply_text("**جـارٍ الـمـعـالـجـة...**")
+        
+        # جلب التفاصيل باستخدام الكلاس السريع
+        try:
+            title, duration_min, duration_sec, thumbnail, vidid = await YouTube.details(url)
+        except:
+            return await mystic.edit_text("**حدث خطأ اثناء جلب المعلومات.**")
+
+        if str(duration_min) == "None":
+            return await mystic.edit_text("**فشل في تحديد المدة.**")
+
+        if int(duration_sec) > SONG_DOWNLOAD_DURATION_LIMIT:
+            return await mystic.edit_text(f"**عذراً الاغنية اطول من {SONG_DOWNLOAD_DURATION} دقيقة.**")
+
+        buttons = song_markup(None, vidid)
+        await mystic.delete()
+
+        return await message.reply_photo(
+            thumbnail,
+            caption=f"**الـعـنـوان:** {title}\n**الـمـدة:** {duration_min}",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+    else:
+        # البحث بالاسم
+        query = message.text.split(None, 1)[1]
+        mystic = await message.reply_text("**جـارٍ الـبـحـث...**")
+
+        try:
+            title, duration_min, duration_sec, thumbnail, vidid = await YouTube.details(query)
+        except Exception:
+            return await mystic.edit_text("**لم يتم العثور على نتائج.**")
+
+        if str(duration_min) == "None":
+            return await mystic.edit_text("**فشل في تحديد المدة.**")
+
+        if int(duration_sec) > SONG_DOWNLOAD_DURATION_LIMIT:
+            return await mystic.edit_text(f"**عذراً الاغنية اطول من {SONG_DOWNLOAD_DURATION} دقيقة.**")
+
+        buttons = song_markup(None, vidid)
+        await mystic.delete()
+
+        return await message.reply_photo(
+            thumbnail,
+            caption=f"**الـعـنـوان:** {title}\n**الـمـدة:** {duration_min}",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+# ==========================================================
+# مـعـالـجـة الأزرار (Callbacks)
+# ==========================================================
+
+@app.on_callback_query(filters.regex(pattern=r"song_back") & ~BANNED_USERS)
+async def songs_back_helper(client, query):
+    stype, vidid = query.data.strip().split(None, 1)[1].split("|")
+    buttons = song_markup(None, vidid)
+    return await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(buttons))
+
+
+@app.on_callback_query(filters.regex(pattern=r"song_helper") & ~BANNED_USERS)
+async def song_helper_cb(client, query):
+    callback_data = query.data.strip()
+    stype, vidid = callback_data.split(None, 1)[1].split("|")
+
+    try: await query.answer("جاري جلب الصيغ المتاحة...", show_alert=True)
     except: pass
 
-# ==========================================================
-# أوامـر الـتـحـكـم والـقـفـل (لـلـمـطـور فـقـط)
-# ==========================================================
-
-@app.on_message(filters.command(["قفل البحث", "تعطيل البحث"], prefixes=["", "/"]) & filters.user(SUDO_USERS))
-async def lock_whole_section(client, message):
-    await set_config("search_locked", True)
-    await message.reply_text("**تـم قـفـل قـسـم الـبـحـث والـتـحـمـيـل نـهـائـيـاً عـن الـأعـضـاء.**")
-
-@app.on_message(filters.command(["فتح البحث", "تفعيل البحث"], prefixes=["", "/"]) & filters.user(SUDO_USERS))
-async def unlock_whole_section(client, message):
-    await set_config("search_locked", False)
-    await message.reply_text("**تـم فـتـح قـسـم الـبـحـث والـتـحـمـيـل لـلـجـمـيـع.**")
-
-@app.on_message(filters.command(["قفل انلاين البحث", "قفل انلاين بحث"], prefixes=["", "/"]) & filters.user(SUDO_USERS))
-async def lock_inline_search(client, message):
-    await set_config("inline_locked", True)
-    await message.reply_text("**تـم قـفـل بـحـث الانـلايـن (الأزرار).**")
-
-@app.on_message(filters.command(["فتح انلاين البحث", "فتح انلاين بحث"], prefixes=["", "/"]) & filters.user(SUDO_USERS))
-async def unlock_inline_search(client, message):
-    await set_config("inline_locked", False)
-    await message.reply_text("**تـم فـتـح بـحـث الانـلايـن.**")
-
-# ==========================================================
-# الـمـعـالـج الـذكـي الـمـوحـد (Regex Engine)
-# ==========================================================
-
-@app.on_message(filters.regex(r"^/?(اغنية|اغنيه|هات|هاتلي|ابعتلي|song|video|تحميل|يوتيوب)(?:\s+(فيد|فيديو|video))?(?:\s+(.+))?$") & ~BANNED_USERS, group=5)
-async def unified_song_processor(client, message: Message):
-    
-    # 1. فحص القفل العام
-    is_search_locked = await get_config("search_locked")
-    if is_search_locked and message.from_user.id not in SUDO_USERS:
-        return await message.reply_text("**عـذراً، الـقـسـم مـغـلـق حـالـيـاً مـن قـبـل الـمـطـور.**")
-
-    match = re.match(r"^/?(اغنية|اغنيه|هات|هاتلي|ابعتلي|song|video|تحميل|يوتيوب)(?:\s+(فيد|فيديو|video))?(?:\s+(.+))?$", message.text)
-    if not match: return
-    
-    command_trigger = match.group(1).lower()
-    video_trigger = match.group(2)
-    query = match.group(3)
-
-    is_video_request = command_trigger in ["video", "/video", "فيديو"] or video_trigger
-
-    # 2. نظام التفاعل الذكي (Pyromod Listen)
-    if not query:
-        prompt = await message.reply_text("**ارسـل الان اسـم الـمـقـطـع أو رابـط الـقـائـمـة.**")
-        try:
-            response = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id, timeout=20)
-            if response and response.text:
-                query = response.text
-                await prompt.delete()
-            else:
-                return await prompt.edit_text("**تـم انـهـاء الانـتـظـار لـعـدم الـرد.**")
-        except Exception:
-            return await prompt.edit_text("**حـدث خـطـأ فـي نـظـام الـاسـتـمـاع.**")
-
-    mystic = await message.reply_text("**جـارٍ الـمـعـالـجـة والـبـحـث...**")
-
-    # 3. اكتشاف قوائم التشغيل (Playlists)
-    if "list=" in query and ("youtube.com" in query or "youtu.be" in query):
-        try:
-            await Processor.download_playlist(
-                client=client, 
-                mystic_msg=mystic, 
-                playlist_url=query, 
-                is_video=is_video_request, 
-                user_name=message.from_user.first_name
-            )
-        except Exception as e:
-            await mystic.edit_text(f"**حـدث خـطـأ فـي الـقـائـمـة:** {e}")
-        return
-
-    # 4. معالجة الطلبات الفردية
+    # هنا بيعتمد على دالة formats في ملف YouTube.py اللي احنا ظبطناه
     try:
-        title, duration_min, duration_sec, thumbnail, vidid = await YouTube.details(query)
-        if duration_sec is None: duration_sec = 0
-        
-        if int(duration_sec) > 14400:
-            return await mystic.edit_text("**عـذراً، الـمـقـطـع طـويـل جـداً (الـحـد الـأقـصـى 4 سـاعـات).**")
-        
-        is_inline_locked = await get_config("inline_locked")
-
-        # التحميل المباشر (في حال قفل الأزرار)
-        if is_inline_locked:
-             await mystic.edit_text("**جـارٍ الـتـحـمـيـل الـفـوري...**")
-             yturl = f"https://www.youtube.com/watch?v={vidid}"
-             quality_arg = "high" if message.from_user.id in SUDO_USERS else "mid"
-
-             file_path = await Processor.download_file(yturl, quality_arg, is_video_request, title, vidid=vidid, is_owner=(message.from_user.id in SUDO_USERS))
-             await mystic.edit_text("**جـارٍ الـرفـع لـتـلـيـجـرام...**")
-             await Processor.upload_alexa_style(client, mystic, file_path, is_video_request, title, duration_sec, message.from_user.first_name, vidid=vidid)
-
-        # عرض أزرار اختيار الجودة
-        else:
-            buttons = song_markup(None, vidid)
-            await mystic.delete()
-            await message.reply_photo(
-                photo=thumbnail, 
-                caption=f"**الـعـنـوان:** {title}\n**الـمـدة:** {duration_min}\n\n**اخـتـر الـجـودة والـنـوع:**",
-                reply_markup=InlineKeyboardMarkup(buttons)
-            )
-
+        formats_available, link = await YouTube.formats(vidid, True)
     except Exception:
-        # نظام البحث الاحتياطي (Fallback Search)
-        is_inline_locked = await get_config("inline_locked")
-        if is_inline_locked or is_video_request:
-            await mystic.edit_text("**جـارٍ الـبـحـث والـتـحـمـيـل...**")
-            file_path = await Processor.download_file(query, "mid", is_video_request, query, is_owner=(message.from_user.id in SUDO_USERS))
-            if file_path:
-                 await mystic.edit_text("**جـارٍ الـرفـع...**")
-                 await Processor.upload_alexa_style(client, mystic, file_path, is_video_request, query, 0, message.from_user.first_name)
-            else:
-                await mystic.edit_text("**عـذراً، لـم يـتـم الـعـثـور عـلـى نـتـائـج.**")
-        else:
-             await mystic.edit_text("**عـذراً، لـم يـتـم الـعـثـور عـلـى نـتـائـج.**")
+        return await query.edit_message_text("**فشل في جلب الجودات المتاحة.**")
+
+    keyboard = InlineKeyboard()
+    done = []
+
+    # معالجة الصوت
+    if stype == "audio":
+        for x in formats_available:
+            check = x["format"]
+            if "audio" in check:
+                if x.get("filesize") is None: continue
+                
+                # تنسيق اسم الجودة
+                form = x.get("format_note", "Audio").title()
+                if form not in done: done.append(form)
+                else: continue
+
+                sz = convert_bytes(x["filesize"])
+                fom = x["format_id"]
+
+                keyboard.row(
+                    InlineKeyboardButton(
+                        text=f"{form} ({sz})",
+                        callback_data=f"song_download {stype}|{fom}|{vidid}",
+                    ),
+                )
+    
+    # معالجة الفيديو
+    else:
+        # جودات الفيديو المدعومة (تصفية عشان الشكل)
+        supported_ids = [160, 133, 134, 135, 136, 137, 298, 299, 264, 304, 266]
+        
+        for x in formats_available:
+            check = x["format"]
+            if x.get("filesize") is None: continue
+            
+            fid = int(x["format_id"]) if x["format_id"].isdigit() else 0
+            if fid not in supported_ids: continue
+
+            sz = convert_bytes(x["filesize"])
+            # استخراج دقة الفيديو (e.g. 720p)
+            ap = check.split("-")[1] if "-" in check else check
+            
+            keyboard.row(
+                InlineKeyboardButton(
+                    text=f"{ap} ({sz})",
+                    callback_data=f"song_download {stype}|{x['format_id']}|{vidid}",
+                )
+            )
+
+    keyboard.row(
+        InlineKeyboardButton(text="رجوع", callback_data=f"song_back {stype}|{vidid}"),
+        InlineKeyboardButton(text="اغلاق", callback_data="close"),
+    )
+
+    return await query.edit_message_reply_markup(reply_markup=keyboard)
+
 
 # ==========================================================
-# أوامـر الـتـحـمـيـل الـمـبـاشـر (يـوت)
-# ==========================================================
-
-@app.on_message(filters.command(["يوت"], prefixes=["", "/"]) & ~BANNED_USERS)
-async def yut_direct_audio(client, message: Message):
-    if await get_config("search_locked") and message.from_user.id not in SUDO_USERS:
-        return await message.reply_text("**عـذراً، الـقـسـم مـغـلـق.**")
-
-    if len(message.command) > 1 and message.command[1] in ["فيد", "فيديو", "video", "vid"]:
-        return 
-
-    if len(message.command) < 2:
-        return await message.reply_text("**يـرجـى كـتـابـة الـرابـط بـجـانـب الـأمـر.**")
-    
-    query = message.text.split(None, 1)[1]
-    mystic = await message.reply_text("**جـارٍ الـتـحـمـيـل...**")
-    
-    if "list=" in query:
-         return await Processor.download_playlist(client, mystic, query, False, message.from_user.first_name)
-
-    try:
-        title, _, duration_sec, _, vidid = await YouTube.details(query)
-        yturl = f"https://www.youtube.com/watch?v={vidid}"
-        quality_arg = "high" if message.from_user.id in SUDO_USERS else "mid"
-        file_path = await Processor.download_file(yturl, quality_arg, False, title, vidid=vidid, is_owner=(message.from_user.id in SUDO_USERS))
-        await mystic.edit_text("**جـارٍ الـرفـع...**")
-        await Processor.upload_alexa_style(client, mystic, file_path, False, title, duration_sec, message.from_user.first_name, vidid=vidid)
-    except Exception as e:
-        await mystic.edit_text(f"**حـدث خـطـأ:** {e}")
-
-@app.on_message(filters.command(["يوت فيد", "يوت فيديو"], prefixes=["", "/"]) & ~BANNED_USERS)
-async def yut_direct_video(client, message: Message):
-    if await get_config("search_locked") and message.from_user.id not in SUDO_USERS:
-        return await message.reply_text("**عـذراً، الـقـسـم مـغـلـق.**")
-
-    if len(message.command) < 3: 
-        return await message.reply_text("**يـرجـى كـتـابـة الـرابـط بـجـانـب الـأمـر.**")
-    
-    query = message.text.split(None, 2)[2]
-    mystic = await message.reply_text("**جـارٍ الـتـحـمـيـل...**")
-    
-    if "list=" in query:
-         return await Processor.download_playlist(client, mystic, query, True, message.from_user.first_name)
-    
-    try:
-        title, _, duration_sec, _, vidid = await YouTube.details(query)
-        yturl = f"https://www.youtube.com/watch?v={vidid}"
-        quality_arg = "high" if message.from_user.id in SUDO_USERS else "mid"
-        file_path = await Processor.download_file(yturl, quality_arg, True, title, vidid=vidid, is_owner=(message.from_user.id in SUDO_USERS))
-        await mystic.edit_text("**جـارٍ الـرفـع...**")
-        await Processor.upload_alexa_style(client, mystic, file_path, True, title, duration_sec, message.from_user.first_name, vidid=vidid)
-    except Exception as e:
-        await mystic.edit_text(f"**حـدث خـطـأ:** {e}")
-
-# ==========================================================
-# مـعـالـجـات الـتـفـاعـل (Callback Queries)
+# الـتـحـمـيـل الـفـعـلـي (Downloading)
 # ==========================================================
 
 @app.on_callback_query(filters.regex(pattern=r"song_download") & ~BANNED_USERS)
-async def song_download_callback(client, CallbackQuery):
-    if await get_config("search_locked") and CallbackQuery.from_user.id not in SUDO_USERS:
-        return await CallbackQuery.answer("قـسـم الـتـح_مـيـل مـغـلـق حـالـيـاً.", show_alert=True)
+async def song_download_cb(client, query):
+    try: await query.answer("جاري التحميل...")
+    except: pass
 
-    if await get_config("inline_locked") and CallbackQuery.from_user.id not in SUDO_USERS:
-         return await CallbackQuery.answer("هـذه الـمـيـزة مـعـطـلـة مـؤقـتـاً.", show_alert=True)
+    stype, format_id, vidid = query.data.strip().split(None, 1)[1].split("|")
+    mystic = await query.edit_message_text("**جـارٍ الـتـحـمـيـل مـن الـسـيـرفـر...**")
 
-    stype, quality_arg, vidid = CallbackQuery.data.split(None, 1)[1].split("|")
-    await CallbackQuery.answer("جـارٍ بـدء الـتـحـمـيـل...")
-    
-    try: mystic = await CallbackQuery.message.edit_text("**جـارٍ الـتـحـمـيـل مـن يـوتـيـوب...**")
-    except: mystic = await client.send_message(CallbackQuery.message.chat.id, "**جـارٍ الـتـحـمـيـل...**")
-    
-    is_video = (stype == "video")
     yturl = f"https://www.youtube.com/watch?v={vidid}"
-    
+    cookie_path = get_cookie_path()
+
+    # استخراج البيانات السريعة للرسالة
     try:
-        title, _, duration_sec, _, _ = await YouTube.details(vidid)
-        file_path = await Processor.download_file(yturl, quality_arg, is_video, title, vidid=vidid, is_owner=(CallbackQuery.from_user.id in SUDO_USERS))
-        await mystic.edit_text("**جـارٍ الـرفـع...**")
-        await Processor.upload_alexa_style(client, mystic, file_path, is_video, title, duration_sec, CallbackQuery.from_user.first_name, vidid=vidid)
-    except Exception:
-        await mystic.edit_text("**فـشـل الـتـحـمـيـل، حـاول مـرة أخـرى لاحـقـاً.**")
+        with yt_dlp.YoutubeDL({"quiet": True, "cookiefile": cookie_path}) as ytdl:
+            x = ytdl.extract_info(yturl, download=False)
+    except:
+        # لو فشل الاستخراج السريع، نستخدم بيانات افتراضية
+        x = {"title": "Unknown Track", "duration": 0, "uploader": "Unknown"}
 
-@app.on_callback_query(filters.regex(pattern=r"song_helper") & ~BANNED_USERS)
-async def song_helper_callback(client, CallbackQuery):
-    if await get_config("search_locked") and CallbackQuery.from_user.id not in SUDO_USERS:
-        return await CallbackQuery.answer("الـقـسـم مـغـلـق.", show_alert=True)
+    title = (x.get("title", "Unknown")).title()
+    title = re.sub(r"\W+", " ", title) # تنظيف الاسم
+    duration = x.get("duration", 0)
+    
+    # تحميل الصورة المصغرة (Thumbnail) من الرسالة الأصلية
+    try:
+        thumb_image_path = await query.message.download()
+    except:
+        thumb_image_path = None
 
-    stype, vidid = CallbackQuery.data.split(None, 1)[1].split("|")
-    await CallbackQuery.answer("جـارٍ جـلـب خـيـارات الـجـودة...")
-    buttons = await Processor.get_quality_buttons(vidid, stype)
-    await CallbackQuery.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(buttons))
+    if stype == "video":
+        try:
+            # هنا بننادي على دالة download اللي في ملف Youtube.py
+            # وهي بتتكفل بكل حاجة (Aria2c / Android / Web)
+            file_path = await YouTube.download(
+                yturl,
+                mystic,
+                songvideo=True,
+                format_id=format_id,
+                title=title,
+            )
+        except Exception as e:
+            return await mystic.edit_text(f"**فشل التحميل:** {e}")
 
-@app.on_callback_query(filters.regex(pattern=r"song_back") & ~BANNED_USERS)
-async def song_back_callback(client, CallbackQuery):
-    stype, vidid = CallbackQuery.data.split(None, 1)[1].split("|")
-    buttons = song_markup(None, vidid)
-    await CallbackQuery.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(buttons))
+        # تجهيز الفيديو للإرسال
+        width = 1280
+        height = 720
+        try:
+            if query.message.photo:
+                width = query.message.photo.width
+                height = query.message.photo.height
+        except: pass
+
+        med = InputMediaVideo(
+            media=file_path,
+            duration=duration,
+            width=width,
+            height=height,
+            thumb=thumb_image_path,
+            caption=f"**{title}**\n\n**Requested By:** {query.from_user.mention}",
+            supports_streaming=True,
+        )
+
+        await mystic.edit_text("**جـارٍ الـرفـع لـتـلـيـجـرام...**")
+        await app.send_chat_action(chat_id=query.message.chat.id, action=enums.ChatAction.UPLOAD_VIDEO)
+
+        try:
+            await query.edit_message_media(media=med)
+        except Exception as e:
+            traceback.print_exc()
+            return await mystic.edit_text("**فشل الرفع لتليجرام.**")
+
+        # تنظيف
+        if os.path.exists(file_path): os.remove(file_path)
+
+    elif stype == "audio":
+        try:
+            filename = await YouTube.download(
+                yturl,
+                mystic,
+                songaudio=True,
+                format_id=format_id,
+                title=title,
+            )
+        except Exception as e:
+            return await mystic.edit_text(f"**فشل التحميل:** {e}")
+
+        med = InputMediaAudio(
+            media=filename,
+            caption=f"**{title}**\n\n**Requested By:** {query.from_user.mention}",
+            thumb=thumb_image_path,
+            title=title,
+            performer=x.get("uploader", "Annie Bot"),
+        )
+
+        await mystic.edit_text("**جـارٍ الـرفـع لـتـلـيـجـرام...**")
+        await app.send_chat_action(chat_id=query.message.chat.id, action=enums.ChatAction.UPLOAD_AUDIO)
+
+        try:
+            await query.edit_message_media(media=med)
+        except Exception:
+            traceback.print_exc()
+            return await mystic.edit_text("**فشل الرفع لتليجرام.**")
+
+        if os.path.exists(filename): os.remove(filename)
+
+    if thumb_image_path and os.path.exists(thumb_image_path):
+        os.remove(thumb_image_path)
