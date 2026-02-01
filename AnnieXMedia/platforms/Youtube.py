@@ -1,7 +1,7 @@
 # Authored By Certified 
 # Fixed for platforms/Youtube.py
 # NUCLEAR EDITION: 16-Core Aria2c + iOS Spoofing + Smart Format Merge
-# FIX: Solved "Cookies Conflict" & "Requested format not available"
+# FIX: Added missing 'asyncify' decorator definition
 
 import asyncio
 import os
@@ -49,6 +49,13 @@ def get_cookie_file():
         if os.path.exists(path) and os.path.getsize(path) > 0:
             return os.path.abspath(path)
     return None
+
+# ✅ الدالة التي كانت ناقصة وتسببت في الخطأ
+def asyncify(func):
+    async def wrapper(*args, **kwargs):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
+    return wrapper
 
 class YouTubeAPI:
     def __init__(self):
@@ -104,9 +111,12 @@ class YouTubeAPI:
             
             thumb = data["thumbnails"][0]["url"].split("?")[0] if data.get("thumbnails") else ""
             vidid = data["id"]
-            duration_sec = int(time_to_seconds(data["duration"])) if data.get("duration") else 0
             
-            return data["title"], data["duration"], duration_sec, thumb, vidid
+            # حساب المدة بالثواني
+            duration_text = data.get("duration", "0")
+            duration_sec = int(time_to_seconds(duration_text)) if duration_text else 0
+            
+            return data["title"], duration_text, duration_sec, thumb, vidid
         except: return None
 
     # تحميل الصورة (لحل مشكلة Errno 2)
@@ -131,8 +141,7 @@ class YouTubeAPI:
                 "--file-allocation=none", "--disable-ipv6=true"
             ]
             
-            # ⚠️ التعديل المهم: إزالة [ext=mp4] من الفلتر لتجنب الخطأ
-            # نعتمد على merge_output_format في الأسفل
+            # إزالة [ext=mp4] لتجنب خطأ التنسيق، نعتمد على الدمج
             fmt = "bestvideo[height<=720]+bestaudio/best[height<=720]" if is_video else "bestaudio/best"
             
             ydl_opts = {
@@ -142,7 +151,6 @@ class YouTubeAPI:
                 "geo_bypass": True,
                 "nocheckcertificate": True,
                 "quiet": True,
-                # استخدام iOS بدلاً من Android لدعم الكوكيز بشكل أفضل
                 "extractor_args": {"youtube": {"player_client": ["ios", "web"]}},
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
@@ -189,7 +197,7 @@ class YouTubeAPI:
         except: vid_id = str(int(time.time()))
 
         ext = "mp4" if (video or songvideo) else "mp3"
-        ram_path = os.path.join(Config.DOWNLOAD_PATH, f"{vid_id}") # بدون صيغة مؤقتاً
+        ram_path = os.path.join(Config.DOWNLOAD_PATH, f"{vid_id}") 
 
         # 2. تحميل محدد الجودة (أزرار)
         if format_id:
@@ -201,7 +209,7 @@ class YouTubeAPI:
                         "outtmpl": f"{ram_path}.%(ext)s",
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
-                        "extractor_args": {"youtube": {"player_client": ["ios", "web"]}}, # iOS fixes cookie issues
+                        "extractor_args": {"youtube": {"player_client": ["ios", "web"]}},
                         "external_downloader": "aria2c",
                         "external_downloader_args": aria2_args,
                     }
@@ -219,16 +227,15 @@ class YouTubeAPI:
             return dl_path, False
 
         # 3. البث المباشر (Direct Stream)
-        # نحاول جلب الرابط المباشر، لو فشل نعمل تحميل عادي
         try:
             cmd = [
                 "yt-dlp", "-g",
                 "--cookies", get_cookie_file() or "",
-                "--extractor-args", "youtube:player_client=ios", # iOS Spoofing
+                "--extractor-args", "youtube:player_client=ios",
             ]
             
             if video:
-                cmd.extend(["-f", "best[height<=720]"]) # نطلب الأفضل وندمج لاحقاً إذا لزم الأمر
+                cmd.extend(["-f", "best[height<=720]"])
             else:
                 cmd.extend(["-f", "bestaudio[ext=m4a]/bestaudio"])
             
@@ -241,16 +248,16 @@ class YouTubeAPI:
 
             if stdout:
                 direct_link = stdout.decode().split("\n")[0].strip()
-                # تشغيل التحميل في الخلفية للكاش (باستخدام الدالة المصححة)
+                # تشغيل التحميل في الخلفية
                 loop.run_in_executor(self.pool, self._background_download, link, f"{ram_path}.%(ext)s", video)
                 return direct_link, True
         except:
             pass
 
-        # 4. Fallback (التحميل العادي) في حال فشل البث
+        # 4. Fallback (التحميل العادي)
         def _fallback_download():
             try:
-                # توسيع الفلتر: نقبل أي شيء ثم نحوله
+                # فلتر مرن يقبل أي صيغة ثم يحولها
                 fmt = "bestvideo[height<=720]+bestaudio/best[height<=720]" if video else "bestaudio/best"
                 ydl_opts = {
                     "format": fmt,
@@ -261,19 +268,16 @@ class YouTubeAPI:
                 }
                 
                 if video:
-                    ydl_opts["merge_output_format"] = "mp4" # هنا يحدث السحر: تحويل webm لـ mp4
+                    ydl_opts["merge_output_format"] = "mp4"
                 else:
                     ydl_opts["postprocessors"] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}]
 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(link, download=True)
-                    # إرجاع المسار الصحيح (yt-dlp قد يغير الامتداد)
                     expected_path = ydl.prepare_filename(info)
-                    # إصلاح مشكلة اختلاف الامتداد (مثلاً mkv بدل mp4)
+                    
                     if video and expected_path.endswith(".webm"):
-                         # إذا فشل الدمج لسبب ما، نرجع ال webm
                          return expected_path
-                    # في حالة الصوت، نرجع mp3
                     if not video:
                         return expected_path.rsplit(".", 1)[0] + ".mp3"
                     return expected_path
@@ -302,6 +306,7 @@ class YouTubeAPI:
                         "filesize": format.get("filesize"),
                         "format_id": format["format_id"],
                         "ext": format["ext"],
+                        "format_note": format.get("format_note", ""),
                         "yturl": link,
                     })
             except: pass
