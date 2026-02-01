@@ -1,11 +1,13 @@
-# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2026
 import random
 from typing import Dict, List, Union
 
 from AnnieXMedia import userbot
 from AnnieXMedia.core.mongo import mongodb
 
-# --- تـعـريـفـات الـمـجـمـوعـات (Collections) ---
+# =============================================================
+# 🗄️ تـعـريـفـات الـمـجـمـوعـات (Collections)
+# =============================================================
 authdb = mongodb.adminauth
 authuserdb = mongodb.authuser
 autoenddb = mongodb.autoend
@@ -24,11 +26,12 @@ skipdb = mongodb.skipmode
 sudoersdb = mongodb.sudoers
 usersdb = mongodb.tgusersdb
 
-# --- الإضـافـة الـجـديـدة (لـحـل مـشـكـلـة حـفـظ إعـدادات الـأغـانـي) ---
-song_settings = mongodb.song_settings
-# -------------------------------------------------------------
+# ✅ الإضـافـة الـجـديـدة: قـاعـدة بـيـانـات الـأغـانـي (Song Settings)
+song_settings = mongodb.song_settings 
 
-# --- مـتـغـيـرات الـتـخـزيـن الـمـؤقـت (Cache) ---
+# =============================================================
+# ⚡ مـتـغـيـرات الـتـخـزيـن الـمـؤقـت (Cache)
+# =============================================================
 active = []
 activevideo = []
 assistantdict = {}
@@ -44,8 +47,43 @@ playmode = {}
 playtype = {}
 skipmode = {}
 mute = {}
+song_cache = {} # كاش للإعدادات عشان السرعة
 
-# --- الـدوال (Functions) ---
+# =============================================================
+# 🛠️ دوال إعـدادات الـأغـانـي (Song Config Functions)
+# =============================================================
+
+async def get_config(key: str) -> bool:
+    """
+    جلب إعداد معين (مثل قفل التنزيل) من القاعدة أو الكاش
+    """
+    # 1. فحص الكاش الأول للسرعة
+    if key in song_cache:
+        return song_cache[key]
+    
+    # 2. لو مش في الكاش، هاته من المونجو
+    data = await song_settings.find_one({"_id": "song_config"})
+    if not data:
+        return False
+    
+    val = data.get(key, False)
+    song_cache[key] = val # تحديث الكاش
+    return val
+
+async def set_config(key: str, value: bool):
+    """
+    حفظ إعداد معين في القاعدة وتحديث الكاش
+    """
+    song_cache[key] = value
+    await song_settings.update_one(
+        {"_id": "song_config"},
+        {"$set": {key: value}},
+        upsert=True,
+    )
+
+# =============================================================
+# 🤖 بـاقـي دوال الـبـوت (Userbot & Assistants)
+# =============================================================
 
 async def get_assistant_number(chat_id: int) -> str:
     assistant = assistantdict.get(chat_id)
@@ -502,7 +540,6 @@ async def add_served_chat(chat_id: int):
         return
     return await chatsdb.insert_one({"chat_id": chat_id})
 
-# New function to remove served chat
 async def remove_served_chat(chat_id: int):
     if await is_served_chat(chat_id):
         await chatsdb.delete_one({"chat_id": chat_id})
