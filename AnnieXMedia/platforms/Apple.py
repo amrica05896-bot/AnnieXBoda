@@ -8,7 +8,7 @@ from typing import List, Union, Optional
 
 import aiohttp
 from bs4 import BeautifulSoup
-from pytubefix import Search
+from youtubesearchpython.__future__ import VideosSearch
 
 class AppleAPI:
     def __init__(self):
