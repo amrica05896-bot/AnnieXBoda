@@ -1,23 +1,47 @@
-# fly.toml app configuration file generated for anniexboda-13radg on 2026-02-01T13:57:51Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
+app = "anniexboda-13radg"
+primary_region = "iad"
 
-app = 'anniexboda-13radg'
-primary_region = 'iad'
-
+# ===============================
+# Build
+# ===============================
 [build]
+  dockerfile = "Dockerfile"
 
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = 'stop'
-  auto_start_machines = true
-  min_machines_running = 0
-  processes = ['app']
+# ===============================
+# Runtime (Worker Only)
+# ===============================
+# مفيش http_service
+# مفيش ports
+# شغال كـ background worker
 
+# ===============================
+# Environment
+# ===============================
+[env]
+  PYTHONUNBUFFERED = "1"
+  PYTHONDONTWRITEBYTECODE = "1"
+
+  # Ollama
+  OLLAMA_HOST = "127.0.0.1:11434"
+  OLLAMA_KEEP_ALIVE = "1h"
+  OLLAMA_MAX_QUEUE = "2"
+  OLLAMA_NUM_THREADS = "16"
+  OLLAMA_FLASH_ATTENTION = "1"
+  OLLAMA_KV_CACHE_TYPE = "f16"
+
+  # CPU / BLAS Acceleration
+  OMP_NUM_THREADS = "16"
+  MKL_NUM_THREADS = "16"
+  NUMEXPR_NUM_THREADS = "16"
+
+  # Models
+  OLLAMA_LIGHT_MODEL = "llama3.1:8b"
+  OLLAMA_HEAVY_MODEL = "llama3.1:70b"
+
+# ===============================
+# Machine Specs
+# ===============================
 [[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
-  cpus = 1
-  memory_mb = 1024
+  cpu_kind = "performance"
+  cpus = 16
+  memory_mb = 131072
