@@ -1,7 +1,9 @@
 # Authored By Certified Coders © 2026
-# System: YouTubeAPI | Fixed Search Logic
-# Fix: Removed Android client from Search Fallback (Causes conflict with cookies)
-# Result: Search will always return results now.
+# System: YouTubeAPI | pytubefix Edition (The 2026 Standard)
+# Features:
+# 1. Search: pytubefix (PoToken Support + Async Wrapper)
+# 2. Stream/Download: yt-dlp (Best for Aria2c integration)
+# 3. Fixes: "No results found" & "Signature errors"
 
 import asyncio
 import os
@@ -9,10 +11,12 @@ import re
 import logging
 import yt_dlp
 from typing import Union, Tuple, Optional
-from py_yt import VideosSearch
 from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
 from yt_dlp import YoutubeDL
+
+# ✅ استيراد المكتبة الجديدة (ملك البحث في 2026)
+from pytubefix import Search, Playlist, AsyncYouTube
 
 try:
     from async_lru import alru_cache
@@ -105,29 +109,36 @@ class YouTubeAPI:
                         return entity.url
         return None if offset in (None,) else text[offset : offset + length]
 
+    # ==========================================================
+    # 🔍 البحث وجلب المعلومات (باستخدام pytubefix)
+    # ==========================================================
+
     @alru_cache(maxsize=500)
     async def details(self, link: str, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
         if "&" in link: link = link.split("&")[0]
         
-        search = VideosSearch(link, limit=1)
-        res = await asyncio.to_thread(search.result)
-        
-        if not res or not res.get("result"):
-            return None
-
-        result = res["result"][0]
-        title = result["title"]
-        duration_min = result["duration"]
-        thumbnail = result["thumbnails"][0]["url"].split("?")[0]
-        vidid = result["id"]
-        
-        if str(duration_min) == "None":
-            duration_sec = 0
-        else:
-            duration_sec = int(time_to_seconds(duration_min))
+        try:
+            loop = asyncio.get_running_loop()
             
-        return title, duration_min, duration_sec, thumbnail, vidid
+            def _search():
+                s = Search(link)
+                # pytubefix يرجع قائمة كائنات
+                return s.videos[0] 
+            
+            video = await loop.run_in_executor(None, _search)
+
+            title = video.title
+            duration_sec = video.length
+            duration_min = seconds_to_min(duration_sec)
+            thumbnail = video.thumbnail_url
+            vidid = video.video_id
+            
+            return title, duration_min, duration_sec, thumbnail, vidid
+
+        except Exception as e:
+            # Fallback (البحث الاحتياطي)
+            return await self._track_fallback(link)
 
     @alru_cache(maxsize=500)
     async def track(self, link: str, videoid: Union[bool, str] = None):
@@ -135,28 +146,28 @@ class YouTubeAPI:
         if "&" in link: link = link.split("&")[0]
 
         try:
-            search = VideosSearch(link, limit=1)
-            res = await asyncio.to_thread(search.result)
+            loop = asyncio.get_running_loop()
             
-            if not res or not res.get("result"):
-                raise ValueError("No result")
-
-            result = res["result"][0]
+            def _search():
+                s = Search(link)
+                return s.videos[0]
+            
+            video = await loop.run_in_executor(None, _search)
+            
             track_details = {
-                "title": result["title"],
-                "link": result["link"],
-                "vidid": result["id"],
-                "duration_min": result["duration"],
-                "thumb": result["thumbnails"][0]["url"].split("?")[0],
+                "title": video.title,
+                "link": video.watch_url,
+                "vidid": video.video_id,
+                "duration_min": seconds_to_min(video.length),
+                "thumb": video.thumbnail_url,
             }
-            return track_details, result["id"]
+            return track_details, video.video_id
         except Exception:
             return await self._track_fallback(link)
 
     @asyncify
     def _track_fallback(self, q):
-        # ✅ FIX: إزالة 'player_client': ['android'] من هنا
-        # البحث العادي (Web) هو الأضمن لإيجاد النتائج
+        # البحث بـ yt-dlp كحل أخير (Web Client - Reliable)
         options = {
             "format": "best",
             "noplaylist": True,
@@ -166,10 +177,8 @@ class YouTubeAPI:
             "remote_components": ["ejs:github"],
         }
         with YoutubeDL(options) as ydl:
-            # استخدام ytsearch العادي
             info_dict = ydl.extract_info(f"ytsearch: {q}", download=False)
-            if not info_dict.get("entries"):
-                raise ValueError("No entries found")
+            if not info_dict.get("entries"): return None, None
             
             details = info_dict.get("entries")[0]
             info = {
@@ -182,6 +191,10 @@ class YouTubeAPI:
                 "thumb": details.get("thumbnails", [{}])[0].get("url", ""),
             }
             return info, details["id"]
+
+    # ==========================================================
+    # 📥 التحميل (باستخدام yt-dlp + Aria2c)
+    # ==========================================================
 
     async def download(
         self,
@@ -281,9 +294,8 @@ class YouTubeAPI:
             # 🔥 البث المباشر (أندرويد سريع بدون كوكيز)
             try:
                 cmd = [
-                    "yt-dlp",
-                    "-g",
-                    "--extractor-args", "youtube:player_client=android", # هنا مفيش كوكيز، الأندرويد يشتغل تمام
+                    "yt-dlp", "-g",
+                    "--extractor-args", "youtube:player_client=android",
                     "--remote-components", "ejs:github",
                     "-f", "bestaudio[ext=m4a]/bestaudio/best",
                     link
@@ -304,17 +316,26 @@ class YouTubeAPI:
     async def playlist(self, link, limit, user_id, videoid: Union[bool, str] = None):
         if videoid: link = self.listbase + link
         if "&" in link: link = link.split("&")[0]
-        cmd = (
-            f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
-            f"--extractor-args 'youtube:player_client=android' "
-            f"--remote-components ejs:github "
-            f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
-            f"2>/dev/null"
-        )
-        out = await shell_cmd(cmd)
-        try: result = [key for key in out.split("\n") if key]
-        except: result = []
-        return result
+        # استخدام pytubefix لاستخراج القائمة (أسرع)
+        try:
+            loop = asyncio.get_running_loop()
+            def _get_pl():
+                pl = Playlist(link)
+                return [video.video_id for video in pl.videos[:limit]]
+            result = await loop.run_in_executor(None, _get_pl)
+            return result
+        except:
+            cmd = (
+                f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
+                f"--extractor-args 'youtube:player_client=android' "
+                f"--remote-components ejs:github "
+                f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
+                f"2>/dev/null"
+            )
+            out = await shell_cmd(cmd)
+            try: result = [key for key in out.split("\n") if key]
+            except: result = []
+            return result
 
     async def title(self, link: str, videoid: Union[bool, str] = None):
         d, _ = await self.track(link, videoid)
@@ -331,13 +352,18 @@ class YouTubeAPI:
     async def slider(self, link: str, query_type: int, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
         try:
-            search = VideosSearch(link, limit=5)
-            res = await asyncio.to_thread(search.result)
-            r = res["result"][query_type] if query_type < len(res["result"]) else res["result"][0]
-            return r["title"], r["duration"], r["thumbnails"][0]["url"].split("?")[0], r["id"]
+            loop = asyncio.get_running_loop()
+            def _search():
+                s = Search(link)
+                return s.videos
+            
+            videos = await loop.run_in_executor(None, _search)
+            if not videos: return "Error", "0", "", "error"
+            
+            r = videos[query_type] if query_type < len(videos) else videos[0]
+            return r.title, seconds_to_min(r.length), r.thumbnail_url, r.video_id
         except: return "Error", "0", "", "error"
 
-    # دالة formats القديمة (مهمة لأزرار التحميل)
     @asyncify
     def formats(self, link: str, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
