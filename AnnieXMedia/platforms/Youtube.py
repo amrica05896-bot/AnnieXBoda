@@ -1,7 +1,7 @@
 # Authored By Certified 
 # Fixed for platforms/Youtube.py
 # NUCLEAR EDITION: 16-Core Aria2c + iOS Spoofing + Smart Format Merge
-# FIX: Added missing 'asyncify' decorator definition
+# FEATURES: Anti-Throttle, URL Sanitizer, Thumb Fix, IPv4 Force
 
 import asyncio
 import os
@@ -25,6 +25,7 @@ except ImportError:
     def time_to_seconds(t): return 0
 
 class Config:
+    # استخدام الرام (Shm) للسرعة القصوى
     if os.path.exists("/dev/shm"):
         DOWNLOAD_PATH = "/dev/shm/AnnieDownloads"
     else:
@@ -50,7 +51,7 @@ def get_cookie_file():
             return os.path.abspath(path)
     return None
 
-# ✅ الدالة التي كانت ناقصة وتسببت في الخطأ
+# ✅ تعريف Decorator الناقص
 def asyncify(func):
     async def wrapper(*args, **kwargs):
         loop = asyncio.get_running_loop()
@@ -89,11 +90,47 @@ class YouTubeAPI:
                         return entity.url
         return None if offset in (None,) else text[offset : offset + length]
 
+    # ✅ دالة Track (مهمة للبحث وتوافق song.py)
+    async def track(self, link: str, videoid: Union[bool, str] = None):
+        if videoid: link = self.base + link
+        link = link.split("&")[0]
+
+        async with _cache_lock:
+            if link in _cache:
+                ts, val = _cache[link]
+                if time.time() - ts < YOUTUBE_META_TTL:
+                    return val[0], val[1]
+
+        try:
+            results = VideosSearch(link, limit=1)
+            try: res = await results.next()
+            except: res = results.result()
+
+            if not res or not res.get("result"):
+                raise ValueError("No Result")
+            data = res["result"][0]
+            
+            thumb = data["thumbnails"][0]["url"].split("?")[0] if data.get("thumbnails") else ""
+            
+            track_details = {
+                "title": data["title"],
+                "link": data["link"],
+                "vidid": data["id"],
+                "duration_min": data["duration"],
+                "thumb": thumb,
+                "cookiefile": get_cookie_file(),
+            }
+            async with _cache_lock:
+                _cache[link] = (time.time(), (track_details, data["id"]))
+            return track_details, data["id"]
+        except Exception:
+            return {"title": "Unknown", "link": link, "vidid": "error", "duration_min": "0:00", "thumb": ""}, "error"
+
     async def details(self, link: str, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
         if "&" in link: link = link.split("&")[0]
         
-        # تنظيف الروابط الوهمية
+        # تنظيف الرابط الوهمي
         if "googleusercontent.com" in link:
             try:
                 vid_id = link.split("youtube.com/")[-1]
@@ -101,25 +138,30 @@ class YouTubeAPI:
                 link = f"https://www.youtube.com/watch?v={vid_id}"
             except: pass
 
-        try:
-            results = VideosSearch(link, limit=1)
-            try: res = await results.next()
-            except: res = results.result()
+        d, i = await self.track(link, videoid)
+        if i == "error": return None
+        
+        # تحويل الوقت
+        duration_sec = 0
+        if d.get("duration_min"):
+             try: duration_sec = int(time_to_seconds(d["duration_min"]))
+             except: pass
+             
+        return d["title"], d["duration_min"], duration_sec, d["thumb"], i
 
-            if not res or not res.get("result"): return None
-            data = res["result"][0]
-            
-            thumb = data["thumbnails"][0]["url"].split("?")[0] if data.get("thumbnails") else ""
-            vidid = data["id"]
-            
-            # حساب المدة بالثواني
-            duration_text = data.get("duration", "0")
-            duration_sec = int(time_to_seconds(duration_text)) if duration_text else 0
-            
-            return data["title"], duration_text, duration_sec, thumb, vidid
-        except: return None
+    async def title(self, link: str, videoid: Union[bool, str] = None):
+        d, _ = await self.track(link, videoid)
+        return d.get("title")
 
-    # تحميل الصورة (لحل مشكلة Errno 2)
+    async def duration(self, link: str, videoid: Union[bool, str] = None):
+        d, _ = await self.track(link, videoid)
+        return d.get("duration_min")
+
+    async def thumbnail(self, link: str, videoid: Union[bool, str] = None):
+        d, _ = await self.track(link, videoid)
+        return d.get("thumb")
+
+    # ✅ دالة تحميل الصور (مطلوبة لملف song.py)
     async def download_thumb(self, url):
         if not url: return None
         try:
@@ -133,7 +175,7 @@ class YouTubeAPI:
         except: return None
         return None
 
-    # 🔥 التحميل الخلفي (مع Aria2c + iOS + دمج الصيغ) 🔥
+    # 🔥 التحميل الخلفي (Aria2c + iOS + فك الخنق)
     def _background_download(self, link, final_path, is_video):
         try:
             aria2_args = [
@@ -141,7 +183,7 @@ class YouTubeAPI:
                 "--file-allocation=none", "--disable-ipv6=true"
             ]
             
-            # إزالة [ext=mp4] لتجنب خطأ التنسيق، نعتمد على الدمج
+            # إزالة [ext=mp4] لتجنب الأخطاء، نعتمد على الدمج
             fmt = "bestvideo[height<=720]+bestaudio/best[height<=720]" if is_video else "bestaudio/best"
             
             ydl_opts = {
@@ -151,13 +193,18 @@ class YouTubeAPI:
                 "geo_bypass": True,
                 "nocheckcertificate": True,
                 "quiet": True,
+                "force_ipv4": True, # إجبار IPv4
+                
+                # استخدام iOS لدعم الكوكيز بشكل أفضل من أندرويد
                 "extractor_args": {"youtube": {"player_client": ["ios", "web"]}},
+                "remote_components": ["ejs:github"], # لحل ألغاز JS
+                
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
             }
             
             if is_video:
-                ydl_opts["merge_output_format"] = "mp4" # تحويل أي صيغة لـ mp4
+                ydl_opts["merge_output_format"] = "mp4" # تحويل أي صيغة إلى mp4
             else:
                 ydl_opts["postprocessors"] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
 
@@ -209,6 +256,7 @@ class YouTubeAPI:
                         "outtmpl": f"{ram_path}.%(ext)s",
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
+                        "force_ipv4": True,
                         "extractor_args": {"youtube": {"player_client": ["ios", "web"]}},
                         "external_downloader": "aria2c",
                         "external_downloader_args": aria2_args,
@@ -231,6 +279,7 @@ class YouTubeAPI:
             cmd = [
                 "yt-dlp", "-g",
                 "--cookies", get_cookie_file() or "",
+                "--force-ipv4",
                 "--extractor-args", "youtube:player_client=ios",
             ]
             
@@ -257,13 +306,15 @@ class YouTubeAPI:
         # 4. Fallback (التحميل العادي)
         def _fallback_download():
             try:
-                # فلتر مرن يقبل أي صيغة ثم يحولها
+                # فلتر ذكي يقبل أي صيغة ثم يحولها
                 fmt = "bestvideo[height<=720]+bestaudio/best[height<=720]" if video else "bestaudio/best"
                 ydl_opts = {
                     "format": fmt,
                     "outtmpl": f"{ram_path}.%(ext)s",
                     "cookiefile": get_cookie_file(),
                     "quiet": True,
+                    "force_ipv4": True,
+                    "remote_components": ["ejs:github"],
                     "extractor_args": {"youtube": {"player_client": ["ios", "web"]}}
                 }
                 
@@ -292,10 +343,25 @@ class YouTubeAPI:
         
         return None, False
 
-    @asyncify
-    def formats(self, link: str, videoid: Union[bool, str] = None):
+    async def playlist(self, link, limit, user_id, videoid: Union[bool, str] = None):
+        if videoid: link = self.listbase + link
+        if "&" in link: link = link.split("&")[0]
+        cmd = (
+            f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
+            f"--force-ipv4 "
+            f"--extractor-args 'youtube:player_client=ios' "
+            f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
+            f"2>/dev/null"
+        )
+        proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        out, _ = await proc.communicate()
+        try: result = [key for key in out.decode().split("\n") if key]
+        except: result = []
+        return result
+
+    async def formats(self, link: str, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
-        ytdl_opts = {"quiet": True, "cookiefile": get_cookie_file()}
+        ytdl_opts = {"quiet": True, "cookiefile": get_cookie_file(), "force_ipv4": True}
         with yt_dlp.YoutubeDL(ytdl_opts) as ydl:
             formats_available = []
             try:
@@ -306,10 +372,22 @@ class YouTubeAPI:
                         "filesize": format.get("filesize"),
                         "format_id": format["format_id"],
                         "ext": format["ext"],
-                        "format_note": format.get("format_note", ""),
                         "yturl": link,
                     })
             except: pass
         return formats_available, link
+
+    async def slider(self, link: str, query_type: int, videoid: Union[bool, str] = None):
+        if videoid: link = self.base + link
+        try:
+            a = VideosSearch(link, limit=5)
+            try: res = await a.next()
+            except: res = a.result()
+            
+            if not res or not res.get("result"): return "Error", "0", "", "error"
+            r = res["result"][query_type] if query_type < len(res["result"]) else res["result"][0]
+            thumb = r["thumbnails"][0]["url"].split("?")[0] if r.get("thumbnails") else ""
+            return r["title"], r["duration"], thumb, r["id"]
+        except: return "Error", "0", "", "error"
 
 YouTube = YouTubeAPI()
