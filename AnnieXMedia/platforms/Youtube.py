@@ -12,8 +12,7 @@ import time
 import yt_dlp
 from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
-from youtubesearchpython.aio import VideosSearch
-
+from py_yt import VideosSearch
 try:
     from AnnieXMedia.utils.formatters import time_to_seconds
     from AnnieXMedia import LOGGER
