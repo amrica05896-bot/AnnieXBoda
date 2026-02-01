@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Song Plugin (Clean Text Edition)
-# Features: No Emojis, "Uploading..." only, Full Admin Control, Direct Stream
+# System: Song Plugin (Clean Text & Custom Triggers)
+# Features: No Emojis, Removed standalone /video command, Direct Stream
 
 import os
 import re
@@ -61,14 +61,15 @@ async def unlock_buttons(client, message):
 # 1. المعالج الذكي (Regex) - ابعتلي / هات / تنزيل
 # ==========================================================
 
-@app.on_message(filters.regex(r"^/?(ابعتلي|هات|هاتلي|تنزيل|تحميل|song|video|فيديو|فيد)(\s+.+)?$") & filters.group & ~BANNED_USERS)
+# ⚠️ تم التعديل: إزالة (video|فيديو|فيد) من القائمة ليعمل فقط مع الجمل الكاملة
+@app.on_message(filters.regex(r"^/?(ابعتلي|هات|هاتلي|تنزيل|تحميل|song)(\s+.+)?$") & filters.group & ~BANNED_USERS)
 async def smart_song_handler(client, message: Message):
     # فحص القفل
     if await get_config("download_locked") and message.from_user.id not in SUDO_USERS:
         return await message.reply_text("**عذرا التنزيل مغلق حاليا للصيانة.**")
 
     # استخراج النص
-    match = re.match(r"^/?(ابعتلي|هات|هاتلي|تنزيل|تحميل|song|video|فيديو|فيد)(\s+.+)?$", message.text)
+    match = re.match(r"^/?(ابعتلي|هات|هاتلي|تنزيل|تحميل|song)(\s+.+)?$", message.text)
     if not match: return
 
     command = match.group(1).lower()
@@ -80,13 +81,13 @@ async def smart_song_handler(client, message: Message):
 
     query = query.strip()
 
-    # تحديد نوع الطلب
+    # تحديد نوع الطلب (هل يريد فيديو؟)
     is_video_request = False
-    if command in ["video", "فيديو", "فيد"]:
-        is_video_request = True
     
-    if "فيديو" in query or "video" in query:
+    # التحقق مما إذا كان المستخدم كتب "فيديو" داخل الجملة (مثال: ابعتلي فيديو كذا)
+    if "فيديو" in query or "video" in query or "فيد" in query:
         is_video_request = True
+        # تنظيف كلمة فيديو من البحث عشان النتائج تكون دقيقة
         query = query.replace("فيديو", "").replace("video", "").replace("فيد", "").strip()
 
     # هل النص رابط؟
@@ -135,18 +136,24 @@ async def yut_command(client, message):
     if len(message.command) < 2:
         return await message.reply_text("**حط الرابط جنب الأمر يا حب.**")
     
+    # استخراج الرابط أو النص
     url = message.text.split(None, 1)[1]
     
     is_video = False
-    if "فيد" in message.text or "video" in message.text:
+    # التحقق من طلب الفيديو (يوت فيديو / يوت فيد)
+    if "فيد" in message.text or "video" in message.text or "فيديو" in message.text:
         is_video = True
+        # تنظيف الكلمات الزائدة من الرابط أو اسم الأغنية
         url = url.replace("فيديو", "").replace("فيد", "").replace("video", "").strip()
     
+    # هل هو رابط يوتيوب؟
     if "youtu" in url:
         await direct_download_handler(client, message, url, is_video)
     else:
         # لو مش رابط (اسم أغنية)، نحوله للبحث الذكي
         message.text = f"تنزيل {url}"
+        if is_video:
+             message.text = f"ابعتلي فيديو {url}"
         await smart_song_handler(client, message)
 
 
@@ -157,7 +164,7 @@ async def yut_command(client, message):
 async def direct_download_handler(client, message, url, is_video_force=False):
     mystic = await message.reply_text("**جاري التحميل...**")
     
-    # رسالة الجودة (للتوضيح فقط)
+    # رسالة الجودة
     quality_msg = "جودة قياسية (720p)"
     if message.from_user.id in SUDO_USERS:
         quality_msg = "جودة عالية (Sudo)"
@@ -178,7 +185,6 @@ async def direct_download_handler(client, message, url, is_video_force=False):
         if is_direct_link:
              await mystic.edit_text("**جاري التشغيل (بث مباشر سريع)...**")
         else:
-             # التعديل هنا: إزالة كلمة تيليجرام
              await mystic.edit_text(f"**جاري الرفع...**\n{quality_msg}")
         
         if is_video_force:
@@ -334,7 +340,6 @@ async def song_download_cb(client, query):
         except Exception as e:
             return await mystic.edit_text(f"**فشل التحميل:** {e}")
 
-        # التعديل هنا: إزالة كلمة تيليجرام
         await mystic.edit_text("**جاري الرفع...**")
         
         try:
@@ -365,7 +370,6 @@ async def song_download_cb(client, query):
         except Exception as e:
             return await mystic.edit_text(f"**فشل التحميل:** {e}")
 
-        # التعديل هنا: إزالة كلمة تيليجرام
         await mystic.edit_text("**جاري الرفع...**")
         
         try:
