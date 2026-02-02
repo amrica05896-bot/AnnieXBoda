@@ -1,12 +1,15 @@
-# ===== Core Async & Performance =====
-aiofiles
-aiohttp
-httpx[http2]>=0.28.1
+# ===== Core Async & Performance (أقصى سرعة) =====
 uvloop==0.21.0
+aiofiles
+# تفعيل تسريع DNS و C-Parsing
+aiohttp[speedups]
+httpx[http2,brotli]>=0.28.1
 psutil
 cachetools
 brotli
 certifi
+# أسرع مكتبة JSON في العالم (مهمة لـ FastAPI)
+orjson
 
 # ===== Crypto / Security =====
 argon2-cffi
@@ -22,7 +25,8 @@ ffmpeg-python
 pydub
 mutagen
 hachoir
-opencv-python
+# ⚠️ تم التبديل لنسخة السيرفرات (أسرع وأخف وتحل مشكلة المساحة)
+opencv-python-headless
 numpy
 pillow>=12.0.0
 wget
@@ -35,7 +39,8 @@ pyromod
 # ===== Web / API / Servers =====
 fastapi
 flask
-uvicorn
+# تفعيل Cython Parsers للسرعة القصوى
+uvicorn[standard]
 python-multipart
 python-dotenv
 requests
