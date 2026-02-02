@@ -1,20 +1,20 @@
-file: AnnieXMedia/platforms/Youtube.py
+#file: AnnieXMedia/platforms/Youtube.py
 
-Authored By Certified Coders © 2026
+#Authored By Certified Coders c 2026
 
-System: Unified Youtube platform for AnnieXMedia
+#System: Unified Youtube platform for AnnieXMedia
 
-NUCLEAR EDITION: 16-Core Aria2c Download + Instant Direct Stream + RAM Disk
+#NUCLEAR EDITION: 16-Core Aria2c Download + Instant Direct Stream + RAM Disk
 
-FEATURES: -g direct stream (yt-dlp) + --force-ipv4 + background RAM cache after 10s
+#FEATURES: -g direct stream (yt-dlp) + --force-ipv4 + background RAM cache after 10s
 
-web-only player_client, thumb downloader, formats, slider, track/details, url extractor
+#web-only player_client, thumb downloader, formats, slider, track/details, url extractor
 
 import asyncio import contextlib import json import os import re import time from typing import Dict, List, Optional, Tuple, Union from concurrent.futures import ThreadPoolExecutor
 
 import aiohttp import yt_dlp from youtubesearchpython.aio import VideosSearch from pyrogram.enums import MessageEntityType from pyrogram.types import Message
 
----------------------- Configuration ----------------------
+#---------------------- Configuration ----------------------
 
 if os.path.exists("/dev/shm"): DOWNLOAD_PATH = "/dev/shm/AnnieDownloads" else: DOWNLOAD_PATH = os.path.abspath("downloads") os.makedirs(DOWNLOAD_PATH, exist_ok=True)
 
@@ -24,7 +24,7 @@ MAX_WORKERS = 16 YTDLP_TIMEOUT = 20 YOUTUBE_META_TTL = 3600
 
 _pool = ThreadPoolExecutor(max_workers=MAX_WORKERS) _cache: Dict[str, Tuple[float, Tuple[Dict, str]]] = {} _cache_lock = asyncio.Lock()
 
----------------------- Helpers ----------------------
+#---------------------- Helpers ----------------------
 
 def get_cookie_file() -> Optional[str]: for p in COOKIE_PATH_CANDIDATES: try: if os.path.exists(p) and os.path.getsize(p) > 0: return os.path.abspath(p) except Exception: continue return None
 
