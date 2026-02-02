@@ -12,7 +12,7 @@ from typing import Union, List, Dict, Tuple, Optional
 import yt_dlp
 from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
-from youtubesearchpython.__future__ import VideosSearch
+from youtubesearchpython.aio import VideosSearch
 
 # محاولة تفعيل curl_cffi للسرعة القصوى
 try:
