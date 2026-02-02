@@ -1,7 +1,7 @@
 # Authored By Certified 
-# Dedicated Song Downloader for song.py
-# HYBRID ENGINE: Direct Link (First) -> Native RAM Download (Fallback)
-# SECURITY: Enforces 'cookies.txt' and 'ejs:github' (JS Solver) in ALL stages.
+# Dedicated Song Downloader (Separated Logic)
+# HYBRID ENGINE: Smart Direct Link -> Native RAM Fallback
+# Fixes: "Requested format not available" & "WEBPAGE_MEDIA_EMPTY"
 
 import asyncio
 import os
@@ -10,12 +10,11 @@ import time
 import yt_dlp
 from concurrent.futures import ThreadPoolExecutor
 
-# إعداد اللوجر
 logging.basicConfig(level=logging.ERROR)
 def LOGGER(name): return logging.getLogger(name)
 
 class Config:
-    # استخدام الرام للتخزين المؤقت
+    # مسار الرام للسرعة القصوى
     if os.path.exists("/dev/shm"):
         DOWNLOAD_PATH = "/dev/shm/AnnieSongDownloads"
     else:
@@ -31,7 +30,6 @@ class SongDownloaderAPI:
     def __init__(self):
         self.pool = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS)
 
-    # ✅ دالة البحث عن الكوكيز بذكاء
     def get_cookie_file(self):
         possible_paths = [
             Config.COOKIE_PATH, "cookies.txt", "AnnieXMedia/cookies.txt",
@@ -42,10 +40,12 @@ class SongDownloaderAPI:
                 return os.path.abspath(path)
         return None
 
+    # دالة التحميل الرئيسية (تتخذ القرار تلقائياً)
     async def download(self, link: str, is_video: bool = False):
         """
         يرجع: (المسار_أو_الرابط, هل_هو_رابط_مباشر؟)
         """
+        # تنظيف الرابط
         if "googleusercontent.com" in link:
              try: link = f"https://www.youtube.com/watch?v={link.split('v=')[1]}"
              except: pass
@@ -53,48 +53,50 @@ class SongDownloaderAPI:
         loop = asyncio.get_running_loop()
         cookies = self.get_cookie_file()
         
-        # طباعة للتأكد من الكونسول
-        if cookies: print(f"🍪 SongDownloader using cookies: {cookies}", flush=True)
-        else: print(f"⚠️ SongDownloader: No cookies found!", flush=True)
-
         # ------------------------------------------------------------------
-        # STEP 1: الرابط المباشر (Instant Direct Link)
+        # STEP 1: المحاولة الذكية (Smart Instant Link)
         # ------------------------------------------------------------------
-        print(f"🚀 Trying Instant Link (with JS Solver) for: {link}", flush=True)
+        # الفلتر الجديد: يطلب صوت نقي HTTP، وإذا لم يجد، يطلب فيديو 360p HTTP (لأنه أسرع وأضمن من DASH)
+        print(f"🚀 Trying Smart Link for: {link}", flush=True)
         
         try:
             def _get_direct():
-                # إعدادات صارمة للرابط المباشر
-                fmt = "bestaudio[protocol^=http][protocol!*=dash]" if not is_video else "best[protocol^=http][protocol!*=dash]"
+                if is_video:
+                    # للفيديو: نطلب ملف MP4 واحد مباشر (بدون تقطيع DASH)
+                    fmt = "best[ext=mp4][protocol^=http]"
+                else:
+                    # للصوت: نطلب M4A نقي، أو فيديو MP4 صغير (360p) يحتوي على صوت AAC
+                    # هذا الفلتر يحل مشكلة "Requested format not available"
+                    fmt = "bestaudio[ext=m4a][protocol^=http]/best[ext=mp4][height<=480][protocol^=http]/bestaudio[protocol^=http]"
+
                 opts = {
                     "format": fmt,
-                    "cookiefile": cookies,  # ✅ تفعيل الكوكيز
+                    "cookiefile": cookies,
                     "quiet": True,
                     "no_warnings": True,
                     "force_ipv4": True,
                     "geo_bypass": True,
                     "noplaylist": True,
                     "nocheckcertificate": True,
-                    
-                    # ✅ تفعيل مفكك الجافا سكريبت (أهم سطر)
-                    "remote_components": ["ejs:github"], 
-                    "extractor_args": {"youtube": {"player_client": ["web"]}}, # استخدام Web لضمان عمل الكوكيز
+                    "remote_components": ["ejs:github"],
+                    "extractor_args": {"youtube": {"player_client": ["web"]}},
                 }
                 with yt_dlp.YoutubeDL(opts) as ydl:
+                    # simulate=True تعني: هات الرابط بس ومتنزلش
                     info = ydl.extract_info(link, download=False)
                     return info.get("url")
 
             direct_url = await loop.run_in_executor(self.pool, _get_direct)
             
             if direct_url and "http" in direct_url:
-                print("✅ Instant Link Secured via Cookies & JS!", flush=True)
-                return direct_url, True # True = رابط مباشر
+                print("✅ Smart Link Found! Sending...", flush=True)
+                return direct_url, True # رابط مباشر
                 
         except Exception as e:
-            print(f"⚠️ Direct Link Failed ({e}), Switching to RAM...", flush=True)
+            print(f"⚠️ Smart Link Failed ({e}), Switching to RAM...", flush=True)
 
         # ------------------------------------------------------------------
-        # STEP 2: التحميل للرام (Native RAM Download)
+        # STEP 2: التنزيل للرام (Fast Native Fallback)
         # ------------------------------------------------------------------
         try:
             def _download_native():
@@ -105,18 +107,17 @@ class SongDownloaderAPI:
                 ydl_opts = {
                     "format": "bestaudio/best" if not is_video else "best[height<=720]",
                     "outtmpl": final_path,
-                    "cookiefile": cookies, # ✅ تفعيل الكوكيز
+                    "cookiefile": cookies,
                     "quiet": True,
                     "no_warnings": True,
                     "geo_bypass": True,
                     "force_ipv4": True,
                     "nocheckcertificate": True,
-                    
-                    # ✅ تفعيل مفكك الجافا سكريبت هنا أيضاً
                     "remote_components": ["ejs:github"],
                     "extractor_args": {"youtube": {"player_client": ["web"]}},
                 }
                 
+                # تحويل إجباري لـ MP3 للصوتيات
                 if not is_video:
                     ydl_opts["postprocessors"] = [{
                         'key': 'FFmpegExtractAudio',
@@ -127,9 +128,8 @@ class SongDownloaderAPI:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([link])
                 
+                # التحقق من الملف
                 if os.path.exists(final_path): return final_path
-                
-                # التحقق من الامتدادات البديلة
                 base = final_path.rsplit(".", 1)[0]
                 for check_ext in [".mp3", ".m4a", ".mp4", ".webm"]:
                     if os.path.exists(base + check_ext): return base + check_ext
@@ -140,7 +140,7 @@ class SongDownloaderAPI:
 
             if file_path:
                 print(f"💾 RAM Download Complete: {file_path}", flush=True)
-                return file_path, False # False = ملف
+                return file_path, False # ملف
 
         except Exception as e:
             print(f"❌ RAM Download Failed: {e}", flush=True)
