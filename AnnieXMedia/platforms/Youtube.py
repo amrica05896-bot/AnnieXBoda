@@ -16,7 +16,7 @@ from pyrogram.types import Message
 from yt_dlp import YoutubeDL
 
 # ✅ استيراد المكتبة الجديدة (ملك البحث في 2026)
-from youtubesearchpython.__future__ import VideosSearch
+from youtubesearchpython.aio import VideosSearch
 
 try:
     from async_lru import alru_cache
