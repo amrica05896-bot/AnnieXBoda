@@ -1,9 +1,17 @@
-
 # Authored By Certified Coders © 2025
 import sys
 import os
 import asyncio
 import importlib
+
+# 1. تفعيل UVLOOP (أول خطوة للأداء القصوى) 🚀
+try:
+    import uvloop
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    print("✅ UVLOOP is installed and ACTIVE! 🚀")
+except ImportError:
+    print("⚠️ UVLOOP is NOT installed. Falling back to default asyncio.")
+
 from pyrogram import idle
 from pytgcalls.exceptions import NoActiveGroupCall
 
@@ -78,6 +86,10 @@ async def init():
     await userbot.stop()
     LOGGER("AnnieXMedia").info("Stopping Annie Music Bot...")
 
-# ⛔️ تم حذف كود التشغيل من هنا لأن run.py هو المسؤول الآن
-# if __name__ == "__main__":
-#     asyncio.get_event_loop().run_until_complete(init())
+if __name__ == "__main__":
+    # التأكد من نوع اللوب المستخدم
+    loop = asyncio.get_event_loop_policy().get_event_loop()
+    print(f"🔥 Current Event Loop: {type(loop).__name__}")
+    
+    # تشغيل البوت
+    loop.run_until_complete(init())
