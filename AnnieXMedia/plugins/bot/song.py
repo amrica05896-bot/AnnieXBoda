@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Song Plugin (Clean Text & Error Free)
-# Features: Fixes Thumbnails, Empty Media, and Throttling compatibility.
+# System: Song Plugin (Hybrid: Instant Link + Native Download)
+# Features: Fixes Thumbnails, Empty Media, and integrates new SongDownloader.
 
 import os
 import re
@@ -18,20 +18,14 @@ from pyrogram.types import (
 # استيرادات AnnieXMedia
 from config import BANNED_USERS, SONG_DOWNLOAD_DURATION, SONG_DOWNLOAD_DURATION_LIMIT, OWNER_ID
 from AnnieXMedia import app
-from AnnieXMedia.platforms.Youtube import YouTube
+# ✅ استخدام SongDownloader الجديد للتحميل، و YouTube للمعلومات فقط
+from AnnieXMedia.platforms import YouTube, SongDownloader
 from AnnieXMedia.utils.formatters import convert_bytes
 from AnnieXMedia.utils.inline.song import song_markup
 from AnnieXMedia.utils.database import get_config, set_config
 
 # تحديد المطورين (Sudo)
 SUDO_USERS = OWNER_ID if isinstance(OWNER_ID, list) else [OWNER_ID]
-
-# دالة مساعدة لجلب مسار الكوكيز
-def get_cookie_path():
-    possible = ["AnnieXMedia/assets/cookies.txt", "cookies.txt", "/app/cookies.txt"]
-    for p in possible:
-        if os.path.exists(p): return p
-    return None
 
 # ==========================================================
 #  أوامر التحكم (للمالك فقط)
@@ -61,7 +55,6 @@ async def unlock_buttons(client, message):
 # 1. المعالج الذكي (Regex)
 # ==========================================================
 
-# تم إزالة (video|فيديو|فيد) من بداية الأمر، ليعمل فقط مع الجمل
 @app.on_message(filters.regex(r"^/?(ابعتلي|هات|هاتلي|تنزيل|تحميل|song)(\s+.+)?$") & filters.group & ~BANNED_USERS)
 async def smart_song_handler(client, message: Message):
     # فحص القفل
@@ -94,7 +87,7 @@ async def smart_song_handler(client, message: Message):
     url = await YouTube.url(message) 
     
     if url:
-        if "youtu" not in url:
+        if "youtu" not in url and "googleusercontent" not in url:
             return await message.reply_text("**الرابط ده مش شغال.**")
         return await direct_download_handler(client, message, url, is_video_request)
 
@@ -109,7 +102,7 @@ async def smart_song_handler(client, message: Message):
     if int(duration_sec) > SONG_DOWNLOAD_DURATION_LIMIT:
         return await mystic.edit_text(f"**عذرا الاغنية اطول من {SONG_DOWNLOAD_DURATION} دقيقة.**")
 
-    # فحص قفل الأزرار
+    # فحص قفل الأزرار (التحميل التلقائي)
     if await get_config("buttons_locked"):
         yt_link = f"https://www.youtube.com/watch?v={vidid}"
         await mystic.delete()
@@ -136,20 +129,16 @@ async def yut_command(client, message):
     if len(message.command) < 2:
         return await message.reply_text("**حط الرابط جنب الأمر يا حب.**")
     
-    # استخراج الرابط أو النص
     url = message.text.split(None, 1)[1]
     
     is_video = False
-    # التحقق من طلب الفيديو
     if "فيد" in message.text or "video" in message.text or "فيديو" in message.text:
         is_video = True
         url = url.replace("فيديو", "").replace("فيد", "").replace("video", "").strip()
     
-    # هل هو رابط يوتيوب؟
     if "youtu" in url:
         await direct_download_handler(client, message, url, is_video)
     else:
-        # لو مش رابط، نحوله لأمر ذكي
         message.text = f"تنزيل {url}"
         if is_video:
              message.text = f"ابعتلي فيديو {url}"
@@ -157,79 +146,71 @@ async def yut_command(client, message):
 
 
 # ==========================================================
-# 3. دالة التحميل والرفع (مع الإصلاحات الجذرية)
+# 3. دالة التحميل والرفع (مع استخدام SongDownloader)
 # ==========================================================
 
 async def direct_download_handler(client, message, url, is_video_force=False):
     mystic = await message.reply_text("**جاري التحميل...**")
     
-    # رسالة الجودة
     quality_msg = "جودة قياسية (720p)"
     if message.from_user.id in SUDO_USERS:
         quality_msg = "جودة عالية (Sudo)"
 
     try:
-        # جلب التفاصيل
-        details = await YouTube.details(url)
-        if details:
-            title, _, duration_sec, thumbnail_url, vidid = details
-        else:
+        # جلب التفاصيل باستخدام YouTube API (لأنه أسرع في جلب المعلومات)
+        try:
+            details = await YouTube.details(url)
+            if details:
+                title, _, duration_sec, thumbnail_url, vidid = details
+            else:
+                raise Exception("No Details")
+        except:
             title, duration_sec, thumbnail_url, vidid = "Unknown Track", 0, None, None
 
-        # 🔥 إصلاح [Errno 2]: تحميل الصورة وحفظ مسارها محلياً
-        # نعتمد على دالة download_thumb الموجودة في ملف Youtube.py الجديد
+        # تحميل الصورة المصغرة (Thumb)
         thumb_path = None
         if thumbnail_url:
             try:
-                # محاولة تحميل الصورة وحفظها كملف
                 thumb_path = await YouTube.download_thumb(thumbnail_url)
-            except:
-                thumb_path = None
+            except: thumb_path = None
 
-        # تحميل الوسائط (فيديو/صوت)
-        file_path, is_direct_link = await YouTube.download(
-            url,
-            mystic,
-            video=is_video_force,
-            videoid=vidid,
-            title=title
-        )
+        # ✅ استخدام SongDownloader للتحميل الفعلي (أو الرابط المباشر)
+        path, is_direct_link = await SongDownloader.download(url, is_video=is_video_force)
 
-        # 🔥 إصلاح [WEBPAGE_MEDIA_EMPTY]: التأكد من وجود الملف
-        if not file_path or (not is_direct_link and not os.path.exists(file_path)):
-            return await mystic.edit_text("**فشل التحميل من المصدر أو الملف فارغ.**")
+        if not path:
+             return await mystic.edit_text("**فشل التحميل من المصدر.**")
 
         if is_direct_link:
-             await mystic.edit_text("**جاري التشغيل (بث مباشر سريع)...**")
+             await mystic.edit_text("**جاري التشغيل (بث فوري 🚀)...**")
         else:
-             await mystic.edit_text(f"**جاري الرفع...**\n{quality_msg}")
+             await mystic.edit_text(f"**جاري الرفع من السيرفر...**\n{quality_msg}")
         
         # الرفع
         if is_video_force:
             await client.send_video(
                 message.chat.id,
-                video=file_path,
+                video=path, # قد يكون رابط مباشر أو مسار ملف
                 caption=f"**{title}**\n\n{quality_msg}\n**طلب:** {message.from_user.mention}",
                 duration=duration_sec,
-                thumb=thumb_path, # نرسل مسار الملف وليس الرابط
+                thumb=thumb_path,
                 supports_streaming=True
             )
         else:
             await client.send_audio(
                 message.chat.id,
-                audio=file_path,
+                audio=path, # قد يكون رابط مباشر أو مسار ملف
                 caption=f"**{title}**\n\n{quality_msg}\n**طلب:** {message.from_user.mention}",
                 duration=duration_sec,
                 title=title,
                 performer="Annie Bot",
-                thumb=thumb_path # نرسل مسار الملف وليس الرابط
+                thumb=thumb_path
             )
         
         await mystic.delete()
         
-        # تنظيف الملفات
-        if not is_direct_link and os.path.exists(file_path):
-            os.remove(file_path)
+        # تنظيف الملفات (إذا كان ملفاً محلياً وليس رابطاً)
+        if not is_direct_link and os.path.exists(path):
+            os.remove(path)
         if thumb_path and os.path.exists(thumb_path):
             os.remove(thumb_path)
 
@@ -239,32 +220,7 @@ async def direct_download_handler(client, message, url, is_video_force=False):
 
 
 # ==========================================================
-# 4. أمر رفع الجودة (للمطورين)
-# ==========================================================
-
-@app.on_message(filters.command(["رفع جودة"], prefixes=["", "/"]) & filters.user(SUDO_USERS))
-async def quality_upgrade(client, message):
-    if not message.reply_to_message:
-        return await message.reply_text("**رد على رابط عشان ارفع جودته.**")
-    
-    reply = message.reply_to_message
-    url = None
-    
-    if reply.text:
-        match = re.search(r'(https?://(?:www\.)?youtu(?:\.be|be\.com)/\S+)', reply.text)
-        if match: url = match.group(0)
-    elif reply.caption:
-        match = re.search(r'(https?://(?:www\.)?youtu(?:\.be|be\.com)/\S+)', reply.caption)
-        if match: url = match.group(0)
-        
-    if not url:
-        return await message.reply_text("**مش لاقي رابط يوتيوب في الرسالة دي.**")
-    
-    await direct_download_handler(client, message, url, is_video_force=True)
-
-
-# ==========================================================
-# 5. معالجة الأزرار (Callbacks)
+# 4. معالجة الأزرار (Callbacks)
 # ==========================================================
 
 @app.on_callback_query(filters.regex(pattern=r"song_back") & ~BANNED_USERS)
@@ -339,31 +295,27 @@ async def song_download_cb(client, query):
     yturl = f"https://www.youtube.com/watch?v={vidid}"
     
     try:
-        # جلب المعلومات والصورة
         details = await YouTube.details(yturl)
         if details:
             title, _, duration_sec, thumbnail_url, _ = details
         else:
             title, duration_sec, thumbnail_url = "Unknown Track", 0, None
         
-        # تحميل الصورة المصغرة محلياً
         thumb_path = None
         if thumbnail_url:
-            try:
-                thumb_path = await YouTube.download_thumb(thumbnail_url)
+            try: thumb_path = await YouTube.download_thumb(thumbnail_url)
             except: thumb_path = None
-
     except:
         title, duration_sec, thumb_path = "Unknown", 0, None
 
-    try: user_thumb = await query.message.download()
-    except: user_thumb = None
+    # التحميل (هنا نستخدم YouTube القديم مؤقتاً للجودة المحددة لأن SongDownloader تلقائي)
+    # أو يمكننا استخدام SongDownloader إذا أردنا السرعة على حساب اختيار الجودة الدقيقة
+    # للأمان: سنستخدم YouTube للتحميل المحدد (Formats) و SongDownloader للتحميل السريع
     
-    # استخدام صورة المستخدم إذا وجدت، وإلا الصورة المحملة
-    final_thumb = user_thumb if user_thumb else thumb_path
-
     if stype == "video":
         try:
+            # هنا نستخدم YouTube القديم لدعم format_id (اختيار الجودة)
+            # لأن SongDownloader مصمم للتحميل التلقائي السريع
             file_path, _ = await YouTube.download(
                 yturl,
                 mystic,
@@ -371,25 +323,22 @@ async def song_download_cb(client, query):
                 format_id=format_id,
                 title=title
             )
-            if not file_path or not os.path.exists(file_path):
-                 raise Exception("Download Failed")
+            if not file_path or not os.path.exists(file_path): raise Exception("Failed")
 
             await mystic.edit_text("**جاري الرفع...**")
-            
             await client.send_video(
                 query.message.chat.id,
                 video=file_path,
                 caption=f"**{title}**\n\n**طلب:** {query.from_user.mention}",
                 duration=duration_sec,
-                thumb=final_thumb,
+                thumb=thumb_path,
                 supports_streaming=True
             )
             await mystic.delete()
-        except Exception as e:
-            traceback.print_exc()
-            await mystic.edit_text(f"**فشل الرفع:** {e}")
+            if os.path.exists(file_path): os.remove(file_path)
 
-        if os.path.exists(file_path): os.remove(file_path)
+        except Exception as e:
+            await mystic.edit_text(f"**فشل الرفع:** {e}")
 
     elif stype == "audio":
         try:
@@ -400,11 +349,9 @@ async def song_download_cb(client, query):
                 format_id=format_id,
                 title=title
             )
-            if not file_path or not os.path.exists(file_path):
-                 raise Exception("Download Failed")
+            if not file_path or not os.path.exists(file_path): raise Exception("Failed")
 
             await mystic.edit_text("**جاري الرفع...**")
-            
             await client.send_audio(
                 query.message.chat.id,
                 audio=file_path,
@@ -412,15 +359,12 @@ async def song_download_cb(client, query):
                 duration=duration_sec,
                 title=title,
                 performer="Annie Bot",
-                thumb=final_thumb
+                thumb=thumb_path
             )
             await mystic.delete()
-        except Exception as e:
-            traceback.print_exc()
-            await mystic.edit_text(f"**فشل الرفع:** {e}")
+            if os.path.exists(file_path): os.remove(file_path)
 
-        if os.path.exists(file_path): os.remove(file_path)
+        except Exception as e:
+            await mystic.edit_text(f"**فشل الرفع:** {e}")
     
-    # تنظيف الصور
-    if user_thumb and os.path.exists(user_thumb): os.remove(user_thumb)
     if thumb_path and os.path.exists(thumb_path): os.remove(thumb_path)
