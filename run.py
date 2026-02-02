@@ -1,105 +1,46 @@
 import asyncio
 import os
 import sys
-import importlib
 
 # =================================================================
-# 1. القفل الإجباري للوب (The Loop Locking Mechanism) 🔒
+# 1. إعداد UVLOOP وإنشاء اللوب يدوياً (الخطوة الأولى إجبارياً)
 # =================================================================
 try:
     import uvloop
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    # إنشاء اللوب يدوياً
+    
+    # إنشاء اللوب يدوياً لتسجيله في الذاكرة فوراً
     loop = uvloop.new_event_loop()
     asyncio.set_event_loop(loop)
-    print("✅ UVLOOP Created & Locked! 🚀")
+    print("✅ UVLOOP Active & Locked! 🚀")
 except ImportError:
+    # خطة بديلة لو uvloop مش موجود (للاحتياط)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     print("⚠️ UVLOOP Not Found. Using Default.")
 
-# 💉 حقنة (Monkey Patch) لإجبار بايثون 3.12 على طاعة اللوب بتاعنا
-# دي أهم خطوة لمنع خطأ "attached to a different loop"
+# =================================================================
+# 2. (Monkey Patch) إجبار النظام بالكامل على استخدام اللوب بتاعنا
+# هذه الدالة تمنع بايثون 3.12 من إظهار خطأ "different loop"
+# =================================================================
 def get_my_loop():
     return loop
 
+# استبدال دالة بايثون الأصلية بالدالة بتاعتنا
 asyncio.get_event_loop = get_my_loop
+
 # =================================================================
-
-# الآن نستورد المكتبات وإحنا ضامنين إنهم هيشوفوا اللوب بتاعنا بس
-from pyrogram import idle
-from pytgcalls.exceptions import NoActiveGroupCall
-
+# 3. استيراد كود البوت (يتم الاستيراد بعد تثبيت اللوب)
+# =================================================================
 sys.path.insert(0, os.getcwd())
 
-import config
-from AnnieXMedia import LOGGER, app, userbot
-from AnnieXMedia.core.call import StreamController
-from AnnieXMedia.misc import sudo
-from AnnieXMedia.plugins import ALL_MODULES
-from AnnieXMedia.utils.database import get_banned_users, get_gbanned
-from AnnieXMedia.utils.cookie_handler import fetch_and_store_cookies
-from config import BANNED_USERS
+# استدعاء دالة init من ملف السورس الأصلي
+from AnnieXMedia.__main__ import init
 
-async def init():
-    if (
-        not config.STRING1
-        and not config.STRING2
-        and not config.STRING3
-        and not config.STRING4
-        and not config.STRING5
-    ):
-        LOGGER(__name__).error("Please fill a Pyrogram Session...")
-        exit()
-
-    try:
-        await fetch_and_store_cookies()
-        LOGGER("AnnieXMedia").info("Youtube Cookies Loaded ✅")
-    except Exception as e:
-        LOGGER("AnnieXMedia").warning(f"⚠️ Cookie Error: {e}")
-
-    await sudo()
-
-    try:
-        users = await get_gbanned()
-        for user_id in users:
-            BANNED_USERS.add(user_id)
-        users = await get_banned_users()
-        for user_id in users:
-            BANNED_USERS.add(user_id)
-    except:
-        pass
-
-    # تشغيل البوت
-    print("🤖 Starting Pyrogram Client...")
-    await app.start()
-    
-    print("📂 Loading Modules...")
-    for all_module in ALL_MODULES:
-        importlib.import_module("AnnieXMedia.plugins" + all_module)
-    LOGGER("AnnieXMedia.plugins").info("Modules Loaded...")
-
-    print("🔊 Starting Userbot & Calls...")
-    await userbot.start()
-    await StreamController.start()
-
-    try:
-        await StreamController.stream_call("http://docs.evostream.com/sample_content/assets/sintel1m720p.mp4")
-    except NoActiveGroupCall:
-        LOGGER("AnnieXMedia").error("Please turn on Voice Chat...")
-        exit()
-    except:
-        pass
-
-    await StreamController.decorators()
-    LOGGER("AnnieXMedia").info("✅ Annie Music Bot Started Successfully.")
-    
-    await idle()
-    
-    await app.stop()
-    await userbot.stop()
-
+# =================================================================
+# 4. تشغيل البوت
+# =================================================================
 if __name__ == "__main__":
     print(f"🔥 Current Event Loop: {type(loop).__name__}")
-    # تشغيل اللوب اللي ثبتناه فوق
+    # تشغيل الدالة داخل اللوب الذي أنشأناه في السطر 15
     loop.run_until_complete(init())
