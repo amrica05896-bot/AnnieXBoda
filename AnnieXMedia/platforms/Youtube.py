@@ -1,7 +1,7 @@
 # Authored By Certified 
 # Fixed for platforms/Youtube.py
-# NUCLEAR EDITION: 16-Core Aria2c + iOS Spoofing + Smart Format Merge
-# FEATURES: Anti-Throttle, URL Sanitizer, Thumb Fix, IPv4 Force
+# NUCLEAR EDITION: 16-Core Aria2c + Force IPv4 + JS Solver
+# REMOVED: Client Spoofing (iOS/Android) for maximum stability.
 
 import asyncio
 import os
@@ -175,7 +175,7 @@ class YouTubeAPI:
         except: return None
         return None
 
-    # 🔥 التحميل الخلفي (Aria2c + iOS + فك الخنق)
+    # 🔥 التحميل الخلفي (بدون انتحال + JS Solver)
     def _background_download(self, link, final_path, is_video):
         try:
             aria2_args = [
@@ -183,7 +183,6 @@ class YouTubeAPI:
                 "--file-allocation=none", "--disable-ipv6=true"
             ]
             
-            # إزالة [ext=mp4] لتجنب الأخطاء، نعتمد على الدمج
             fmt = "bestvideo[height<=720]+bestaudio/best[height<=720]" if is_video else "bestaudio/best"
             
             ydl_opts = {
@@ -193,18 +192,17 @@ class YouTubeAPI:
                 "geo_bypass": True,
                 "nocheckcertificate": True,
                 "quiet": True,
-                "force_ipv4": True, # إجبار IPv4
+                "force_ipv4": True, # ✅ ضروري للسرعة
                 
-                # استخدام iOS لدعم الكوكيز بشكل أفضل من أندرويد
-                "extractor_args": {"youtube": {"player_client": ["ios", "web"]}},
-                "remote_components": ["ejs:github"], # لحل ألغاز JS
+                # ✅ الإبقاء على حل الجافا سكريبت فقط
+                "remote_components": ["ejs:github"], 
                 
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
             }
             
             if is_video:
-                ydl_opts["merge_output_format"] = "mp4" # تحويل أي صيغة إلى mp4
+                ydl_opts["merge_output_format"] = "mp4"
             else:
                 ydl_opts["postprocessors"] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
 
@@ -257,7 +255,7 @@ class YouTubeAPI:
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
                         "force_ipv4": True,
-                        "extractor_args": {"youtube": {"player_client": ["ios", "web"]}},
+                        "remote_components": ["ejs:github"], # ✅ JS Solver
                         "external_downloader": "aria2c",
                         "external_downloader_args": aria2_args,
                     }
@@ -279,8 +277,9 @@ class YouTubeAPI:
             cmd = [
                 "yt-dlp", "-g",
                 "--cookies", get_cookie_file() or "",
-                "--force-ipv4",
-                "--extractor-args", "youtube:player_client=ios",
+                "--force-ipv4", # ✅ ضروري
+                "--remote-components", "ejs:github", # ✅ ضروري
+                # ⚠️ تم إزالة انتحال العميل
             ]
             
             if video:
@@ -306,7 +305,7 @@ class YouTubeAPI:
         # 4. Fallback (التحميل العادي)
         def _fallback_download():
             try:
-                # فلتر ذكي يقبل أي صيغة ثم يحولها
+                # فلتر مرن
                 fmt = "bestvideo[height<=720]+bestaudio/best[height<=720]" if video else "bestaudio/best"
                 ydl_opts = {
                     "format": fmt,
@@ -314,8 +313,8 @@ class YouTubeAPI:
                     "cookiefile": get_cookie_file(),
                     "quiet": True,
                     "force_ipv4": True,
-                    "remote_components": ["ejs:github"],
-                    "extractor_args": {"youtube": {"player_client": ["ios", "web"]}}
+                    "remote_components": ["ejs:github"], # ✅ JS Solver
+                    # ⚠️ تم إزالة انتحال العميل
                 }
                 
                 if video:
@@ -343,23 +342,8 @@ class YouTubeAPI:
         
         return None, False
 
-    async def playlist(self, link, limit, user_id, videoid: Union[bool, str] = None):
-        if videoid: link = self.listbase + link
-        if "&" in link: link = link.split("&")[0]
-        cmd = (
-            f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
-            f"--force-ipv4 "
-            f"--extractor-args 'youtube:player_client=ios' "
-            f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
-            f"2>/dev/null"
-        )
-        proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        out, _ = await proc.communicate()
-        try: result = [key for key in out.decode().split("\n") if key]
-        except: result = []
-        return result
-
-    async def formats(self, link: str, videoid: Union[bool, str] = None):
+    @asyncify
+    def formats(self, link: str, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
         ytdl_opts = {"quiet": True, "cookiefile": get_cookie_file(), "force_ipv4": True}
         with yt_dlp.YoutubeDL(ytdl_opts) as ydl:
@@ -372,6 +356,7 @@ class YouTubeAPI:
                         "filesize": format.get("filesize"),
                         "format_id": format["format_id"],
                         "ext": format["ext"],
+                        "format_note": format.get("format_note", ""),
                         "yturl": link,
                     })
             except: pass
