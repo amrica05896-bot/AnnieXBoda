@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Song Plugin (Hybrid: Instant Link + Native Download)
-# Features: Fixes Thumbnails, Empty Media, and integrates new SongDownloader.
+# System: Song Plugin (Clean Text & Error Free)
+# Features: Fixes Thumbnails, Empty Media, and Throttling compatibility.
 
 import os
 import re
@@ -18,7 +18,7 @@ from pyrogram.types import (
 # استيرادات AnnieXMedia
 from config import BANNED_USERS, SONG_DOWNLOAD_DURATION, SONG_DOWNLOAD_DURATION_LIMIT, OWNER_ID
 from AnnieXMedia import app
-# ✅ استخدام SongDownloader الجديد للتحميل، و YouTube للمعلومات فقط
+# ✅ الربط مع المحرك الجديد SongDownloader ومعلومات YouTube
 from AnnieXMedia.platforms import YouTube, SongDownloader
 from AnnieXMedia.utils.formatters import convert_bytes
 from AnnieXMedia.utils.inline.song import song_markup
@@ -70,17 +70,15 @@ async def smart_song_handler(client, message: Message):
 
     # التحقق من وجود نص للبحث
     if not query or query.strip() == "":
-        return await message.reply_text("**يا حب اكتب اسم الاغنية او الرابط بعد الأمر.**")
+        return await message.reply_text("**اكتب اسم الاغنية او الرابط بعد الأمر.**")
 
     query = query.strip()
 
     # تحديد نوع الطلب (هل يريد فيديو؟)
     is_video_request = False
     
-    # فحص الكلمات الدلالية داخل الجملة
     if "فيديو" in query or "video" in query or "فيد" in query:
         is_video_request = True
-        # تنظيف كلمة فيديو من البحث
         query = query.replace("فيديو", "").replace("video", "").replace("فيد", "").strip()
 
     # هل النص رابط؟
@@ -88,7 +86,7 @@ async def smart_song_handler(client, message: Message):
     
     if url:
         if "youtu" not in url and "googleusercontent" not in url:
-            return await message.reply_text("**الرابط ده مش شغال.**")
+            return await message.reply_text("**الرابط غير مدعوم.**")
         return await direct_download_handler(client, message, url, is_video_request)
 
     # البحث
@@ -127,7 +125,7 @@ async def yut_command(client, message):
         return await message.reply_text("**التنزيل مغلق حاليا.**")
 
     if len(message.command) < 2:
-        return await message.reply_text("**حط الرابط جنب الأمر يا حب.**")
+        return await message.reply_text("**ضع الرابط بجانب الأمر.**")
     
     url = message.text.split(None, 1)[1]
     
@@ -146,18 +144,18 @@ async def yut_command(client, message):
 
 
 # ==========================================================
-# 3. دالة التحميل والرفع (مع استخدام SongDownloader)
+# 3. دالة التحميل والرفع (باستخدام SongDownloader)
 # ==========================================================
 
 async def direct_download_handler(client, message, url, is_video_force=False):
-    mystic = await message.reply_text("**جاري التحميل...**")
+    mystic = await message.reply_text("**جاري المعالجة...**")
     
     quality_msg = "جودة قياسية (720p)"
     if message.from_user.id in SUDO_USERS:
         quality_msg = "جودة عالية (Sudo)"
 
     try:
-        # جلب التفاصيل باستخدام YouTube API (لأنه أسرع في جلب المعلومات)
+        # جلب التفاصيل
         try:
             details = await YouTube.details(url)
             if details:
@@ -167,29 +165,29 @@ async def direct_download_handler(client, message, url, is_video_force=False):
         except:
             title, duration_sec, thumbnail_url, vidid = "Unknown Track", 0, None, None
 
-        # تحميل الصورة المصغرة (Thumb)
+        # تحميل الصورة المصغرة
         thumb_path = None
         if thumbnail_url:
             try:
                 thumb_path = await YouTube.download_thumb(thumbnail_url)
             except: thumb_path = None
 
-        # ✅ استخدام SongDownloader للتحميل الفعلي (أو الرابط المباشر)
+        # ✅ استخدام SongDownloader للتحميل (يدعم الروابط المباشرة والملفات)
         path, is_direct_link = await SongDownloader.download(url, is_video=is_video_force)
 
         if not path:
              return await mystic.edit_text("**فشل التحميل من المصدر.**")
 
         if is_direct_link:
-             await mystic.edit_text("**جاري التشغيل (بث فوري 🚀)...**")
+             await mystic.edit_text("**جاري التشغيل (بث مباشر)...**")
         else:
-             await mystic.edit_text(f"**جاري الرفع من السيرفر...**\n{quality_msg}")
+             await mystic.edit_text(f"**جاري الرفع...**\n{quality_msg}")
         
         # الرفع
         if is_video_force:
             await client.send_video(
                 message.chat.id,
-                video=path, # قد يكون رابط مباشر أو مسار ملف
+                video=path,
                 caption=f"**{title}**\n\n{quality_msg}\n**طلب:** {message.from_user.mention}",
                 duration=duration_sec,
                 thumb=thumb_path,
@@ -198,7 +196,7 @@ async def direct_download_handler(client, message, url, is_video_force=False):
         else:
             await client.send_audio(
                 message.chat.id,
-                audio=path, # قد يكون رابط مباشر أو مسار ملف
+                audio=path,
                 caption=f"**{title}**\n\n{quality_msg}\n**طلب:** {message.from_user.mention}",
                 duration=duration_sec,
                 title=title,
@@ -208,7 +206,7 @@ async def direct_download_handler(client, message, url, is_video_force=False):
         
         await mystic.delete()
         
-        # تنظيف الملفات (إذا كان ملفاً محلياً وليس رابطاً)
+        # تنظيف الملفات (فقط إذا كانت ملفات محلية)
         if not is_direct_link and os.path.exists(path):
             os.remove(path)
         if thumb_path and os.path.exists(thumb_path):
@@ -216,7 +214,7 @@ async def direct_download_handler(client, message, url, is_video_force=False):
 
     except Exception as e:
         traceback.print_exc()
-        await mystic.edit_text(f"**خطأ:** {e}")
+        await mystic.edit_text(f"**حدث خطأ:** {e}")
 
 
 # ==========================================================
@@ -308,14 +306,11 @@ async def song_download_cb(client, query):
     except:
         title, duration_sec, thumb_path = "Unknown", 0, None
 
-    # التحميل (هنا نستخدم YouTube القديم مؤقتاً للجودة المحددة لأن SongDownloader تلقائي)
-    # أو يمكننا استخدام SongDownloader إذا أردنا السرعة على حساب اختيار الجودة الدقيقة
-    # للأمان: سنستخدم YouTube للتحميل المحدد (Formats) و SongDownloader للتحميل السريع
+    # في حالة الأزرار، نستخدم YouTube القديم لاحترام اختيار المستخدم للجودة (Format ID)
+    # لأن SongDownloader يعمل أوتوماتيكياً للأفضل
     
     if stype == "video":
         try:
-            # هنا نستخدم YouTube القديم لدعم format_id (اختيار الجودة)
-            # لأن SongDownloader مصمم للتحميل التلقائي السريع
             file_path, _ = await YouTube.download(
                 yturl,
                 mystic,
