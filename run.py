@@ -3,14 +3,23 @@ import os
 import sys
 import importlib
 
-# 1. تفعيل UVLOOP فوراً
+# 1. تفعيل UVLOOP وإنشاء اللوب يدوياً (الحل السحري) 🪄
 try:
     import uvloop
+    # تفعيل السياسة
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    print("✅ UVLOOP is installed and ACTIVE! 🚀")
+    
+    # ⚠️ الخطوة اللي كانت ناقصة: خلق اللوب فوراً قبل أي استيراد
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    print("✅ UVLOOP is installed, ACTIVE, and Running! 🚀")
 except ImportError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     print("⚠️ UVLOOP is NOT installed. Falling back to default asyncio.")
 
+# دلوقتي نقدر نستورد المكتبات بأمان لأن اللوب موجود خلاص
 from pyrogram import idle
 from pytgcalls.exceptions import NoActiveGroupCall
 
@@ -18,7 +27,6 @@ from pytgcalls.exceptions import NoActiveGroupCall
 sys.path.insert(0, os.getcwd())
 
 import config
-# استيراد المتغيرات فقط، وليس دالة init القديمة
 from AnnieXMedia import LOGGER, app, userbot
 from AnnieXMedia.core.call import StreamController
 from AnnieXMedia.misc import sudo
@@ -27,7 +35,6 @@ from AnnieXMedia.utils.database import get_banned_users, get_gbanned
 from AnnieXMedia.utils.cookie_handler import fetch_and_store_cookies
 from config import BANNED_USERS
 
-# 2. تعريف دالة التشغيل هنا لتجنب أخطاء الاستيراد
 async def init():
     if (
         not config.STRING1
@@ -89,6 +96,6 @@ async def init():
     await userbot.stop()
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop_policy().get_event_loop()
+    # استخدام اللوب اللي خلقناه فوق
     print(f"🔥 Current Event Loop: {type(loop).__name__}")
     loop.run_until_complete(init())
