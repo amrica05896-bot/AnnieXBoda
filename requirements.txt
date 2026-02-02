@@ -1,50 +1,55 @@
-# ===== Core Async & Performance =====
+# ===== Core Async & Performance (الأساسيات السريعة) =====
+uvloop==0.21.0
 aiofiles
 aiohttp
-httpx[http2]>=0.28.1
-uvloop==0.21.0
+# إضافة standard و http2 لتفعيل كل مميزات السرعة
+httpx[http2,brotli]>=0.28.1
 psutil
 cachetools
-brotli
 certifi
 
-# ===== Crypto / Security =====
+# ===== Crypto / Security (التشفير) =====
 argon2-cffi
 pycryptodome
 pytgcrypto
 
-# ===== Scheduling =====
-apscheduler
-
-# ===== Media / Audio / Video =====
-yt-dlp>=2026.1.29
+# ===== Media Processing (الصور والفيديو) =====
+# تم وضع numpy في الأول لأنه أساس لكل اللي تحته
+numpy
+# النسخة دي بتشتغل مع libgl1 اللي ضفناها في الدوكر
+opencv-python
+pillow>=12.0.0
 ffmpeg-python
 pydub
 mutagen
 hachoir
-opencv-python
-numpy
-pillow>=12.0.0
-wget
 
-# ===== Telegram / Calls =====
-ntgcalls>=2.0.7
+# ===== YouTube & Downloads (التحميل) =====
+yt-dlp>=2025.01.26
+wget
+# النسخة المعدلة بتاعتك
+git+https://github.com/q058961234-web/youtube-search-python.git
+# الكلاينت السريع جداً (مهم لفك تشفير يوتيوب و g4f)
+curl_cffi>=0.6.2
+
+# ===== Telegram / Calls (الاتصالات) =====
+# تأكد إن kurigram متوافق مع نسخة البايثون دي
 kurigram>=2.2.18
 pyromod
+ntgcalls>=2.0.7
+# pytgcalls (المحلي) سيتم تثبيته من الدوكر مباشرة
 
-# ===== Web / API / Servers =====
+# ===== Web & Servers (السيرفرات) =====
+# إضافة standard لتفعيل uvloop داخل uvicorn
+uvicorn[standard]
 fastapi
 flask
-uvicorn
 python-multipart
 python-dotenv
 requests
 
-# ===== Databases =====
-motor
-pymongo
-
-# ===== Search / AI / TTS =====
+# ===== AI / TTS / Search (الذكاء الاصطناعي) =====
+g4f>=0.2.0
 edge-tts
 gtts
 googletrans
@@ -55,19 +60,24 @@ spotipy
 deepai
 lexica-api
 nekosbest
-g4f>=0.2.0
 
-# ===== Scraping / Parsing =====
+# ===== Databases (قواعد البيانات) =====
+motor
+pymongo
+
+# ===== Scraping & Parsing (تحليل البيانات) =====
 beautifulsoup4
 bs4
 python-whois
 pyyaml
 unidecode
+# المكتبات دي بتعمل نفس الحاجة بس سبتهم زي ما طلبت
 rapidfuzz
 fuzzywuzzy
 python-Levenshtein
 
-# ===== Utilities =====
+# ===== Utilities (أدوات مساعدة) =====
+apscheduler
 pyfiglet
 pyshorteners
 qrcode
@@ -76,15 +86,5 @@ speedtest-cli
 future
 gitpython
 heroku3
-
-# ===== Images =====
 bing_image_downloader
-
-# ===== CURL (Ultra Fast HTTP for yt-dlp fallback) =====
-curl_cffi>=0.6.2
-
-# ===== Time / Locale =====
 pytz
-
-# ===== YouTube Search (patched fork) =====
-git+https://github.com/q058961234-web/youtube-search-python.git
