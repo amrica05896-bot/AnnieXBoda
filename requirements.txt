@@ -17,7 +17,7 @@ pytgcrypto
 # تم وضع numpy في الأول لأنه أساس لكل اللي تحته
 numpy
 # النسخة دي بتشتغل مع libgl1 اللي ضفناها في الدوكر
-opencv-python
+opencv-python-headless
 pillow>=12.0.0
 ffmpeg-python
 pydub
