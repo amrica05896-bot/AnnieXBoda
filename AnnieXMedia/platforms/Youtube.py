@@ -1,7 +1,8 @@
 # Authored By Certified 
 # Fixed for platforms/Youtube.py
-# NUCLEAR EDITION: 16-Core Aria2c + Force IPv4 + JS Solver
-# REMOVED: Client Spoofing (iOS/Android) for maximum stability.
+# NUCLEAR EDITION: 16-Core Aria2c + Smart Format Merge
+# FEATURES: Anti-Throttle, URL Sanitizer, Thumb Fix, IPv4 Force
+# NOTE: removed 'android' and 'ios' player_client usages — using 'web' only
 
 import asyncio
 import os
@@ -24,6 +25,7 @@ except ImportError:
     def LOGGER(name): return logging.getLogger(name)
     def time_to_seconds(t): return 0
 
+# ---------------- Config ----------------
 class Config:
     # استخدام الرام (Shm) للسرعة القصوى
     if os.path.exists("/dev/shm"):
@@ -41,14 +43,18 @@ _cache: Dict[str, Tuple[float, List[Dict]]] = {}
 _cache_lock = asyncio.Lock()
 YOUTUBE_META_TTL = 3600
 
+# ---------------- Helpers ----------------
 def get_cookie_file():
     possible_paths = [
         Config.COOKIE_PATH, "cookies.txt", "AnnieXMedia/cookies.txt",
         "assets/cookies.txt", "platforms/cookies.txt", "/app/cookies.txt"
     ]
     for path in possible_paths:
-        if os.path.exists(path) and os.path.getsize(path) > 0:
-            return os.path.abspath(path)
+        try:
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                return os.path.abspath(path)
+        except Exception:
+            continue
     return None
 
 # ✅ تعريف Decorator الناقص
@@ -58,6 +64,7 @@ def asyncify(func):
         return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
     return wrapper
 
+# ---------------- YouTube API ----------------
 class YouTubeAPI:
     def __init__(self):
         self.base = "https://www.youtube.com/watch?v="
@@ -103,9 +110,14 @@ class YouTubeAPI:
 
         try:
             results = VideosSearch(link, limit=1)
-            try: res = await results.next()
-            except: res = results.result()
-
+            try:
+                res = await results.next()
+            except Exception:
+                # fallback to property if library behaves differently
+                try:
+                    res = await results.result()
+                except Exception:
+                    res = {}
             if not res or not res.get("result"):
                 raise ValueError("No Result")
             data = res["result"][0]
@@ -175,7 +187,7 @@ class YouTubeAPI:
         except: return None
         return None
 
-    # 🔥 التحميل الخلفي (بدون انتحال + JS Solver)
+    # 🔥 التحميل الخلفي (Aria2c + فك الخنق) — player_client: ['web'] فقط
     def _background_download(self, link, final_path, is_video):
         try:
             aria2_args = [
@@ -183,6 +195,7 @@ class YouTubeAPI:
                 "--file-allocation=none", "--disable-ipv6=true"
             ]
             
+            # إزالة [ext=mp4] لتجنب الأخطاء، نعتمد على الدمج
             fmt = "bestvideo[height<=720]+bestaudio/best[height<=720]" if is_video else "bestaudio/best"
             
             ydl_opts = {
@@ -192,17 +205,18 @@ class YouTubeAPI:
                 "geo_bypass": True,
                 "nocheckcertificate": True,
                 "quiet": True,
-                "force_ipv4": True, # ✅ ضروري للسرعة
+                "force_ipv4": True, # إجبار IPv4
                 
-                # ✅ الإبقاء على حل الجافا سكريبت فقط
-                "remote_components": ["ejs:github"], 
+                # استخدام web فقط (حذف android/ios)
+                "extractor_args": {"youtube": {"player_client": ["web"]}},
+                "remote_components": ["ejs:github"], # لحل ألغاز JS
                 
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
             }
             
             if is_video:
-                ydl_opts["merge_output_format"] = "mp4"
+                ydl_opts["merge_output_format"] = "mp4" # تحويل أي صيغة إلى mp4
             else:
                 ydl_opts["postprocessors"] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
 
@@ -227,7 +241,8 @@ class YouTubeAPI:
         if "googleusercontent.com" in link:
             try:
                 real_id = link.split("youtube.com/")[-1]
-                if real_id[0].isdigit() and len(real_id) > 11: real_id = real_id[1:]
+                if real_id and real_id[0].isdigit() and len(real_id) > 11:
+                    real_id = real_id[1:]
                 link = f"https://www.youtube.com/watch?v={real_id}"
             except: pass
         
@@ -255,7 +270,8 @@ class YouTubeAPI:
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
                         "force_ipv4": True,
-                        "remote_components": ["ejs:github"], # ✅ JS Solver
+                        # web only here too
+                        "extractor_args": {"youtube": {"player_client": ["web"]}},
                         "external_downloader": "aria2c",
                         "external_downloader_args": aria2_args,
                     }
@@ -272,14 +288,13 @@ class YouTubeAPI:
             dl_path = await loop.run_in_executor(self.pool, _specific_download)
             return dl_path, False
 
-        # 3. البث المباشر (Direct Stream)
+        # 3. البث المباشر (Direct Stream) — استخدام web فقط
         try:
             cmd = [
                 "yt-dlp", "-g",
                 "--cookies", get_cookie_file() or "",
-                "--force-ipv4", # ✅ ضروري
-                "--remote-components", "ejs:github", # ✅ ضروري
-                # ⚠️ تم إزالة انتحال العميل
+                "--force-ipv4",
+                "--extractor-args", "youtube:player_client=web",
             ]
             
             if video:
@@ -305,7 +320,7 @@ class YouTubeAPI:
         # 4. Fallback (التحميل العادي)
         def _fallback_download():
             try:
-                # فلتر مرن
+                # فلتر ذكي يقبل أي صيغة ثم يحولها
                 fmt = "bestvideo[height<=720]+bestaudio/best[height<=720]" if video else "bestaudio/best"
                 ydl_opts = {
                     "format": fmt,
@@ -313,8 +328,9 @@ class YouTubeAPI:
                     "cookiefile": get_cookie_file(),
                     "quiet": True,
                     "force_ipv4": True,
-                    "remote_components": ["ejs:github"], # ✅ JS Solver
-                    # ⚠️ تم إزالة انتحال العميل
+                    "remote_components": ["ejs:github"],
+                    # web only
+                    "extractor_args": {"youtube": {"player_client": ["web"]}}
                 }
                 
                 if video:
@@ -342,8 +358,23 @@ class YouTubeAPI:
         
         return None, False
 
-    @asyncify
-    def formats(self, link: str, videoid: Union[bool, str] = None):
+    async def playlist(self, link, limit, user_id, videoid: Union[bool, str] = None):
+        if videoid: link = self.listbase + link
+        if "&" in link: link = link.split("&")[0]
+        cmd = (
+            f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
+            f"--force-ipv4 "
+            f"--extractor-args 'youtube:player_client=web' "
+            f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
+            f"2>/dev/null"
+        )
+        proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        out, _ = await proc.communicate()
+        try: result = [key for key in out.decode().split("\n") if key]
+        except: result = []
+        return result
+
+    async def formats(self, link: str, videoid: Union[bool, str] = None):
         if videoid: link = self.base + link
         ytdl_opts = {"quiet": True, "cookiefile": get_cookie_file(), "force_ipv4": True}
         with yt_dlp.YoutubeDL(ytdl_opts) as ydl:
@@ -356,7 +387,6 @@ class YouTubeAPI:
                         "filesize": format.get("filesize"),
                         "format_id": format["format_id"],
                         "ext": format["ext"],
-                        "format_note": format.get("format_note", ""),
                         "yturl": link,
                     })
             except: pass
