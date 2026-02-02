@@ -46,4 +46,4 @@ RUN pip install -U g4f curl_cffi uvloop
 COPY . .
 
 # 7. انطلاق الصاروخ 🚀
-CMD ["python3", "-m", "AnnieXMedia"]
+CMD ["python3", "run.py"]
