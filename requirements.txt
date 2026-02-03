@@ -60,7 +60,7 @@ spotipy
 deepai
 lexica-api
 nekosbest
-g4f>=0.2.0
+g4f
 
 # ===== Scraping / Parsing =====
 beautifulsoup4
