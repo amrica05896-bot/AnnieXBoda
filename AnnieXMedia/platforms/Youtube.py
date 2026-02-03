@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
-# Author: Certified Fixes 2026
-# Purpose: fast -g direct stream + background RAM caching + yt-dlp tuning
+# Author: Certified Fixes 2026 (optimized get_direct_link via yt_dlp API)
+# Purpose: fast -g direct stream (via yt_dlp API) + background RAM caching + yt-dlp tuning
 
 import asyncio
 import contextlib
@@ -256,29 +256,130 @@ class YouTubeAPI:
             pass
         return out, prepared
 
-    # ---------- get_direct_link using yt-dlp -g (fast) ----------
+    # ---------- get_direct_link using yt_dlp API (fast) ----------
     async def get_direct_link(self, link: str, *, prefer_audio: bool = False) -> Optional[str]:
+        """
+        Use yt_dlp Python API to extract formats and choose a progressive/muxed URL fast.
+        Returns a direct URL (string) or None.
+        """
         prepared = self._prepare_link(link)
         if not prepared:
             return None
-        cookie = get_cookie_file()
-        cmd = ["yt-dlp", "-g", "--force-ipv4", "--no-warnings"]
-        if cookie:
-            cmd += ["--cookies", cookie]
-        if prefer_audio:
-            cmd += ["-f", "bestaudio[ext=m4a]/bestaudio"]
-        else:
-            cmd += ["-f", "best[ext=mp4]/best"]
-        cmd += ["--extractor-args", "youtube:player_client=web", prepared]
 
-        out, err = await _exec_proc(*cmd, timeout=10)
-        if out:
+        cookie = get_cookie_file()
+        loop = asyncio.get_running_loop()
+
+        def _extract_info():
+            opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "format": "best",
+                "noplaylist": True,
+            }
+            if cookie:
+                opts["cookiefile"] = cookie
+            # help network: small socket timeout via yt-dlp opts
+            opts["socket_timeout"] = 10
             try:
-                return out.decode().splitlines()[0].strip()
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(prepared, download=False)
+                    return info
+            except Exception as e:
+                return {"_extract_err": str(e)}
+
+        info = await loop.run_in_executor(self.pool, _extract_info)
+        if not info or isinstance(info, dict) and info.get("_extract_err"):
+            # fallback to subprocess -g (last resort)
+            try:
+                cmd = ["yt-dlp", "-g", "--force-ipv4", "--no-warnings"]
+                if cookie:
+                    cmd += ["--cookies", cookie]
+                if prefer_audio:
+                    cmd += ["-f", "bestaudio[ext=m4a]/bestaudio"]
+                else:
+                    cmd += ["-f", "best[ext=mp4]/best"]
+                cmd += ["--extractor-args", "youtube:player_client=web", prepared]
+                out, err = await _exec_proc(*cmd, timeout=10)
+                if out:
+                    return out.decode().splitlines()[0].strip()
             except Exception:
-                return None
-        if err:
-            log.debug("yt-dlp -g stderr: %s", err.decode(errors="ignore"))
+                pass
+            return None
+
+        # choose best candidate from formats
+        formats = info.get("formats") or []
+        candidates = []
+
+        # helper to rank protocol/ext quality
+        def rank(fmt):
+            score = 0
+            proto = fmt.get("protocol", "") or ""
+            ext = (fmt.get("ext") or "").lower()
+            vcodec = fmt.get("vcodec") or ""
+            acodec = fmt.get("acodec") or ""
+            # prefer https/http
+            if proto.startswith("https"): score += 30
+            if proto.startswith("http"): score += 20
+            # prefer mp4/m4a/webm
+            if ext in ("mp4",): score += 10
+            if ext in ("m4a","webm"): score += 8
+            # prefer muxed (have both codecs) for video playback
+            if vcodec and vcodec != "none" and acodec and acodec != "none":
+                score += 40
+            # prefer audio-only for prefer_audio
+            if prefer_audio and (acodec and acodec != "none"):
+                score += 15
+            # prefer higher bitrate/resolution
+            br = fmt.get("tbr") or fmt.get("abr") or 0
+            try:
+                score += int(br) // 100
+            except Exception:
+                pass
+            return score
+
+        for f in formats:
+            # ignore broken formats
+            if not f.get("url"):
+                continue
+            # skip DASH fragmented that are not progressive if possible
+            proto = (f.get("protocol") or "").lower()
+            # collect typical progressive protocols
+            if proto.startswith(("https","http","mms","rtmp","m3u8")):
+                candidates.append((rank(f), f))
+
+        # sort by score desc
+        candidates.sort(key=lambda x: x[0], reverse=True)
+
+        # pick first suitable
+        for score, fmt in candidates:
+            url = fmt.get("url")
+            if not url:
+                continue
+            # prefer muxed if video; if prefer_audio choose audio-only
+            if prefer_audio:
+                # ensure this format has audio
+                ac = fmt.get("acodec") or ""
+                if ac == "none":
+                    continue
+                return url
+            else:
+                # prefer muxed (audio+video) for immediate playback in calls
+                v = fmt.get("vcodec") or ""
+                a = fmt.get("acodec") or ""
+                if v != "none" and a != "none":
+                    return url
+                # otherwise accept audio-only for audio case
+                if fmt.get("ext") in ("m4a","mp3","webm") and (a and a != "none"):
+                    return url
+                # accept progressive mp4
+                if (fmt.get("ext") or "").lower() == "mp4":
+                    return url
+
+        # last-resort: if any format has url, return the first one
+        for f in formats:
+            if f.get("url"):
+                return f.get("url")
+
         return None
 
     # background downloader to RAM (blocking)
@@ -384,14 +485,14 @@ class YouTubeAPI:
             res = await loop.run_in_executor(self.pool, _specific)
             return (res, False) if res else (None, False)
 
-        # 3) try direct link fast-path
+        # 3) try direct link fast-path (yt_dlp API)
         try:
             direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
         except Exception:
             direct = None
 
         if direct:
-            # schedule background cache after ~10s
+            # schedule background cache after ~10s (non-blocking)
             def _delayed_cache():
                 try:
                     time.sleep(10)
