@@ -1,49 +1,74 @@
-# استخدام أحدث وأخف نسخة مستقرة من بايثون
+# استخدام أحدث وأخف نسخة مستقرة
 FROM python:3.12-slim
 
-# تحسينات الأداء للبيئة
+# ===============================
+# Performance & Runtime Tweaks
+# ===============================
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
+ENV DENO_INSTALL="/root/.deno"
+ENV PATH="${DENO_INSTALL}/bin:${PATH}"
 
 WORKDIR /app
 
-# 1. تثبيت "محركات السرعة" وأدوات النظام
-# - aria2: عشان السرعة الجنونية (أهم حاجة كانت ناقصة).
-# - nodejs: عشان فك تشفير يوتيوب الجديد.
-# - ffmpeg: عشان معالجة الصوت والفيديو.
+# ===============================
+# System Engines (Speed Core)
+# ===============================
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         git ffmpeg curl unzip build-essential python3-dev \
         libffi-dev libxml2-dev libxslt-dev zlib1g-dev gcc \
-        aria2 && \
-    # تثبيت Node.js (المحرك 1 لفك التشفير)
+        aria2 ca-certificates && \
+    \
+    # Node.js (YouTube Cipher Engine 1)
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
-    # تنظيف المخلفات لتقليل حجم الصورة
+    \
+    # Deno (YouTube Cipher Engine 2 – مهم جدًا 2026)
+    curl -fsSL https://deno.land/install.sh | sh && \
+    \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# 2. تحديث أدوات بايثون الأساسية
+# ===============================
+# Python Core Upgrade
+# ===============================
 RUN pip install --upgrade pip setuptools wheel
 
-# 3. نسخ مجلد pytgcalls (النسخة المحلية المعدلة)
+# ===============================
+# Local pytgcalls (Custom Build)
+# ===============================
 COPY pytgcalls /app/pytgcalls
 
-# 4. تثبيت المكتبات (مع استثناء pytgcalls لتجنب التعارض)
+# ===============================
+# Python Libraries
+# ===============================
 COPY requirements.txt .
+
+# استبعاد pytgcalls / py-tgcalls لمنع التعارض
 RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
     pip install --no-cache-dir -r filtered.txt
 
-# 5. 🔥 الضربة القاضية: إعدادات yt-dlp الإجبارية 🔥
-# هذا السطر يجبر البوت على تحميل أدوات فك التشفير تلقائياً دون انتظار إذن
+# ===============================
+# 🔥 UVLOOP + Network Boost
+# ===============================
+RUN pip install --no-cache-dir \
+    uvloop \
+    g4f \
+    curl_cffi
+
+# ===============================
+# yt-dlp Global Forced Config
+# ===============================
 RUN mkdir -p /etc/yt-dlp && \
     echo "--remote-components ejs:github" > /etc/yt-dlp.conf
 
-# تثبيت g4f و curl_cffi و uvloop (كما طلبت)
-RUN pip install -U g4f curl_cffi uvloop
-
-# 6. نسخ باقي ملفات البوت
+# ===============================
+# Copy Bot Source
+# ===============================
 COPY . .
 
-# 7. انطلاق الصاروخ 🚀
+# ===============================
+# Launch 🚀
+# ===============================
 CMD ["python3", "run.py"]
