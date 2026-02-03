@@ -21,14 +21,10 @@ from config import OWNER_ID
 
 # استيراد دوال المحرك الجديد (g4f)
 from .engine import (
-    AI,
+    ENGINE,
     ask_ollama_stream,
-    clear_all_memory,
     clear_user_memory,
-    set_light_model,
-    set_heavy_model,
     toggle_model, 
-    get_current_model, 
 )
 
 from .prompts import build_system_prompt
@@ -73,15 +69,9 @@ def should_trigger_ai(message: Message, bot_id: Optional[int]) -> bool:
         return False
 
     uid = message.from_user.id
-
-    # 1. الذكاء الدائم
     if uid in AI_STATE.permanent_users:
         return True
 
-    # تم الغاء الرد عند الريبلاي على البوت بناء على طلبك
-    # لتجنب الردود العشوائية عند سحب الرسائل
-
-    # 2. الاستدعاء بالكلمات المفتاحية
     return bool(re.match(r"^(ذكاء|يا بوت|بوت|بقولك)", message.text or "", re.IGNORECASE))
 
 
@@ -92,7 +82,6 @@ def owner_only_text() -> str:
 # Keyboards
 # -------------------------------------------------
 def build_control_keyboard() -> InlineKeyboardMarkup:
-    # تحديد حالة السرعة للعرض نصيا بدون ايموجي
     speed_txt = "(سريع)" if AI_STATE.speed == "light" else "(ذكي)"
     return InlineKeyboardMarkup(
         [
@@ -133,7 +122,7 @@ async def ai_control_panel(_, m: Message):
     text = (
         "**لوحة تحكم الذكاء الاصطناعي (G4F Engine)**\n\n"
         f"• **الحالة:** {'مفعل' if AI_STATE.enabled else 'معطل'}\n"
-        f"• **الموديل:** `{get_current_model()}`\n"
+        f"• **الموديل:** `{ENGINE.model}`\n"
         f"• **الوضع:** {'سريع' if AI_STATE.speed == 'light' else 'ذكي'}\n"
         f"• **المتصلين:** `{len(AI_STATE.permanent_users)}`\n"
     )
@@ -175,7 +164,6 @@ async def ai_callbacks(_, q: CallbackQuery):
         )
         return
 
-    # تبديل مباشر للسرعة
     if data == "ai_speed":
         if uid not in SUDO_USERS:
             await q.answer(owner_only_text(), show_alert=True)
@@ -184,17 +172,16 @@ async def ai_callbacks(_, q: CallbackQuery):
         new_model = toggle_model()
         if "gpt-4" in new_model:
             AI_STATE.speed = "heavy"
-            msg = "تم التفعيل: الوضع الذكي (GPT-4)"
+            msg = "تم التفعيل: الوضع الذكي"
         else:
             AI_STATE.speed = "light"
-            msg = "تم التفعيل: الوضع السريع (GPT-3.5)"
+            msg = "تم التفعيل: الوضع السريع"
             
         await q.answer(msg, show_alert=True)
-        # تحديث اللوحة
         text = (
             "**لوحة تحكم الذكاء الاصطناعي (G4F Engine)**\n\n"
             f"• **الحالة:** {'مفعل' if AI_STATE.enabled else 'معطل'}\n"
-            f"• **الموديل:** `{get_current_model()}`\n"
+            f"• **الموديل:** `{ENGINE.model}`\n"
             f"• **الوضع:** {'سريع' if AI_STATE.speed == 'light' else 'ذكي'}\n"
             f"• **المتصلين:** `{len(AI_STATE.permanent_users)}`\n"
         )
@@ -204,30 +191,15 @@ async def ai_callbacks(_, q: CallbackQuery):
             pass
         return
 
-    if data == "ai_light":
-        set_light_model()
-        AI_STATE.speed = "light"
-        await q.answer("تم تفعيل الوضع الخفيف السريع.", show_alert=True)
-        return
-
-    if data == "ai_heavy":
-        set_heavy_model()
-        AI_STATE.speed = "heavy"
-        await q.answer("تم تفعيل الوضع التقيل الذكي.", show_alert=True)
-        return
-
     if data == "ai_back":
         text = (
             "**لوحة تحكم الذكاء الاصطناعي (G4F Engine)**\n\n"
             f"• **الحالة:** {'مفعل' if AI_STATE.enabled else 'معطل'}\n"
-            f"• **الموديل:** `{get_current_model()}`\n"
+            f"• **الموديل:** `{ENGINE.model}`\n"
             f"• **الوضع:** {'سريع' if AI_STATE.speed == 'light' else 'ذكي'}\n"
             f"• **المتصلين:** `{len(AI_STATE.permanent_users)}`\n"
         )
-        await q.message.edit_text(
-            text,
-            reply_markup=build_control_keyboard(),
-        )
+        await q.message.edit_text(text, reply_markup=build_control_keyboard())
         return
 
     if data == "ai_toggle":
@@ -235,13 +207,12 @@ async def ai_callbacks(_, q: CallbackQuery):
             await q.answer(owner_only_text(), show_alert=True)
             return
         AI_STATE.enabled = not AI_STATE.enabled
-        AI.enabled = AI_STATE.enabled
+        ENGINE.enabled = AI_STATE.enabled
         await q.answer("تم تحديث حالة الذكاء.", show_alert=True)
-        # تحديث شكل الزر
         text = (
             "**لوحة تحكم الذكاء الاصطناعي (G4F Engine)**\n\n"
             f"• **الحالة:** {'مفعل' if AI_STATE.enabled else 'معطل'}\n"
-            f"• **الموديل:** `{get_current_model()}`\n"
+            f"• **الموديل:** `{ENGINE.model}`\n"
             f"• **الوضع:** {'سريع' if AI_STATE.speed == 'light' else 'ذكي'}\n"
             f"• **المتصلين:** `{len(AI_STATE.permanent_users)}`\n"
         )
@@ -255,7 +226,6 @@ async def ai_callbacks(_, q: CallbackQuery):
         if uid not in SUDO_USERS:
             await q.answer(owner_only_text(), show_alert=True)
             return
-        clear_all_memory()
         AI_STATE.permanent_users.clear()
         await q.answer("تم تنظيف الذاكرة.", show_alert=True)
         return
@@ -309,17 +279,9 @@ async def ai_handler(client, m: Message):
 
     system_prompt = build_system_prompt(AI_STATE.mode)
 
-    wait_msg = await m.reply_text("جاري التفكير ...")
-
-    last_edit = 0
+    wait_msg = await m.reply_text("جاري التفكير.")
 
     async def on_update(text: str):
-        nonlocal last_edit
-        now = time.time()
-        # تقليل معدل التحديث لتجنب الحظر
-        if now - last_edit < 1.2:
-            return
-        last_edit = now
         try:
             await wait_msg.edit(text[:1800])
         except Exception:
