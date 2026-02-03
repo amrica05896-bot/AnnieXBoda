@@ -1,10 +1,9 @@
 # file: AnnieXMedia/platforms/Youtube.py
-# Author: Certified Fixes 2026 (Alexa Killer Edition)
+# Author: Certified Fixes 2026 (Anti-Image Crash + Alexa Speed)
 # Features: 
 #   - Direct Stream Priority (Speed).
-#   - Link Validator (Prevents "NoAudioSourceFound").
-#   - Auto-Fallback to RAM if Direct Link is blocked.
-#   - IPv4 Forced (Prevents Google DataCenter Blocks).
+#   - STRICT Image/Storyboard Filtering (Fixes NoAudioSourceFound).
+#   - Link Validator.
 
 import asyncio
 import contextlib
@@ -26,6 +25,7 @@ log = logging.getLogger("AnnieXMedia.YouTube")
 log.setLevel(logging.ERROR)
 
 # ---------- Config ----------
+# استخدام الرام ديسك للسرعة القصوى
 if os.path.exists("/dev/shm"):
     DOWNLOAD_PATH = "/dev/shm/AnnieDownloads"
 else:
@@ -157,7 +157,7 @@ class YouTubeAPI:
                 return details, data.get("id", "")
             except: pass
 
-        # Fallback Dump JSON (Safe)
+        # Fallback Dump JSON
         cookie = get_cookie_file()
         cmd = ["yt-dlp", "--dump-json", "--no-warnings", prepared]
         if cookie: cmd.insert(1, f"--cookies={cookie}")
@@ -198,6 +198,7 @@ class YouTubeAPI:
         d, _ = await self.track(link, videoid)
         return d.get("thumb", "")
 
+    # ---------- تحميل الصورة للرسالة (دي شغالة ومهمة للتصميم) ----------
     async def download_thumb(self, url: str) -> Optional[str]:
         if not url: return None
         try:
@@ -209,12 +210,16 @@ class YouTubeAPI:
                         return path
         except: return None
 
-    # ---------- ⚡ Link Validator (The Fix) ⚡ ----------
-    # ده الجزء اللي بيمنع أخطاء الـ Playback
+    # ---------- ⚡ Link Validator (فلتر منع تشغيل الصور كأغاني) ⚡ ----------
     async def _is_link_playable(self, url: str) -> bool:
+        # 1. فلتر الصور القاتل (قبل ما نعمل ريكوست أصلاً)
+        # لو الرابط فيه دومين الصور أو امتداد صورة -> ارفضه فوراً
+        if "i.ytimg.com" in url or ".jpg" in url or ".png" in url or ".webp" in url:
+            return False
+            
+        # 2. فحص الاتصال (هل الرابط شغال 200 OK؟)
         try:
             async with aiohttp.ClientSession() as session:
-                # HEAD request: بياخد 0.1 ثانية بس
                 async with session.head(url, timeout=2, allow_redirects=True) as resp:
                     return resp.status == 200
         except:
@@ -228,14 +233,14 @@ class YouTubeAPI:
         cookie = get_cookie_file()
         loop = asyncio.get_running_loop()
 
-        # استخراج سريع (Internal API)
+        # استخراج سريع
         def _extract_info():
             opts = {
                 "quiet": True,
                 "no_warnings": True,
                 "format": "best",
                 "noplaylist": True,
-                "force_ipv4": True, # منع حظر الداتا سنتر
+                "force_ipv4": True, 
                 "geo_bypass": True,
                 "extractor_args": {"youtube": {"player_client": ["web"]}},
             }
@@ -257,34 +262,45 @@ class YouTubeAPI:
                 cmd.append(prepared)
                 out, _ = await _exec_proc(*cmd, timeout=10)
                 if out: 
-                    # لو رجع رابط، لازم نتأكد إنه شغال
                     url = out.decode().splitlines()[0].strip()
+                    # نفحص الرابط قبل ما نرجعه
                     if await self._is_link_playable(url):
                         return url
             except: pass
             return None
 
-        # Smart Ranking
+        # Smart Ranking with Anti-Image Logic
         formats = info.get("formats") or []
         candidates = []
 
         def rank(fmt):
+            url = fmt.get("url", "")
+            note = fmt.get("format_note", "").lower()
+            
+            # 🛑 الطرد الفوري للصور والـ Storyboard
+            # لو الرابط ده صورة، نديله سكور -1000 عشان مستحيل يختاره
+            if "i.ytimg.com" in url or "storyboard" in note:
+                return -1000 
+            
             score = 0
             proto = (fmt.get("protocol") or "").lower()
             ext = (fmt.get("ext") or "").lower()
             vcodec = fmt.get("vcodec") or "none"
             acodec = fmt.get("acodec") or "none"
             
-            # بروتوكول HTTP هو الأهم
             if proto.startswith("http") and "dash" not in proto: score += 50
             if proto.startswith("https"): score += 10
             if ext == "mp4": score += 20
             elif ext == "m4a": score += 10
             
-            # للفيديو: لازم صوت وصورة
+            # Video priorities
             if not prefer_audio and vcodec != "none" and acodec != "none": score += 100
-            # للصوت: يفضل صوت بس
-            if prefer_audio and acodec != "none" and vcodec == "none": score += 50
+            
+            # Audio priorities (لازم يكون فيه كوديك صوت)
+            if prefer_audio:
+                if acodec == "none": 
+                    return -1000 # ملف بدون صوت! ارفضه
+                if vcodec == "none": score += 50 
             
             return score
 
@@ -295,11 +311,13 @@ class YouTubeAPI:
         candidates.sort(key=lambda x: x[0], reverse=True)
 
         for score, fmt in candidates:
+            # لو السكور بالسالب (صورة)، تجاهله
+            if score < 0: continue
+            
             if not prefer_audio and score < 100: continue
+            
             url = fmt.get("url")
-            # 🛑 الفحص الحاسم: هل الرابط شغال؟
-            # لو الرابط سليم -> رجعه فوراً (Fast)
-            # لو محظور -> كمل للي بعده أو ارجع None عشان التحميل يشتغل
+            # الفحص الأخير (Link Validator)
             if await self._is_link_playable(url):
                 return url
 
@@ -343,7 +361,7 @@ class YouTubeAPI:
         is_video = bool(video or songvideo)
         prepared = self._prepare_link(link, videoid)
         
-        # 1. Custom Format (Button) -> Force Download
+        # 1. Custom Format
         if format_id:
             vid = str(int(time.time()))
             ram_path = os.path.join(DOWNLOAD_PATH, f"{vid}.%(ext)s")
@@ -378,19 +396,15 @@ class YouTubeAPI:
 
         # 2. 🚀 Smart Direct Stream with Validation 🚀
         try:
-            # هنا التعديل: بنجيب رابط مباشر، ولو طلع محظور (403) هيرجع None
             direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
             if direct:
-                # لو رجع رابط، ده معناه إنه سليم 100% (200 OK)
-                # بنشغل الكاش في الخلفية للاحتياط
                 vid = str(int(time.time()))
                 out = os.path.join(DOWNLOAD_PATH, f"{vid}.%(ext)s")
                 asyncio.get_running_loop().run_in_executor(self.pool, self._background_download, prepared, out, is_video)
                 return direct, True
         except: pass
 
-        # 3. Fallback: RAM Download (If direct stream fails validation)
-        # لو الرابط المباشر فشل في الاختبار (403)، هننزل هنا ونحمل بالرام
+        # 3. Fallback: RAM Download
         vid = str(int(time.time()))
         ram_base = os.path.join(DOWNLOAD_PATH, vid)
         loop = asyncio.get_running_loop()
