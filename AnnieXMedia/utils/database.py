@@ -26,8 +26,12 @@ skipdb = mongodb.skipmode
 sudoersdb = mongodb.sudoers
 usersdb = mongodb.tgusersdb
 
-# ✅ الإضـافـة الـجـديـدة: قـاعـدة بـيـانـات الـأغـانـي (Song Settings)
+# ✅ الإضـافـة 1: إعـدادات الـأغـانـي (الجودة - الطريقة)
 song_settings = mongodb.song_settings 
+
+# ✅ الإضـافـة 2: الـمـسـتـودع الـسـحـابـي (The Warehouse)
+# دي اللي هتحفظ (اسم الأغنية) = (File_ID)
+warehousedb = mongodb.warehouse
 
 # =============================================================
 # ⚡ مـتـغـيـرات الـتـخـزيـن الـمـؤقـت (Cache)
@@ -47,37 +51,72 @@ playmode = {}
 playtype = {}
 skipmode = {}
 mute = {}
-song_cache = {} # كاش للإعدادات عشان السرعة
+
+# كاش الإعدادات
+song_cache = {} 
+
+# كاش المستودع (أهم واحد للسرعة)
+warehouse_cache = {}
 
 # =============================================================
 # 🛠️ دوال إعـدادات الـأغـانـي (Song Config Functions)
 # =============================================================
 
 async def get_config(key: str) -> bool:
-    """
-    جلب إعداد معين (مثل قفل التنزيل) من القاعدة أو الكاش
-    """
-    # 1. فحص الكاش الأول للسرعة
+    """جلب إعداد معين (مثل قفل التنزيل) من القاعدة أو الكاش"""
     if key in song_cache:
         return song_cache[key]
     
-    # 2. لو مش في الكاش، هاته من المونجو
     data = await song_settings.find_one({"_id": "song_config"})
     if not data:
         return False
     
     val = data.get(key, False)
-    song_cache[key] = val # تحديث الكاش
+    song_cache[key] = val
     return val
 
 async def set_config(key: str, value: bool):
-    """
-    حفظ إعداد معين في القاعدة وتحديث الكاش
-    """
+    """حفظ إعداد معين في القاعدة وتحديث الكاش"""
     song_cache[key] = value
     await song_settings.update_one(
         {"_id": "song_config"},
         {"$set": {key: value}},
+        upsert=True,
+    )
+
+# =============================================================
+# ☁️ دوال الـمـسـتـودع (Warehouse Functions) - قلب النظام الجديد
+# =============================================================
+
+async def get_cached_file(query: str) -> Union[str, None]:
+    """
+    البحث عن الأغنية في المستودع.
+    الترتيب: الرام (أسرع حاجة) -> الداتا بيس -> يرجع None لو مش موجودة
+    """
+    # 1. فحص الرام (0 latency)
+    if query in warehouse_cache:
+        return warehouse_cache[query]
+    
+    # 2. فحص الداتا بيس
+    data = await warehousedb.find_one({"query": query})
+    if data:
+        file_id = data["file_id"]
+        warehouse_cache[query] = file_id # تحديث الرام للمرات الجاية
+        return file_id
+    
+    return None
+
+async def cache_file(query: str, file_id: str):
+    """
+    حفظ الأغنية الجديدة في المستودع (رام + داتا بيس)
+    """
+    # تحديث الرام فوراً
+    warehouse_cache[query] = file_id
+    
+    # الحفظ في الداتا بيس (في الخلفية)
+    await warehousedb.update_one(
+        {"query": query},
+        {"$set": {"file_id": file_id}},
         upsert=True,
     )
 
