@@ -1,5 +1,5 @@
 # Authored By Certified Coders © 2026
-# System: Song Plugin (Smart Yut Command + Quality Control)
+# System: Song Plugin (Smart Warehouse + Artist Name Logic) - No Emoji Edition
 
 import os
 import re
@@ -15,15 +15,39 @@ from pyrogram.types import (
 )
 
 # استيرادات AnnieXMedia
-from config import BANNED_USERS, SONG_DOWNLOAD_DURATION, SONG_DOWNLOAD_DURATION_LIMIT, OWNER_ID
+from config import BANNED_USERS, SONG_DOWNLOAD_DURATION, SONG_DOWNLOAD_DURATION_LIMIT, OWNER_ID, LOGGER_ID
 from AnnieXMedia import app
 from AnnieXMedia.platforms import YouTube, SongDownloader
 from AnnieXMedia.utils.formatters import convert_bytes
 from AnnieXMedia.utils.inline.song import song_markup
-from AnnieXMedia.utils.database import get_config, set_config
+# استيراد دوال المستودع والكاش
+from AnnieXMedia.utils.database import get_config, set_config, get_cached_file, cache_file
 
-# تحديد المطورين (Sudo) للتحكم في الجودة
+# تحديد المطورين (Sudo)
 SUDO_USERS = OWNER_ID if isinstance(OWNER_ID, list) else [OWNER_ID]
+
+# ==========================================================
+#  🧹 دالة تنظيف العناوين (The Cleaner)
+# ==========================================================
+def clean_title(title: str) -> str:
+    # 1. إزالة ما بين الأقواس المربعة والدائرية [Official] (Video)
+    title = re.sub(r'\[.*?\]', '', title)
+    title = re.sub(r'\(.*?\)', '', title)
+    
+    # 2. إزالة كلمات محددة تتكرر في يوتيوب
+    bad_words = [
+        "Official Video", "Official Audio", "Lyrics", "Video", 
+        "Music Video", "HD", "HQ", "4K", "ft.", "feat.", 
+        "Live", "Performance", "with Lyrics"
+    ]
+    for word in bad_words:
+        title = title.replace(word, "")
+        title = title.replace(word.lower(), "")
+        title = title.replace(word.upper(), "")
+
+    # 3. إزالة المسافات الزائدة
+    title = title.strip()
+    return title
 
 # ==========================================================
 #  1. أوامر التحكم بالجودة (للمالك فقط)
@@ -37,7 +61,7 @@ async def enable_hq_cmd(client, message):
 @app.on_message(filters.command(["قفل الجودة", "قفل الكواليتي", "اقفل الجودة"], prefixes="") & filters.user(SUDO_USERS))
 async def disable_hq_cmd(client, message):
     SongDownloader.disable_quality()
-    await message.reply_text("تم قفل الجودة والعودة للوضع السريع (Standard Mode)")
+    await message.reply_text("تم قفل الجودة والعودة للوضع السريع (Speed Mode)")
 
 # ==========================================================
 #  2. أوامر القفل والفتح العامة (للمالك)
@@ -98,9 +122,11 @@ async def smart_song_handler(client, message: Message):
         return await direct_download_handler(client, message, url, is_video_request)
 
     # البحث
-    mystic = await message.reply_text("جـاري البحث .")
+    mystic = await message.reply_text("**جـاري البحث...**")
     
     try:
+        # هنا سنحتاج لتفاصيل إضافية لاستخراج اسم القناة إن أمكن، لكن YouTube.details يرجع 5 قيم فقط حاليا
+        # سنعتمد على العنوان لاستخراج اسم الفنان
         title, duration_min, duration_sec, thumbnail, vidid = await YouTube.details(query)
     except Exception:
         return await mystic.edit_text("عذرا لم يتم العثور على نتائج")
@@ -118,13 +144,13 @@ async def smart_song_handler(client, message: Message):
         await mystic.delete()
         return await message.reply_photo(
             thumbnail,
-            caption=f"العنوان: {title}\nالمدة: {duration_min}\n\nاختار طريقة التحميل:",
+            caption=f"**العنوان:** {title}\n**المدة:** {duration_min}\n\nاختار طريقة التحميل:",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
 
 
 # ==========================================================
-#  4. أمر (يوت / yut) - المطور والمحسن
+#  4. أمر (يوت / yut)
 # ==========================================================
 
 @app.on_message(filters.command(["يوت", "yut"], prefixes=["", "/"]) & ~BANNED_USERS)
@@ -153,16 +179,14 @@ async def yut_command(client, message):
         else:
             return await message.reply_text("رابط غير مدعوم، تأكد من رابط يوتيوب")
 
-    # --- الحالة 2: المستخدم أرسل اسم بحث (يوت كايروكي / يوت فيديو كايروكي) ---
-    mystic = await message.reply_text("جـاري البحث .")
+    # --- الحالة 2: المستخدم أرسل اسم بحث ---
+    mystic = await message.reply_text("**جـاري البحث...**")
     try:
         # نبحث عن أول نتيجة
         details = await YouTube.details(query)
         if details:
-            # details ترجع: title, duration_min, duration_sec, thumb, vidid
             vidid = details[4] 
             link = f"https://www.youtube.com/watch?v={vidid}"
-            
             await mystic.delete()
             # إرسال للتحميل مباشرة
             await direct_download_handler(client, message, link, is_video)
@@ -173,14 +197,14 @@ async def yut_command(client, message):
 
 
 # ==========================================================
-#  5. دالة التحميل والرفع (الرئيسية)
+#  5. دالة التحميل والرفع (المستودع الذكي)
 # ==========================================================
 
 async def direct_download_handler(client, message, url, is_video_force=False):
-    mystic = await message.reply_text("جـاري التنزيل .")
+    mystic = await message.reply_text("**جـاري المعالجة...**")
     
     try:
-        # جلب التفاصيل
+        # 1. جلب التفاصيل
         try:
             details = await YouTube.details(url)
             if details:
@@ -190,33 +214,112 @@ async def direct_download_handler(client, message, url, is_video_force=False):
         except:
             title, duration_sec, thumbnail_url, vidid = "Unknown Track", 0, None, None
 
-        # تحميل الصورة المصغرة
+        # -----------------------------------------------------------------
+        # 🎨 استخراج وتجميل اسم الفنان (Artist Name Logic)
+        # -----------------------------------------------------------------
+        # 1. تنظيف العنوان الأصلي من الزوائد
+        clean_full_title = clean_title(title)
+
+        # 2. محاولة فصل اسم الفنان عن اسم الأغنية
+        if "-" in clean_full_title:
+            # لو العنوان: Amr Diab - Tamally Maak
+            parts = clean_full_title.split("-", 1)
+            artist_name = parts[0].strip()  # Amr Diab
+            song_title = parts[1].strip()   # Tamally Maak
+        else:
+            # لو مفيهوش شرطة، بنخلي اسم الفنان هو نفسه العنوان (أفضل من اسم البوت)
+            artist_name = clean_full_title 
+            song_title = clean_full_title
+
+        # تأكيد أخير لمنع ظهور اسم البوت
+        if not artist_name or artist_name.lower() == "annie bot":
+             artist_name = "Unknown Artist"
+
+        caption_text = f"NAME ↠ {message.from_user.mention}\naddress ↠ {song_title}"
+
+        # -----------------------------------------------------------------
+        # الثغرة: فحص المستودع (Warehouse Check)
+        # -----------------------------------------------------------------
+        cache_key = f"{vidid}|{'video' if is_video_force else 'audio'}"
+        cached_file_id = await get_cached_file(cache_key)
+
+        if cached_file_id:
+            await mystic.edit_text("**إرسال فوري من الأرشيف السحابي...**")
+            try:
+                if is_video_force:
+                    await client.send_video(
+                        message.chat.id,
+                        video=cached_file_id,
+                        caption=caption_text,
+                        reply_to_message_id=message.id
+                    )
+                else:
+                    await client.send_audio(
+                        message.chat.id,
+                        audio=cached_file_id,
+                        caption=caption_text,
+                        reply_to_message_id=message.id
+                    )
+                await mystic.delete()
+                return # انتهينا
+            except Exception as e:
+                print(f"Cache failed: {e}")
+
+        # -----------------------------------------------------------------
+        # لو مش في الكاش: حمل وارفع للمستودع
+        # -----------------------------------------------------------------
+        await mystic.edit_text("**جـاري التنزيل من المصدر...**")
+
         thumb_path = None
         if thumbnail_url:
             try:
                 thumb_path = await YouTube.download_thumb(thumbnail_url)
             except: thumb_path = None
 
-        # استخدام SongDownloader للتحميل
         path, is_direct_link = await SongDownloader.download(url, is_video=is_video_force)
 
         if not path:
              return await mystic.edit_text("فشل التحميل من المصدر")
 
-        if is_direct_link:
-             await mystic.edit_text("جاري التشغيل (بث مباشر)")
-        else:
-             await mystic.edit_text("جاري الرفع")
+        await mystic.edit_text("**جـاري الرفع للأرشيف...**")
         
-        # الكابشن المطلوب
-        caption_text = f"NAME ↠ {message.from_user.mention}\naddress ↠ {title}"
+        # 1. الرفع لجروب السجل (المخزن)
+        try:
+            if is_video_force:
+                log_msg = await client.send_video(
+                    LOGGER_ID,
+                    video=path,
+                    caption=f"**Video Warehouse**\nID: `{vidid}`\nTitle: {clean_full_title}",
+                    duration=duration_sec,
+                    thumb=thumb_path,
+                    supports_streaming=True
+                )
+                file_id_to_cache = log_msg.video.file_id
+            else:
+                log_msg = await client.send_audio(
+                    LOGGER_ID,
+                    audio=path,
+                    caption=f"**Audio Warehouse**\nID: `{vidid}`\nTitle: {clean_full_title}",
+                    duration=duration_sec,
+                    title=song_title,       # العنوان النضيف
+                    performer=artist_name,  # اسم الفنان المستخرج
+                    thumb=thumb_path
+                )
+                file_id_to_cache = log_msg.audio.file_id
+            
+            # 2. حفظ في الداتا بيس
+            await cache_file(cache_key, file_id_to_cache)
 
-        # الرفع
+        except Exception as e:
+            print(f"Warehouse Upload Error: {e}")
+
+        # 3. الإرسال للمستخدم
+        await mystic.edit_text("**جـاري الإرسال إليك...**")
         try:
             if is_video_force:
                 await client.send_video(
                     message.chat.id,
-                    video=path,
+                    video=path, 
                     caption=caption_text,
                     duration=duration_sec,
                     thumb=thumb_path,
@@ -228,24 +331,16 @@ async def direct_download_handler(client, message, url, is_video_force=False):
                     audio=path,
                     caption=caption_text,
                     duration=duration_sec,
-                    title=title,
-                    performer="Annie Bot",
+                    title=song_title,       # العنوان النضيف
+                    performer=artist_name,  # اسم الفنان المستخرج
                     thumb=thumb_path
                 )
-        except Exception as upload_error:
-             # محاولة إعادة التحميل لو الرابط المباشر فشل
-             if "WEBPAGE_CURL_FAILED" in str(upload_error) and is_direct_link:
-                 await mystic.edit_text("فشل الرابط المباشر، جاري التنزيل والمحاولة مرة أخرى")
-                 path, _ = await SongDownloader.download(url, is_video=is_video_force)
-                 
-                 if is_video_force:
-                    await client.send_video(message.chat.id, video=path, caption=caption_text)
-                 else:
-                    await client.send_audio(message.chat.id, audio=path, caption=caption_text)
+        except Exception:
+             pass
 
         await mystic.delete()
         
-        # تنظيف الملفات
+        # تنظيف
         if not is_direct_link and os.path.exists(path):
             os.remove(path)
         if thumb_path and os.path.exists(thumb_path):
@@ -278,7 +373,7 @@ async def song_helper_cb(client, query):
     callback_data = query.data.strip()
     stype, vidid = callback_data.split(None, 1)[1].split("|")
 
-    try: await query.answer("جاري جلب الصيغ", show_alert=True)
+    try: await query.answer("جاري جلب الصيغ...", show_alert=True)
     except: pass
 
     try:
@@ -323,67 +418,14 @@ async def song_download_cb(client, query):
     if await get_config("download_locked") and query.from_user.id not in SUDO_USERS:
         return await query.answer("التنزيل مغلق", show_alert=True)
 
-    try: await query.answer("جـاري التنزيل .")
+    try: await query.answer("جـاري التنزيل...", show_alert=True)
     except: pass
 
     stype, format_id, vidid = query.data.strip().split(None, 1)[1].split("|")
-    mystic = await query.edit_message_text("جـاري التنزيل .")
+    mystic = await query.edit_message_text("**جـاري التنزيل...**")
 
     yturl = f"https://www.youtube.com/watch?v={vidid}"
     
-    try:
-        details = await YouTube.details(yturl)
-        if details:
-            title, _, duration_sec, thumbnail_url, _ = details
-        else:
-            title, duration_sec, thumbnail_url = "Unknown Track", 0, None
-        
-        thumb_path = None
-        if thumbnail_url:
-            try: thumb_path = await YouTube.download_thumb(thumbnail_url)
-            except: thumb_path = None
-    except:
-        title, duration_sec, thumb_path = "Unknown", 0, None
-
+    # استخدام الدالة الرئيسية
     is_video = True if stype == "video" else False
-    
-    # استخدام SongDownloader للتحميل
-    path, is_direct_link = await SongDownloader.download(yturl, is_video=is_video)
-
-    if not path:
-         return await mystic.edit_text("فشل التحميل من المصدر")
-
-    if is_direct_link:
-         await mystic.edit_text("جاري التشغيل (بث مباشر)")
-    else:
-         await mystic.edit_text("جاري الرفع")
-    
-    caption_text = f"NAME ↠ {query.from_user.mention}\naddress ↠ {title}"
-
-    try:
-        if is_video:
-            await client.send_video(
-                query.message.chat.id,
-                video=path,
-                caption=caption_text,
-                duration=duration_sec,
-                thumb=thumb_path,
-                supports_streaming=True
-            )
-        else:
-            await client.send_audio(
-                query.message.chat.id,
-                audio=path,
-                caption=caption_text,
-                duration=duration_sec,
-                title=title,
-                performer="Annie Bot",
-                thumb=thumb_path
-            )
-        await mystic.delete()
-        if not is_direct_link and os.path.exists(path): os.remove(path)
-        
-    except Exception as e:
-        await mystic.edit_text(f"فشل الرفع: {e}")
-    
-    if thumb_path and os.path.exists(thumb_path): os.remove(thumb_path)
+    await direct_download_handler(client, query.message, yturl, is_video_force=is_video)
