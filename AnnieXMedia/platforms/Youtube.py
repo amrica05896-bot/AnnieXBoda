@@ -1,6 +1,13 @@
 # file: AnnieXMedia/platforms/Youtube.py
-# Author: Certified Fixes 2026 (optimized get_direct_link via yt_dlp API)
+# Author: Certified Fixes 2026 (Ultra-fast tuned copy)
 # Purpose: fast -g direct stream (via yt_dlp API) + background RAM caching + yt-dlp tuning
+# Notes:
+#  - direct link cache to avoid re-parsing formats for repeated requests
+#  - prefer progressive muxed formats for immediate playback in calls
+#  - limit formats scanned for performance
+#  - head-check for link validity before returning direct link
+#  - background RAM caching with aria2c (non-blocking)
+#  - safe fallbacks to yt-dlp -g subprocess extraction
 
 import asyncio
 import contextlib
@@ -40,10 +47,14 @@ COOKIE_PATH_CANDIDATES = [
 MAX_WORKERS = 16
 YTDLP_TIMEOUT = 12
 YOUTUBE_META_TTL = 3600
+DIRECT_LINK_TTL = 300      # cache direct links for 5 minutes
+FORMAT_SCAN_LIMIT = 30     # scan up to top N candidate formats for ranking
 
 _pool = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 _cache: Dict[str, Tuple[float, Dict, str]] = {}
+_direct_cache: Dict[str, Tuple[float, str]] = {}
 _cache_lock = asyncio.Lock()
+_direct_lock = asyncio.Lock()
 
 # ---------- Helpers ----------
 def get_cookie_file() -> Optional[str]:
@@ -63,6 +74,10 @@ async def _exec_proc(*args: str, timeout: int = YTDLP_TIMEOUT) -> Tuple[bytes, b
         with contextlib.suppress(Exception):
             proc.kill()
         return b"", b"timeout"
+    except Exception:
+        with contextlib.suppress(Exception):
+            proc.kill()
+        return b"", b"error"
 
 def _to_seconds(t: Optional[str]) -> int:
     if not t:
@@ -79,6 +94,29 @@ def _to_seconds(t: Optional[str]) -> int:
 def _now_key(q: str) -> str:
     return "q:" + (q or "")
 
+async def _head_ok(url: str, timeout: int = 4) -> bool:
+    # quick HEAD/GET fallback to check url liveliness
+    if not url:
+        return False
+    try:
+        async with aiohttp.ClientSession() as sess:
+            # try HEAD first
+            try:
+                async with sess.head(url, timeout=timeout, allow_redirects=True) as resp:
+                    if resp.status == 200:
+                        return True
+                    # some servers block HEAD; try GET small range
+            except Exception:
+                pass
+            try:
+                headers = {"Range": "bytes=0-1023"}
+                async with sess.get(url, headers=headers, timeout=timeout, allow_redirects=True) as resp:
+                    return resp.status in (200, 206)
+            except Exception:
+                return False
+    except Exception:
+        return False
+
 # ---------- YouTubeAPI ----------
 class YouTubeAPI:
     def __init__(self):
@@ -89,23 +127,22 @@ class YouTubeAPI:
 
     # ----- prepare/normalize link -----
     def _prepare_link(self, link: str, videoid: Union[bool, str, None] = None) -> str:
-        if videoid:
-            return self.base + str(videoid)
-        if not link:
+        try:
+            if videoid:
+                return self.base + str(videoid)
+            if not link:
+                return ""
+            link = str(link).strip()
+            if "youtu.be/" in link:
+                return self.base + link.split("/")[-1].split("?")[0]
+            if "youtube.com/shorts/" in link or "youtube.com/live/" in link:
+                return self.base + link.split("/")[-1].split("?")[0]
+            return link.split("&")[0]
+        except Exception:
             return ""
-        link = link.strip()
-        if "youtu.be/" in link:
-            return self.base + link.split("/")[-1].split("?")[0]
-        if "youtube.com/shorts/" in link or "youtube.com/live/" in link:
-            return self.base + link.split("/")[-1].split("?")[0]
-        return link.split("&")[0]
 
     # ----- extract URL from a Pyrogram Message -----
     async def url(self, message: Message) -> Optional[str]:
-        """
-        Return the URL string found in message entities or caption_entities
-        or in replied-to message. Returns None if not found.
-        """
         if not message:
             return None
         msgs = [message]
@@ -138,6 +175,7 @@ class YouTubeAPI:
                 _cache.pop(key, None)
 
         # try youtubesearchpython first (fast)
+        results = []
         try:
             res = await VideosSearch(prepared, limit=1).next()
             results = res.get("result", [])
@@ -145,21 +183,24 @@ class YouTubeAPI:
             results = []
 
         if results:
-            data = results[0]
-            thumb = (data.get("thumbnails") or [{}])[-1].get("url", "")
-            details = {
-                "title": data.get("title", ""),
-                "link": data.get("link", prepared),
-                "vidid": data.get("id", ""),
-                "duration_min": data.get("duration"),
-                "thumb": thumb.split("?")[0],
-                "cookiefile": get_cookie_file(),
-            }
-            async with _cache_lock:
-                _cache[key] = (now, details, data.get("id", ""))
-            return details, data.get("id", "")
+            try:
+                data = results[0]
+                thumb = (data.get("thumbnails") or [{}])[-1].get("url", "")
+                details = {
+                    "title": data.get("title", ""),
+                    "link": data.get("link", prepared),
+                    "vidid": data.get("id", ""),
+                    "duration_min": data.get("duration"),
+                    "thumb": thumb.split("?")[0],
+                    "cookiefile": get_cookie_file(),
+                }
+                async with _cache_lock:
+                    _cache[key] = (now, details, data.get("id", ""))
+                return details, data.get("id", "")
+            except Exception:
+                pass
 
-        # fallback to yt-dlp --dump-json
+        # fallback to yt-dlp --dump-json (safe)
         cookie = get_cookie_file()
         cmd = ["yt-dlp"]
         if cookie:
@@ -258,38 +299,48 @@ class YouTubeAPI:
 
     # ---------- get_direct_link using yt_dlp API (fast) ----------
     async def get_direct_link(self, link: str, *, prefer_audio: bool = False) -> Optional[str]:
-        """
-        Use yt_dlp Python API to extract formats and choose a progressive/muxed URL fast.
-        Returns a direct URL (string) or None.
-        """
         prepared = self._prepare_link(link)
         if not prepared:
             return None
 
+        now = time.time()
+        # check direct cache first
+        async with _direct_lock:
+            if prepared in _direct_cache:
+                ts, url = _direct_cache[prepared]
+                if now - ts < DIRECT_LINK_TTL:
+                    # verify quickly that url still works (non-blocking check)
+                    ok = await _head_ok(url, timeout=2)
+                    if ok:
+                        return url
+                    else:
+                        # stale: drop cache
+                        _direct_cache.pop(prepared, None)
+
         cookie = get_cookie_file()
         loop = asyncio.get_running_loop()
 
+        # try to extract via yt-dlp python API (fast)
         def _extract_info():
             opts = {
                 "quiet": True,
                 "no_warnings": True,
                 "format": "best",
                 "noplaylist": True,
+                "socket_timeout": 8,
             }
             if cookie:
                 opts["cookiefile"] = cookie
-            # help network: small socket timeout via yt-dlp opts
-            opts["socket_timeout"] = 10
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(prepared, download=False)
-                    return info
+                    return ydl.extract_info(prepared, download=False)
             except Exception as e:
                 return {"_extract_err": str(e)}
 
         info = await loop.run_in_executor(self.pool, _extract_info)
-        if not info or isinstance(info, dict) and info.get("_extract_err"):
-            # fallback to subprocess -g (last resort)
+
+        # fallback to subprocess -g if API failed
+        if not info or (isinstance(info, dict) and info.get("_extract_err")):
             try:
                 cmd = ["yt-dlp", "-g", "--force-ipv4", "--no-warnings"]
                 if cookie:
@@ -301,19 +352,22 @@ class YouTubeAPI:
                 cmd += ["--extractor-args", "youtube:player_client=web", prepared]
                 out, err = await _exec_proc(*cmd, timeout=10)
                 if out:
-                    return out.decode().splitlines()[0].strip()
+                    candidate = out.decode().splitlines()[0].strip()
+                    if await _head_ok(candidate, timeout=3):
+                        async with _direct_lock:
+                            _direct_cache[prepared] = (time.time(), candidate)
+                        return candidate
             except Exception:
                 pass
             return None
 
-        # choose best candidate from formats
+        # pick and rank formats quickly
         formats = info.get("formats") or []
-        candidates = []
+        candidates: List[Tuple[int, Dict]] = []
 
-        # helper to rank protocol/ext quality
-        def rank(fmt):
+        def rank(fmt: Dict) -> int:
             score = 0
-            proto = fmt.get("protocol", "") or ""
+            proto = (fmt.get("protocol") or "").lower()
             ext = (fmt.get("ext") or "").lower()
             vcodec = fmt.get("vcodec") or ""
             acodec = fmt.get("acodec") or ""
@@ -321,71 +375,76 @@ class YouTubeAPI:
             if proto.startswith("https"): score += 30
             if proto.startswith("http"): score += 20
             # prefer mp4/m4a/webm
-            if ext in ("mp4",): score += 10
-            if ext in ("m4a","webm"): score += 8
+            if ext == "mp4": score += 12
+            elif ext in ("m4a", "webm"): score += 8
             # prefer muxed (have both codecs) for video playback
             if vcodec and vcodec != "none" and acodec and acodec != "none":
                 score += 40
             # prefer audio-only for prefer_audio
             if prefer_audio and (acodec and acodec != "none"):
                 score += 15
-            # prefer higher bitrate/resolution
+            # bitrate/resolution boost
             br = fmt.get("tbr") or fmt.get("abr") or 0
             try:
                 score += int(br) // 100
             except Exception:
                 pass
+            # deprioritize DASH-only fragmented
+            if "dash" in proto and (vcodec == "none" or acodec == "none"):
+                score -= 50
             return score
 
-        for f in formats:
-            # ignore broken formats
-            if not f.get("url"):
-                continue
-            # skip DASH fragmented that are not progressive if possible
-            proto = (f.get("protocol") or "").lower()
-            # collect typical progressive protocols
-            if proto.startswith(("https","http","mms","rtmp","m3u8")):
-                candidates.append((rank(f), f))
+        # filter to useful protocols and non-empty urls
+        good_formats = [f for f in formats if f.get("url") and (f.get("protocol") or "").lower().startswith(("http", "https", "m3u8", "mms"))]
+        # limit scanning size for speed
+        if len(good_formats) > FORMAT_SCAN_LIMIT:
+            good_formats = good_formats[:FORMAT_SCAN_LIMIT]
 
-        # sort by score desc
+        for f in good_formats:
+            candidates.append((rank(f), f))
         candidates.sort(key=lambda x: x[0], reverse=True)
 
-        # pick first suitable
+        # validate top candidates quickly
         for score, fmt in candidates:
+            if score < 0:
+                continue
             url = fmt.get("url")
             if not url:
                 continue
-            # prefer muxed if video; if prefer_audio choose audio-only
+            # if prefer_audio ensure audio exists
             if prefer_audio:
-                # ensure this format has audio
                 ac = fmt.get("acodec") or ""
                 if ac == "none":
                     continue
-                return url
             else:
-                # prefer muxed (audio+video) for immediate playback in calls
+                # prefer muxed (both audio & video)
                 v = fmt.get("vcodec") or ""
                 a = fmt.get("acodec") or ""
-                if v != "none" and a != "none":
-                    return url
-                # otherwise accept audio-only for audio case
-                if fmt.get("ext") in ("m4a","mp3","webm") and (a and a != "none"):
-                    return url
-                # accept progressive mp4
-                if (fmt.get("ext") or "").lower() == "mp4":
-                    return url
+                if not (v != "none" and a != "none"):
+                    # accept progressive mp4/m4a if fallback
+                    if (fmt.get("ext") or "").lower() not in ("mp4", "m4a"):
+                        continue
+            # quick head check to ensure valid
+            ok = await _head_ok(url, timeout=2)
+            if ok:
+                async with _direct_lock:
+                    _direct_cache[prepared] = (time.time(), url)
+                return url
 
-        # last-resort: if any format has url, return the first one
+        # last resort: try any format url
         for f in formats:
-            if f.get("url"):
-                return f.get("url")
+            url = f.get("url")
+            if url and await _head_ok(url, timeout=2):
+                async with _direct_lock:
+                    _direct_cache[prepared] = (time.time(), url)
+                return url
 
         return None
 
     # background downloader to RAM (blocking)
     def _background_download(self, link: str, out_template: str, is_video: bool):
         try:
-            aria2_args = ["-x", "16", "-s", "16", "-j", "16", "-k", "1M", "--file-allocation=none", "--disable-ipv6=true"]
+            aria2_args = ["-x", "16", "-s", "16", "-j", "8", "-k", "1M", "--file-allocation=none", "--disable-ipv6=true"]
             fmt = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
             ydl_opts = {
                 "format": fmt,
@@ -427,7 +486,7 @@ class YouTubeAPI:
         is_video = bool(video or songvideo)
         prepared = self._prepare_link(link, videoid)
 
-        # compute vid
+        # compute vid id (for RAM filename)
         try:
             if videoid:
                 vid = str(videoid)
@@ -453,7 +512,7 @@ class YouTubeAPI:
 
         loop = asyncio.get_running_loop()
 
-        # 2) format_id specific download
+        # 2) format_id specific download (requested by user via buttons)
         if format_id:
             def _specific():
                 try:
@@ -485,17 +544,17 @@ class YouTubeAPI:
             res = await loop.run_in_executor(self.pool, _specific)
             return (res, False) if res else (None, False)
 
-        # 3) try direct link fast-path (yt_dlp API)
+        # 3) try direct link fast-path (cached & validated)
         try:
             direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
         except Exception:
             direct = None
 
         if direct:
-            # schedule background cache after ~10s (non-blocking)
+            # schedule background cache after ~8s (non-blocking)
             def _delayed_cache():
                 try:
-                    time.sleep(10)
+                    time.sleep(8)
                     out_template = f"{ram_base}.%(ext)s"
                     self._background_download(prepared, out_template, is_video)
                 except Exception:
@@ -503,7 +562,7 @@ class YouTubeAPI:
             loop.run_in_executor(self.pool, _delayed_cache)
             return direct, True
 
-        # 4) fallback: download to RAM immediately
+        # 4) fallback: download to RAM immediately (blocking in threadpool)
         def _fallback():
             try:
                 fmt = "best[ext=mp4]/best" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
