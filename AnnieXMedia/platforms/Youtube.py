@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
-# Author: Certified Fixes (2026)
-# Purpose: fast -g direct stream + background RAM caching + robust yt-dlp usage
+# Author: Certified Fixes 2026
+# Purpose: fast -g direct stream + background RAM caching + yt-dlp tuning
 
 import asyncio
 import contextlib
@@ -99,6 +99,30 @@ class YouTubeAPI:
         if "youtube.com/shorts/" in link or "youtube.com/live/" in link:
             return self.base + link.split("/")[-1].split("?")[0]
         return link.split("&")[0]
+
+    # ----- extract URL from a Pyrogram Message -----
+    async def url(self, message: Message) -> Optional[str]:
+        """
+        Return the URL string found in message entities or caption_entities
+        or in replied-to message. Returns None if not found.
+        """
+        if not message:
+            return None
+        msgs = [message]
+        if getattr(message, "reply_to_message", None):
+            msgs.append(message.reply_to_message)
+        for msg in msgs:
+            text = getattr(msg, "text", None) or getattr(msg, "caption", None) or ""
+            entities = (getattr(msg, "entities", None) or []) + (getattr(msg, "caption_entities", None) or [])
+            for ent in entities:
+                try:
+                    if ent.type == MessageEntityType.URL:
+                        return text[ent.offset: ent.offset + ent.length].split("&si")[0]
+                    if ent.type == MessageEntityType.TEXT_LINK:
+                        return ent.url.split("&si")[0]
+                except Exception:
+                    continue
+        return None
 
     # ----- track/details (cache-friendly) -----
     async def track(self, link: str, videoid: Union[bool, str] = None) -> Tuple[Dict, str]:
@@ -238,17 +262,13 @@ class YouTubeAPI:
         if not prepared:
             return None
         cookie = get_cookie_file()
-        # build command
         cmd = ["yt-dlp", "-g", "--force-ipv4", "--no-warnings"]
         if cookie:
             cmd += ["--cookies", cookie]
         if prefer_audio:
-            # prefer m4a progressive if available
             cmd += ["-f", "bestaudio[ext=m4a]/bestaudio"]
         else:
-            # prefer progressive mp4 if possible (good for ffmpeg/pytgcalls)
             cmd += ["-f", "best[ext=mp4]/best"]
-        # ensure web client only
         cmd += ["--extractor-args", "youtube:player_client=web", prepared]
 
         out, err = await _exec_proc(*cmd, timeout=10)
@@ -257,12 +277,8 @@ class YouTubeAPI:
                 return out.decode().splitlines()[0].strip()
             except Exception:
                 return None
-        # log stderr for debugging
         if err:
-            try:
-                log.debug("yt-dlp -g stderr: %s", err.decode(errors="ignore"))
-            except Exception:
-                pass
+            log.debug("yt-dlp -g stderr: %s", err.decode(errors="ignore"))
         return None
 
     # background downloader to RAM (blocking)
@@ -420,6 +436,34 @@ class YouTubeAPI:
             return downloaded, False
 
         return None, False
+
+    # playlist & slider helpers
+    async def playlist(self, link, limit, user_id=None, videoid: Union[bool, str] = None):
+        if videoid: link = self.listbase + link
+        if "&" in link: link = link.split("&")[0]
+        cmd = (
+            f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
+            f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
+            f"2>/dev/null"
+        )
+        proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        out, _ = await proc.communicate()
+        try:
+            result = [key for key in out.decode().split("\n") if key]
+        except Exception:
+            result = []
+        return result
+
+    async def slider(self, link: str, query_type: int, videoid: Union[bool, str] = None):
+        if videoid: link = self.base + link
+        try:
+            a = VideosSearch(link, limit=5)
+            res = await a.next()
+            if not res or not res.get("result"): return "Error", "0", "", "error"
+            r = res["result"][query_type] if query_type < len(res["result"]) else res["result"][0]
+            return r["title"], r["duration"], r["thumbnails"][0]["url"].split("?")[0], r["id"]
+        except Exception:
+            return "Error", "0", "", "error"
 
 # exported instance
 YouTube = YouTubeAPI()
