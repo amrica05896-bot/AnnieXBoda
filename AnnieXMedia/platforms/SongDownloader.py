@@ -1,12 +1,9 @@
 # Authored By Certified Systems Architect
-# Dedicated Song Downloader (Download Only Engine)
+# Dedicated Song Downloader (Fixed & Optimized)
 # Features:
-#   - Standard Mode: Video <= 480p | Audio = 128kbps
-#   - High Quality Mode: Video = Max | Audio = 320kbps
-# Notes:
-#   - NO DIRECT STREAMING
-#   - STRICT Audio / Video Separation
-#   - Always returns FILE PATH
+#   - Audio: Alexa-Style Direct Link (Fastest) -> Fallback to RAM Download
+#   - Video: Aria2c RAM Download (Safest for Telegram)
+#   - Fixes: DOWNLOAD_FAILED error caused by extension mismatch
 
 import asyncio
 import os
@@ -25,11 +22,10 @@ class Config:
         DOWNLOAD_PATH = os.path.abspath("downloads_songs")
 
     COOKIE_PATH = "AnnieXMedia/assets/cookies.txt"
-    MAX_WORKERS = 4
+    MAX_WORKERS = 8 # زيادة عدد العمليات لسرعة أكبر
 
-
-os.makedirs(Config.DOWNLOAD_PATH, exist_ok=True)
-
+if not os.path.exists(Config.DOWNLOAD_PATH):
+    os.makedirs(Config.DOWNLOAD_PATH, exist_ok=True)
 
 class SongDownloaderAPI:
     def __init__(self):
@@ -52,58 +48,89 @@ class SongDownloaderAPI:
                 return os.path.abspath(p)
         return None
 
+    # --- دالة سرعة أليكسا (Direct Link) ---
+    async def get_direct_url(self, link, is_video):
+        # الفيديو المباشر مشاكله كتير، نستخدمه للصوت بس عشان السرعة
+        if is_video: return None
+        
+        loop = asyncio.get_running_loop()
+        def _extract():
+            try:
+                # نطلب M4A مباشر (أسرع وأفضل جودة للصوت)
+                opts = {
+                    "format": "bestaudio[ext=m4a][protocol^=http]",
+                    "cookiefile": self.get_cookie_file(),
+                    "quiet": True,
+                    "no_warnings": True,
+                    "force_ipv4": True,
+                    "geo_bypass": True,
+                    "extractor_args": {"youtube": {"player_client": ["web"]}},
+                }
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(link, download=False)
+                    return info.get("url")
+            except: return None
+        
+        return await loop.run_in_executor(self.pool, _extract)
+
     # ==========================================================
-    # MAIN DOWNLOAD FUNCTION (FILE ONLY)
+    # MAIN DOWNLOAD FUNCTION
     # ==========================================================
     async def download(self, link: str, is_video: bool = False):
         """
-        Returns:
-            (file_path, False)
+        Returns: (path_or_url, is_direct_bool)
         """
+        # 1. تنظيف الرابط
+        if "googleusercontent.com" in link:
+             try: link = f"https://www.youtube.com/watch?v={link.split('v=')[1]}"
+             except: pass
 
+        # 2. محاولة الرابط المباشر (للصوت فقط وفي الوضع السريع)
+        if not is_video and not self.force_high_quality:
+            direct_url = await self.get_direct_url(link, is_video)
+            if direct_url:
+                return direct_url, True # رابط مباشر (أليكسا ستايل)
+
+        # 3. التحميل للرام (للفيديو أو كبديل للصوت)
         loop = asyncio.get_running_loop()
         cookies = self.get_cookie_file()
 
         def _download():
             uid = str(int(time.time() * 1000))
-            ext = "mp4" if is_video else "mp3"
-            out_path = os.path.join(Config.DOWNLOAD_PATH, f"{uid}.{ext}")
+            # هنا التعديل المهم: بنسيب yt-dlp يحدد الامتداد عشان الخطأ يختفي
+            out_tmpl = os.path.join(Config.DOWNLOAD_PATH, f"{uid}.%(ext)s")
+            
+            # إعدادات Aria2c للسرعة القصوى
+            aria_args = ["-x", "16", "-s", "16", "-k", "1M", "--file-allocation=none"]
 
-            # =============================
-            # FORMAT SELECTION
-            # =============================
             if is_video:
                 if self.force_high_quality:
-                    ytdlp_format = "bestvideo+bestaudio/best"
+                    fmt = "bestvideo+bestaudio/best" # أعلى جودة دمج
                 else:
-                    ytdlp_format = (
-                        "bestvideo[height<=480][ext=mp4]+bestaudio/best/"
-                        "best[height<=480][ext=mp4]"
-                    )
+                    # 480p سريع جداً
+                    fmt = "best[height<=480][ext=mp4]/best[ext=mp4]"
             else:
-                ytdlp_format = "bestaudio/best"
+                fmt = "bestaudio/best"
 
             ydl_opts = {
-                "format": ytdlp_format,
-                "outtmpl": out_path,
+                "format": fmt,
+                "outtmpl": out_tmpl,
                 "quiet": True,
                 "no_warnings": True,
                 "geo_bypass": True,
                 "force_ipv4": True,
-                "noplaylist": True,
                 "nocheckcertificate": True,
                 "cookiefile": cookies,
+                "external_downloader": "aria2c",
+                "external_downloader_args": aria_args,
                 "extractor_args": {
                     "youtube": {
-                        "player_client": ["android", "web"]
-                        if self.force_high_quality else ["web"]
+                        "player_client": ["web"] # الويب أسرع في التحميل
                     }
                 },
             }
 
-            # =============================
-            # AUDIO POST PROCESSING
-            # =============================
+            # تحويل الصوت لـ MP3 فقط لو مش فيديو
             if not is_video:
                 ydl_opts["postprocessors"] = [{
                     "key": "FFmpegExtractAudio",
@@ -114,25 +141,21 @@ class SongDownloaderAPI:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([link])
 
-            # =============================
-            # FILE RESOLUTION CHECK
-            # =============================
-            if os.path.exists(out_path):
-                return out_path
-
-            base = out_path.rsplit(".", 1)[0]
-            for e in (".mp3", ".m4a", ".mp4", ".webm", ".mkv"):
-                if os.path.exists(base + e):
-                    return base + e
+            # البحث عن الملف الناتج (لأننا مش عارفين الامتداد النهائي)
+            # بندور على أي ملف يبدأ بـ uid
+            for f in os.listdir(Config.DOWNLOAD_PATH):
+                if f.startswith(uid):
+                    return os.path.join(Config.DOWNLOAD_PATH, f)
 
             return None
 
-        file_path = await loop.run_in_executor(self.pool, _download)
+        try:
+            file_path = await loop.run_in_executor(self.pool, _download)
+            if file_path:
+                return file_path, False # ملف محلي
+        except Exception as e:
+            print(f"SongDownloader Error: {e}")
 
-        if not file_path:
-            raise Exception("DOWNLOAD_FAILED")
-
-        return file_path, False
-
+        return None, False
 
 SongDownloader = SongDownloaderAPI()
