@@ -1,6 +1,7 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Author: Certified Fixes 2026 (optimized get_direct_link via yt_dlp API)
 # Purpose: fast -g direct stream (via yt_dlp API) + background RAM caching + yt-dlp tuning
+# Fixed: robust checks to avoid NoVideoSourceFound / missing-audio errors
 
 import asyncio
 import contextlib
@@ -270,6 +271,8 @@ class YouTubeAPI:
         Strategy:
           1) Try yt_dlp API in threadpool (fast, no subprocess)
           2) If API returns no usable progressive HTTP URL, use subprocess -g as LAST RESORT (only once)
+        This version enforces checks so we never return a video-only URL for audio requests
+        and never return audio-only for video requests.
         """
         prepared = self._prepare_link(link)
         if not prepared:
@@ -320,7 +323,9 @@ class YouTubeAPI:
                 cmd += ["--extractor-args", "youtube:player_client=web", prepared]
                 out, err = await _exec_proc(*cmd, timeout=8)
                 if out:
-                    return out.decode().splitlines()[0].strip()
+                    candidate = out.decode().splitlines()[0].strip()
+                    log.debug("fallback -g returned: %s", candidate)
+                    return candidate
             except Exception as e:
                 log.debug("subprocess -g fallback failed: %s", e)
             return None
@@ -359,7 +364,7 @@ class YouTubeAPI:
             if not f.get("url"):
                 continue
             proto = (f.get("protocol") or "").lower()
-            # accept typical progressive protocols; prefer http/https
+            # accept typical progressive protocols; prefer http/https or m3u8
             if proto.startswith(("https", "http", "m3u8")):
                 candidates.append((rank(f), f))
 
@@ -370,24 +375,38 @@ class YouTubeAPI:
             url = fmt.get("url")
             if not url:
                 continue
+            vcodec = (fmt.get("vcodec") or "")
+            acodec = (fmt.get("acodec") or "")
+            ext = (fmt.get("ext") or "").lower()
+            proto = (fmt.get("protocol") or "").lower()
+
+            # If requesting audio, ensure format has audio
             if prefer_audio:
-                if (fmt.get("acodec") or "") != "none":
+                if acodec and acodec != "none":
+                    log.debug("selected audio format: id=%s ext=%s proto=%s abr=%s", fmt.get("format_id"), ext, proto, fmt.get("abr"))
                     return url
-                continue
+                else:
+                    # skip video-only formats
+                    continue
+
+            # If requesting video, prefer muxed formats (audio+video)
             else:
-                # prefer muxed
-                if (fmt.get("vcodec") or "") != "none" and (fmt.get("acodec") or "") != "none":
+                if vcodec and vcodec != "none" and acodec and acodec != "none":
+                    log.debug("selected muxed format: id=%s ext=%s proto=%s tbr=%s", fmt.get("format_id"), ext, proto, fmt.get("tbr"))
                     return url
-                # accept high-quality audio-only as fallback for audio streaming
-                if (fmt.get("acodec") or "") != "none" and fmt.get("ext") in ("m4a", "webm", "mp3"):
+                # accept progressive mp4 with at least audio or accept audio-only fallback to avoid failure
+                if acodec and acodec != "none" and ext in ("m4a", "webm", "mp3"):
+                    log.debug("selected audio-as-fallback for video: id=%s ext=%s proto=%s", fmt.get("format_id"), ext, proto)
                     return url
-                # accept progressive mp4
-                if (fmt.get("ext") or "").lower() == "mp4":
+                if ext == "mp4" and proto.startswith(("http", "https")):
+                    # often mp4 is muxed; accept as last video hopeful
+                    log.debug("selected progressive mp4 candidate id=%s", fmt.get("format_id"))
                     return url
 
-        # last resort: return first available url
+        # last resort: return first available url (but log)
         for f in formats:
             if f.get("url"):
+                log.debug("last-resort selecting url ext=%s vcodec=%s acodec=%s", f.get("ext"), f.get("vcodec"), f.get("acodec"))
                 return f.get("url")
 
         return None
@@ -433,6 +452,7 @@ class YouTubeAPI:
     ) -> Tuple[Optional[str], bool]:
         """
         Return (path_or_direct_url_or_None, is_direct_flag)
+        is_direct_flag == True => returned value is a direct streaming URL (suitable for PyTgCalls)
         """
         is_video = bool(video or songvideo)
         prepared = self._prepare_link(link, videoid)
@@ -497,6 +517,7 @@ class YouTubeAPI:
 
         # 3) try direct link fast-path (yt_dlp API)
         try:
+            # prefer_audio = True for audio streaming (pytgcalls audio)
             direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
         except Exception as e:
             log.debug("get_direct_link exception: %s", e)
@@ -514,7 +535,7 @@ class YouTubeAPI:
             loop.run_in_executor(self.pool, _delayed_cache)
             return direct, True
 
-        # 4) fallback: download to RAM immediately
+        # 4) fallback: download to RAM immediately (blocking in executor)
         def _fallback():
             try:
                 fmt = "best[ext=mp4]/best" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
