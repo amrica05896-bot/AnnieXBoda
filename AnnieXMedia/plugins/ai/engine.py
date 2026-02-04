@@ -1,7 +1,7 @@
 # plugins/ai/engine.py
 # Authored By Certified Coders (c) 2026
 # Project: AnnieXMedia - Ultimate Speed Edition
-# Optimized for Zero-Flood & Arabic UI
+# Optimized based on Termux Scan Results
 
 import logging
 import asyncio
@@ -19,7 +19,7 @@ import g4f.Provider
 logger = logging.getLogger("AnnieX_AI")
 
 # ------------------------------------------------------------------
-# Dynamic Provider Loader (2026 Stable Providers)
+# Dynamic Provider Loader
 # ------------------------------------------------------------------
 def get_provider_by_name(name_list):
     available = []
@@ -28,21 +28,22 @@ def get_provider_by_name(name_list):
             available.append(getattr(g4f.Provider, name))
     return available
 
-# مزودات طلقة ومستقرة ولا تطلب كوكيز أو ملفات HAR
-FAST_NAMES = ["Blackbox2", "PollinationsAI", "DarkAI", "ChatGptEs", "DuckDuckGo"]
-SMART_NAMES = ["Blackbox2", "Liaobots", "ChatGptEs"]
+# ✅ القائمة الذهبية (بناءً على فحص Termux الخاص بك)
+# AnyProvider: هو مزود ذكي يختار تلقائياً
+# ApiAirforce & OperaAria: مزودات سريعة جداً حالياً
+SCANNER_RESULTS = ["ApiAirforce", "OperaAria", "Yqcloud", "AnyProvider"]
 
-FAST_PROVIDERS = get_provider_by_name(FAST_NAMES)
-SMART_PROVIDERS = get_provider_by_name(SMART_NAMES)
+FAST_PROVIDERS = get_provider_by_name(SCANNER_RESULTS)
+# نستخدم نفس القائمة للوضع الذكي لضمان الاستقرار
+SMART_PROVIDERS = get_provider_by_name(SCANNER_RESULTS) 
 
-# الموديلات المستقرة (الابتعاد عن GPT-3.5 الميت)
+# الموديلات
 LIGHT_MODEL = "gpt-4o-mini" 
 HEAVY_MODEL = "gpt-4o"   
 DEFAULT_MODEL = LIGHT_MODEL
 
-# اعدادات الذاكرة (Memory)
+# اعدادات الذاكرة
 USER_HISTORY: Dict[int, list] = {}
-CACHE: Dict[str, str] = {}
 MAX_HISTORY = 6       
 MAX_USERS_IN_MEM = 50 
 
@@ -53,7 +54,6 @@ class AIEngineState:
     def __init__(self):
         self.enabled: bool = True
         self.model: str = DEFAULT_MODEL
-        self.temperature: float = 0.7 
 
     def reset(self):
         self.enabled = True
@@ -62,7 +62,7 @@ class AIEngineState:
 ENGINE = AIEngineState()
 
 # ------------------------------------------------------------------
-# Internal Helpers
+# Helpers
 # ------------------------------------------------------------------
 def _clean_memory_if_needed():
     if len(USER_HISTORY) > MAX_USERS_IN_MEM:
@@ -80,19 +80,19 @@ def _build_messages(user_id: int, prompt: str, system_prompt: str) -> list:
     return messages
 
 # ------------------------------------------------------------------
-# Core Logic (Anti-Flood & Arabic)
+# Core Logic
 # ------------------------------------------------------------------
 
 async def ask_ollama_stream(
     user_id: int,
     prompt: str,
-    system_prompt: str = "أنت آني، مساعد ذكي في تليجرام، ردك يجب أن يكون مختصراً ومفيداً باللغة العربية.",
+    system_prompt: str = "أنت آني، مساعد ذكي، تحدث بالعربية بوضوح.",
     model: Optional[str] = None,
     on_update: Optional[Callable[[str], None]] = None,
 ) -> str:
     
     if not ENGINE.enabled:
-        return "الذكاء الاصطناعي متوقف حالياً للصيانة."
+        return "الذكاء الاصطناعي متوقف للصيانة."
 
     used_model = model or ENGINE.model
     messages = _build_messages(user_id, prompt, system_prompt)
@@ -100,29 +100,37 @@ async def ask_ollama_stream(
     full_reply = ""
     last_update_time = time.time()
     last_sent_len = 0
+    
+    # خلط القائمة عشان الحمل يتوزع
+    if FAST_PROVIDERS:
+        random.shuffle(FAST_PROVIDERS)
 
-    # محاولة الاتصال مع 3 محاولات بمزودات مختلفة
+    # 3 محاولات
     for attempt in range(3): 
         try:
-            # اختيار مزود عشوائي في كل محاولة للهرب من الـ 502
-            target_list = FAST_PROVIDERS if used_model == LIGHT_MODEL else SMART_PROVIDERS
-            current_provider = random.choice(target_list) if target_list else None
-            
+            # اختيار المزود
+            # في أول محاولة نستخدم AnyProvider لأنه مجمع
+            if attempt == 0 and hasattr(g4f.Provider, "AnyProvider"):
+                current_provider = g4f.Provider.AnyProvider
+            elif attempt < len(FAST_PROVIDERS):
+                current_provider = FAST_PROVIDERS[attempt]
+            else:
+                current_provider = None # Auto Mode
+
             client = AsyncClient(provider=current_provider)
             
-            response_obj = client.chat.completions.create(
+            response_obj = await client.chat.completions.create(
                 model=used_model,
                 messages=messages,
                 stream=True
             )
             
-            # فحص نوع الرد (Async Generator Fix)
+            # معالجة الرد
+            response_iterator = response_obj
             if inspect.iscoroutine(response_obj):
-                response = await response_obj
-            else:
-                response = response_obj
+                response_iterator = await response_obj
             
-            async for chunk in response:
+            async for chunk in response_iterator:
                 content = ""
                 if hasattr(chunk.choices[0].delta, "content"):
                     content = chunk.choices[0].delta.content
@@ -131,38 +139,31 @@ async def ask_ollama_stream(
                 
                 if content:
                     full_reply += content
-                    
-                    # --- منطق منع الـ FloodWait الذكي ---
-                    # تحديث تليجرام فقط كل 3 ثواني وبشرط وجود زيادة كافية في النص
                     now = time.time()
-                    if on_update and (now - last_update_time > 3.0) and (len(full_reply) - last_sent_len > 40):
+                    # تحديث الرسالة كل 2.5 ثانية لتفادي الـ Flood
+                    if on_update and (now - last_update_time > 2.5) and (len(full_reply) - last_sent_len > 25):
                         try:
-                            await on_update(f"{full_reply}\n\n**جاري التفكير...**")
+                            await on_update(f"{full_reply} ▌")
                             last_update_time = now
                             last_sent_len = len(full_reply)
-                        except Exception:
-                            pass 
+                        except: pass 
 
-            if full_reply:
+            if full_reply and len(full_reply.strip()) > 1:
                 break 
 
         except Exception as e:
-            logger.error(f"Attempt {attempt+1} failed: {e}")
-            if attempt == 2: 
-                return "البوت مشغول حالياً، حاول في وقت آخر."
-            await asyncio.sleep(2)
+            # logger.error(f"Attempt {attempt} failed: {e}")
+            await asyncio.sleep(1)
 
     if not full_reply:
-        return "البوت مشغول حالياً، حاول في وقت آخر."
+        return "عذراً، لم أتمكن من الاتصال بسيرفرات الذكاء الاصطناعي حالياً."
 
-    # التحديث النهائي للرسالة
+    # Final Update
     if on_update:
-        try:
-            await on_update(full_reply)
-        except:
-            pass
+        try: await on_update(full_reply)
+        except: pass
 
-    # حفظ التاريخ في الذاكرة
+    # Save History
     _clean_memory_if_needed()
     history = USER_HISTORY.setdefault(user_id, [])
     history.append({"role": "user", "content": prompt})
@@ -172,7 +173,7 @@ async def ask_ollama_stream(
     return full_reply
 
 # ------------------------------------------------------------------
-# Controls & Exports
+# Exports
 # ------------------------------------------------------------------
 def clear_user_memory(user_id: int):
     USER_HISTORY.pop(user_id, None)
