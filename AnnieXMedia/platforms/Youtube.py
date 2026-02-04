@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
-# Author: Certified Fixes 2026 (optimized get_direct_link via yt_dlp API)
-# Purpose: fast -g direct stream (via yt_dlp API) + background RAM caching + yt-dlp tuning
+# Author: Certified Fixes 2026 (YouTube SABR Bypass Edition)
+# Purpose: Direct raw links + Android/TV Client Enforcement for 2026
 
 import asyncio
 import contextlib
@@ -82,8 +82,9 @@ def _now_key(q: str) -> str:
 # ---------- YouTubeAPI ----------
 class YouTubeAPI:
     def __init__(self):
+        # ⚠️ تنظيف: العودة للروابط الأصلية بدلاً من البروكسي الميت
         self.base = "https://www.youtube.com/watch?v="
-        self.listbase = "https://youtube.com/playlist?list="
+        self.listbase = "https://www.youtube.com/playlist?list="
         self._url_re = re.compile(r"(?:youtube\.com|youtu\.be)")
         self.pool = _pool
 
@@ -94,18 +95,25 @@ class YouTubeAPI:
         if not link:
             return ""
         link = link.strip()
-        if "youtu.be/" in link:
-            return self.base + link.split("/")[-1].split("?")[0]
-        if "youtube.com/shorts/" in link or "youtube.com/live/" in link:
-            return self.base + link.split("/")[-1].split("?")[0]
-        return link.split("&")[0]
+        
+        # تنظيف الروابط القديمة المعقدة
+        if "googleusercontent.com" in link:
+            try:
+                if "v=" in link:
+                    return self.base + link.split("v=")[1].split("&")[0]
+                elif "/0" in link or "/8" in link:
+                    return self.base + link.split("/")[-1].split("?")[0]
+            except:
+                pass
+                
+        # إزالة الإضافات غير الضرورية
+        if "&" in link and "v=" in link:
+            return link.split("&")[0]
+            
+        return link
 
     # ----- extract URL from a Pyrogram Message -----
     async def url(self, message: Message) -> Optional[str]:
-        """
-        Return the URL string found in message entities or caption_entities
-        or in replied-to message. Returns None if not found.
-        """
         if not message:
             return None
         msgs = [message]
@@ -137,7 +145,6 @@ class YouTubeAPI:
                     return data, vid
                 _cache.pop(key, None)
 
-        # try youtubesearchpython first (fast)
         try:
             res = await VideosSearch(prepared, limit=1).next()
             results = res.get("result", [])
@@ -159,12 +166,14 @@ class YouTubeAPI:
                 _cache[key] = (now, details, data.get("id", ""))
             return details, data.get("id", "")
 
-        # fallback to yt-dlp --dump-json
+        # fallback to yt-dlp
         cookie = get_cookie_file()
         cmd = ["yt-dlp"]
         if cookie:
             cmd += ["--cookies", cookie]
-        cmd += ["--dump-json", prepared]
+        # 🔥 إضافة العميل الجديد لتخطي مشاكل البيانات
+        cmd += ["--extractor-args", "youtube:player_client=android_tv,android", "--dump-json", prepared]
+        
         out, err = await _exec_proc(*cmd, timeout=15)
         if out:
             try:
@@ -189,7 +198,7 @@ class YouTubeAPI:
     async def details(self, link: str, videoid: Union[bool, str] = None) -> Tuple[str, Optional[str], int, str, str]:
         d, vid = await self.track(link, videoid)
         if vid == "":
-            raise ValueError("Video not found")
+            pass # Don't raise error, let it pass to allow raw links
         dur = d.get("duration_min")
         sec = int(_to_seconds(dur)) if dur else 0
         return d.get("title", ""), dur, sec, d.get("thumb", ""), vid
@@ -222,7 +231,6 @@ class YouTubeAPI:
             return None
         return None
 
-    # return ffmpeg input args recommended for low-latency streaming
     def ffmpeg_stream_args(self) -> List[str]:
         return [
             "-reconnect", "1",
@@ -233,10 +241,12 @@ class YouTubeAPI:
             "-flags", "low_delay",
         ]
 
-    # formats (yt-dlp extract_info)
     async def formats(self, link: str, videoid: Union[bool, str] = None) -> Tuple[List[Dict], str]:
-        prepared = link if not videoid else (self.base + str(videoid))
-        ytdl_opts = {"quiet": True}
+        prepared = self._prepare_link(link, videoid)
+        ytdl_opts = {
+            "quiet": True,
+            "extractor_args": {"youtube": {"player_client": ["android_tv", "android"]}} # 🔥 Fix
+        }
         if cf := get_cookie_file():
             ytdl_opts["cookiefile"] = cf
         out: List[Dict] = []
@@ -256,12 +266,8 @@ class YouTubeAPI:
             pass
         return out, prepared
 
-    # ---------- get_direct_link using yt_dlp API (fast) ----------
+    # ---------- get_direct_link (Core Fix) ----------
     async def get_direct_link(self, link: str, *, prefer_audio: bool = False) -> Optional[str]:
-        """
-        Use yt_dlp Python API to extract formats and choose a progressive/muxed URL fast.
-        Returns a direct URL (string) or None.
-        """
         prepared = self._prepare_link(link)
         if not prepared:
             return None
@@ -275,11 +281,12 @@ class YouTubeAPI:
                 "no_warnings": True,
                 "format": "best",
                 "noplaylist": True,
+                # 🔥 FIX: Use Android TV Client for SABR bypass
+                "extractor_args": {"youtube": {"player_client": ["android_tv", "android"]}},
             }
             if cookie:
                 opts["cookiefile"] = cookie
-            # help network: small socket timeout via yt-dlp opts
-            opts["socket_timeout"] = 10
+            opts["socket_timeout"] = 15
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(prepared, download=False)
@@ -288,8 +295,9 @@ class YouTubeAPI:
                 return {"_extract_err": str(e)}
 
         info = await loop.run_in_executor(self.pool, _extract_info)
+        
+        # fallback if internal API failed
         if not info or isinstance(info, dict) and info.get("_extract_err"):
-            # fallback to subprocess -g (last resort)
             try:
                 cmd = ["yt-dlp", "-g", "--force-ipv4", "--no-warnings"]
                 if cookie:
@@ -298,91 +306,72 @@ class YouTubeAPI:
                     cmd += ["-f", "bestaudio[ext=m4a]/bestaudio"]
                 else:
                     cmd += ["-f", "best[ext=mp4]/best"]
-                cmd += ["--extractor-args", "youtube:player_client=web", prepared]
-                out, err = await _exec_proc(*cmd, timeout=10)
+                
+                # 🔥 FIX: Inject client args in subprocess too
+                cmd += ["--extractor-args", "youtube:player_client=android_tv,android", prepared]
+                
+                out, err = await _exec_proc(*cmd, timeout=12)
                 if out:
                     return out.decode().splitlines()[0].strip()
             except Exception:
                 pass
             return None
 
-        # choose best candidate from formats
+        # choose best candidate (Same logic but safer)
         formats = info.get("formats") or []
         candidates = []
 
-        # helper to rank protocol/ext quality
         def rank(fmt):
             score = 0
             proto = fmt.get("protocol", "") or ""
             ext = (fmt.get("ext") or "").lower()
             vcodec = fmt.get("vcodec") or ""
             acodec = fmt.get("acodec") or ""
-            # prefer https/http
+            
             if proto.startswith("https"): score += 30
             if proto.startswith("http"): score += 20
-            # prefer mp4/m4a/webm
+            
             if ext in ("mp4",): score += 10
             if ext in ("m4a","webm"): score += 8
-            # prefer muxed (have both codecs) for video playback
+            
             if vcodec and vcodec != "none" and acodec and acodec != "none":
                 score += 40
-            # prefer audio-only for prefer_audio
             if prefer_audio and (acodec and acodec != "none"):
                 score += 15
-            # prefer higher bitrate/resolution
+                
             br = fmt.get("tbr") or fmt.get("abr") or 0
             try:
                 score += int(br) // 100
-            except Exception:
-                pass
+            except: pass
             return score
 
         for f in formats:
-            # ignore broken formats
-            if not f.get("url"):
-                continue
-            # skip DASH fragmented that are not progressive if possible
+            if not f.get("url"): continue
             proto = (f.get("protocol") or "").lower()
-            # collect typical progressive protocols
             if proto.startswith(("https","http","mms","rtmp","m3u8")):
                 candidates.append((rank(f), f))
 
-        # sort by score desc
         candidates.sort(key=lambda x: x[0], reverse=True)
 
-        # pick first suitable
         for score, fmt in candidates:
             url = fmt.get("url")
-            if not url:
-                continue
-            # prefer muxed if video; if prefer_audio choose audio-only
+            if not url: continue
             if prefer_audio:
-                # ensure this format has audio
                 ac = fmt.get("acodec") or ""
-                if ac == "none":
-                    continue
-                return url
+                if ac != "none": return url
             else:
-                # prefer muxed (audio+video) for immediate playback in calls
                 v = fmt.get("vcodec") or ""
                 a = fmt.get("acodec") or ""
-                if v != "none" and a != "none":
-                    return url
-                # otherwise accept audio-only for audio case
-                if fmt.get("ext") in ("m4a","mp3","webm") and (a and a != "none"):
-                    return url
-                # accept progressive mp4
-                if (fmt.get("ext") or "").lower() == "mp4":
-                    return url
+                if v != "none" and a != "none": return url
+                if fmt.get("ext") in ("m4a","mp3","webm") and a != "none": return url
+                if (fmt.get("ext") or "").lower() == "mp4": return url
 
-        # last-resort: if any format has url, return the first one
         for f in formats:
-            if f.get("url"):
-                return f.get("url")
+            if f.get("url"): return f.get("url")
 
         return None
 
-    # background downloader to RAM (blocking)
+    # background downloader (RAM Cache)
     def _background_download(self, link: str, out_template: str, is_video: bool):
         try:
             aria2_args = ["-x", "16", "-s", "16", "-j", "16", "-k", "1M", "--file-allocation=none", "--disable-ipv6=true"]
@@ -395,7 +384,8 @@ class YouTubeAPI:
                 "force_ipv4": True,
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
-                "extractor_args": {"youtube": {"player_client": ["web"]}},
+                # 🔥 FIX: Android TV Client here too
+                "extractor_args": {"youtube": {"player_client": ["android_tv", "android"]}},
                 "prefer_ffmpeg": True,
                 "writethumbnail": True,
                 "addmetadata": True,
@@ -421,39 +411,30 @@ class YouTubeAPI:
         format_id: Union[bool, str] = None,
         title: Union[bool, str] = None,
     ) -> Tuple[Optional[str], bool]:
-        """
-        Return (path_or_direct_url_or_None, is_direct_flag)
-        """
+        
         is_video = bool(video or songvideo)
         prepared = self._prepare_link(link, videoid)
 
-        # compute vid
         try:
             if videoid:
                 vid = str(videoid)
             elif "v=" in prepared:
                 vid = prepared.split("v=")[1].split("&")[0]
-            elif "youtu.be/" in prepared:
-                vid = prepared.split("youtu.be/")[1].split("?")[0]
             else:
                 vid = str(int(time.time()))
-        except Exception:
+        except:
             vid = str(int(time.time()))
 
         ram_base = os.path.join(DOWNLOAD_PATH, vid)
 
-        # 1) check RAM cache
         for ext in (".mp4", ".m4a", ".mp3", ".webm"):
             cand = f"{ram_base}{ext}"
-            try:
-                if os.path.exists(cand) and os.path.getsize(cand) > 1024:
-                    return cand, False
-            except Exception:
-                continue
+            if os.path.exists(cand) and os.path.getsize(cand) > 1024:
+                return cand, False
 
         loop = asyncio.get_running_loop()
 
-        # 2) format_id specific download
+        # format_id download
         if format_id:
             def _specific():
                 try:
@@ -464,7 +445,8 @@ class YouTubeAPI:
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
                         "force_ipv4": True,
-                        "extractor_args": {"youtube": {"player_client": ["web"]}},
+                        # 🔥 FIX
+                        "extractor_args": {"youtube": {"player_client": ["android_tv", "android"]}},
                         "external_downloader": "aria2c",
                         "external_downloader_args": aria2_args,
                     }
@@ -477,33 +459,30 @@ class YouTubeAPI:
                         path = ydl.prepare_filename(info)
                         if songaudio and not path.endswith(".mp3"):
                             p = os.path.splitext(path)[0] + ".mp3"
-                            if os.path.exists(p):
-                                return p
+                            if os.path.exists(p): return p
                         return path
                 except Exception:
                     return None
             res = await loop.run_in_executor(self.pool, _specific)
             return (res, False) if res else (None, False)
 
-        # 3) try direct link fast-path (yt_dlp API)
+        # direct link
         try:
             direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
-        except Exception:
+        except:
             direct = None
 
         if direct:
-            # schedule background cache after ~10s (non-blocking)
             def _delayed_cache():
                 try:
                     time.sleep(10)
                     out_template = f"{ram_base}.%(ext)s"
                     self._background_download(prepared, out_template, is_video)
-                except Exception:
-                    pass
+                except: pass
             loop.run_in_executor(self.pool, _delayed_cache)
             return direct, True
 
-        # 4) fallback: download to RAM immediately
+        # fallback download
         def _fallback():
             try:
                 fmt = "best[ext=mp4]/best" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
@@ -513,7 +492,8 @@ class YouTubeAPI:
                     "cookiefile": get_cookie_file(),
                     "quiet": True,
                     "force_ipv4": True,
-                    "extractor_args": {"youtube": {"player_client": ["web"]}},
+                    # 🔥 FIX
+                    "extractor_args": {"youtube": {"player_client": ["android_tv", "android"]}},
                     "prefer_ffmpeg": True,
                 }
                 if not is_video:
@@ -525,8 +505,7 @@ class YouTubeAPI:
                     path = ydl.prepare_filename(info)
                     if not is_video and not path.endswith(".mp3"):
                         mp3 = os.path.splitext(path)[0] + ".mp3"
-                        if os.path.exists(mp3):
-                            return mp3
+                        if os.path.exists(mp3): return mp3
                     return path
             except Exception as e:
                 log.warning("fallback download failed: %s", e)
@@ -538,12 +517,13 @@ class YouTubeAPI:
 
         return None, False
 
-    # playlist & slider helpers
     async def playlist(self, link, limit, user_id=None, videoid: Union[bool, str] = None):
         if videoid: link = self.listbase + link
         if "&" in link: link = link.split("&")[0]
+        # 🔥 FIX: Use new client for playlist fetching too
         cmd = (
             f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
+            f"--extractor-args 'youtube:player_client=android_tv,android' "
             f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
             f"2>/dev/null"
         )
@@ -566,5 +546,4 @@ class YouTubeAPI:
         except Exception:
             return "Error", "0", "", "error"
 
-# exported instance
 YouTube = YouTubeAPI()
