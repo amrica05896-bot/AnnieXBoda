@@ -1,6 +1,7 @@
 # Authored By Certified Systems Architect
-# Dedicated Song Downloader (Turbo M4A + Real Filename Edition 🚀)
-# Logic: Downloads raw M4A (Zero Transcoding) and saves with REAL song name.
+# Dedicated Song Downloader (Dynamic Quality Control 🚀)
+# Default State: Speed Mode (480p/360p).
+# Switch State: High Quality (4K/1080p) only via command.
 
 import asyncio
 import os
@@ -27,15 +28,19 @@ if not os.path.exists(Config.DOWNLOAD_PATH):
 class SongDownloaderAPI:
     def __init__(self):
         self.pool = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS)
+        
+        # 🛑 المفتاح الرئيسي 🛑
+        # False = البوت هيفتح وهو شغال علي 480p/360p (الوضع السريع)
+        # لن يتغير إلا لما تكتب أمر "ارفع الجودة"
         self.force_high_quality = False
 
     def enable_quality(self):
         self.force_high_quality = True
-        LOGGER("SongDownloader").info("🚀 High Quality Mode: ACTIVATED")
+        LOGGER("SongDownloader").info("High Quality Mode (Max Res): ACTIVATED")
 
     def disable_quality(self):
         self.force_high_quality = False
-        LOGGER("SongDownloader").info("✈️ Speed Mode: ACTIVATED")
+        LOGGER("SongDownloader").info("Speed Mode (480p): ACTIVATED")
 
     def get_cookie_file(self):
         paths = [
@@ -47,7 +52,7 @@ class SongDownloaderAPI:
                 return os.path.abspath(p)
         return None
 
-    # --- 1. سرعة الصوت (Direct Link) ---
+    # --- 1. فحص الروابط المباشرة (للصوت فقط لتسريع الأداء) ---
     async def get_direct_url(self, link, is_video):
         if is_video: return None
         loop = asyncio.get_running_loop()
@@ -68,13 +73,13 @@ class SongDownloaderAPI:
             except: return None
         return await loop.run_in_executor(self.pool, _extract)
 
-    # --- 2. المحرك الرئيسي ---
+    # --- 2. محرك التحميل ---
     async def download(self, link: str, is_video: bool = False):
         if "googleusercontent.com" in link:
              try: link = f"https://www.youtube.com/watch?v={link.split('v=')[1]}"
              except: pass
 
-        # لو الوضع سرعة والصوت مطلوب -> جرب الرابط المباشر
+        # لو الفيديو مطلوب (False) والجودة مقفولة (False) -> حاول تجيب رابط مباشر للصوت
         if not is_video and not self.force_high_quality:
             direct_url = await self.get_direct_url(link, is_video)
             if direct_url: return direct_url, True
@@ -83,25 +88,24 @@ class SongDownloaderAPI:
         cookies = self.get_cookie_file()
 
         # ========================================================
-        # 🎛️ منطق اختيار الصيغة (M4A Turbo vs Video)
+        # 🎛️ التحكم في الجودة (القلب النابض)
         # ========================================================
         
         if is_video:
             if self.force_high_quality:
-                fmt = "bestvideo+bestaudio/best" 
+                # ✅ (لما تفعل الأمر): هات أقصى جودة (4K/2K/1080p) وادمج الصوت
+                fmt = "bestvideo+bestaudio/best"
             else:
-                fmt = "best[ext=mp4][height<=480]/best[ext=mp4]"
+                # 🚀 (الوضع الافتراضي): هات 480p أو 360p جاهز (بدون دمج)
+                fmt = "best[ext=mp4][height<=480]/best[ext=mp4][height<=360]/best[ext=mp4]"
         else:
-            # 🎵 للصوت فقط (M4A Turbo) 🎵
-            # بنطلب m4a خام عشان نتفادى التحويل وننجز في الوقت
+            # 🎵 للصوت: دايماً m4a عشان السرعة (إلا لو حبيت تغيرها)
             fmt = "bestaudio[ext=m4a]"
 
         # ========================================================
 
         def _download_native():
-            # 🛑 التعديل الجوهري: التسمية باسم الملف الأصلي 🛑
-            # بدلاً من استخدام رقم عشوائي (uid)، بنستخدم %(title)s
-            # trim_file_name=50 عشان لو الاسم طويل جداً ميحصلش خطأ
+            # حفظ الملف باسم الأغنية الحقيقي
             out_tmpl = os.path.join(Config.DOWNLOAD_PATH, "%(title)s.%(ext)s")
 
             ydl_opts = {
@@ -118,29 +122,20 @@ class SongDownloaderAPI:
                 "concurrent_fragment_downloads": 5, 
                 "buffersize": 1024 * 1024,
                 "retries": 10,
+                "trim_file_name": 50, # قص الاسم الطويل
                 
-                # قص الاسم الطويل لمنع أخطاء النظام
-                "trim_file_name": 50,
-                
-                # محاكاة متصفح
                 "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             }
             
-            # لو فيديو عالي الجودة فقط بنحتاج دمج
+            # 🔥 لو الجودة مفعلة وفيديو: ادمجهم في MP4 🔥
             if is_video and self.force_high_quality:
                 ydl_opts["merge_output_format"] = "mp4"
 
-            # ⚠️ لاحظ: مفيش postprocessors للصوت (مش هنحول mp3)
-            # الملف هينزل m4a باسمه الحقيقي
-
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    # بنستخدم extract_info مع download=True
-                    # عشان يرجع لنا معلومات الملف (ومن ضمنها المسار النهائي)
                     info = ydl.extract_info(link, download=True)
                     return ydl.prepare_filename(info)
-            except Exception as e:
-                # لو فشل، بنحاول نبحث في المجلد (كحل أخير)
+            except Exception:
                 pass
             return None
 
