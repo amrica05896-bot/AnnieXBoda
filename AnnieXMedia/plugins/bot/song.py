@@ -55,11 +55,13 @@ def clean_title(title: str) -> str:
 
 @app.on_message(filters.command(["رفع الجودة", "ارفع الجودة", "تفعيل الجودة"], prefixes="") & filters.user(SUDO_USERS))
 async def enable_hq_cmd(client, message):
+    # هذا الأمر يغير المتغير في SongDownloader مباشرة
     SongDownloader.enable_quality()
     await message.reply_text("تم تفعيل الجودة العالية (HQ) للجميع.")
 
 @app.on_message(filters.command(["قفل الجودة", "اقفل الجودة", "تعطيل الجودة"], prefixes="") & filters.user(SUDO_USERS))
 async def disable_hq_cmd(client, message):
+    # هذا الأمر يعيد المتغير لوضع السرعة
     SongDownloader.disable_quality()
     await message.reply_text("تم تعطيل الجودة العالية والعودة للوضع السريع.")
 
