@@ -1,10 +1,9 @@
 # plugins/ai/handlers.py
 # Authored By Certified Coders (c) 2026
-# AI Handlers - Stable / Fast / Settings Enabled
+# AI Handlers - Smart Switching & Failover Integrated
 
 import os
 import re
-import time
 import logging
 from typing import Optional, Set
 
@@ -19,7 +18,8 @@ from pyrogram.types import (
 from AnnieXMedia import app
 from config import OWNER_ID
 
-# استيراد دوال المحرك الجديد (g4f)
+# استيراد المحرك الذكي (G4F Engine)
+# هذا المحرك يحتوي على منطق التبديل التلقائي عند الفشل
 from .engine import (
     ENGINE,
     ask_ollama_stream,
@@ -33,7 +33,7 @@ logger = logging.getLogger("AnnieX_AI_Handlers")
 logging.basicConfig(level=logging.INFO)
 
 # -------------------------------------------------
-# OWNER / SUDO
+# OWNER / SUDO SETUP
 # -------------------------------------------------
 if isinstance(OWNER_ID, (list, tuple, set)):
     SUDO_USERS = set(OWNER_ID)
@@ -43,21 +43,23 @@ else:
 SUDO_FILTER = filters.user(list(SUDO_USERS))
 
 # -------------------------------------------------
-# AI STATE
+# AI STATE MANAGEMENT
 # -------------------------------------------------
 class AIState:
     def __init__(self):
         self.enabled: bool = True
         self.mode: str = "عام"
         self.permanent_users: Set[int] = set()
-        self.speed: str = "light"  # light | heavy
+        # الحالة الافتراضية بناءً على المحرك
+        self.speed: str = "light" if "mini" in ENGINE.model else "heavy"
 
 AI_STATE = AIState()
 
 # -------------------------------------------------
-# Helpers
+# HELPERS
 # -------------------------------------------------
 def extract_prompt(text: str) -> str:
+    # استخراج السؤال بعد كلمة التفعيل
     trigger = re.match(r"^(ذكاء|يا بوت|بوت|بقولك)(\s+|$)", text or "", re.IGNORECASE)
     if trigger:
         return text[trigger.end():].strip()
@@ -69,9 +71,12 @@ def should_trigger_ai(message: Message, bot_id: Optional[int]) -> bool:
         return False
 
     uid = message.from_user.id
+    
+    # 1. لو المستخدم مفعل الوضع الدائم
     if uid in AI_STATE.permanent_users:
         return True
 
+    # 2. لو الرسالة تبدأ بكلمة تفعيل
     return bool(re.match(r"^(ذكاء|يا بوت|بوت|بقولك)", message.text or "", re.IGNORECASE))
 
 
@@ -79,7 +84,7 @@ def owner_only_text() -> str:
     return "هذا الامر مخصص للمالك فقط."
 
 # -------------------------------------------------
-# Keyboards
+# KEYBOARDS
 # -------------------------------------------------
 def build_control_keyboard() -> InlineKeyboardMarkup:
     speed_txt = "(سريع)" if AI_STATE.speed == "light" else "(ذكي)"
@@ -115,21 +120,21 @@ def build_settings_keyboard() -> InlineKeyboardMarkup:
     )
 
 # -------------------------------------------------
-# Control Panel
+# CONTROL PANEL COMMAND
 # -------------------------------------------------
 @app.on_message(filters.regex(r"^(اوامر الذكاء|كيب ذكاء|كيب الذكاء)$") & SUDO_FILTER)
 async def ai_control_panel(_, m: Message):
     text = (
-        "**لوحة تحكم الذكاء الاصطناعي (G4F Engine)**\n\n"
-        f"• **الحالة:** {'مفعل' if AI_STATE.enabled else 'معطل'}\n"
+        "**🤖 لوحة تحكم الذكاء الاصطناعي (Auto-Switch Engine)**\n\n"
+        f"• **الحالة:** {'✅ مفعل' if AI_STATE.enabled else '❌ معطل'}\n"
         f"• **الموديل:** `{ENGINE.model}`\n"
-        f"• **الوضع:** {'سريع' if AI_STATE.speed == 'light' else 'ذكي'}\n"
+        f"• **الوضع:** {'🚀 سريع' if AI_STATE.speed == 'light' else '🧠 ذكي'}\n"
         f"• **المتصلين:** `{len(AI_STATE.permanent_users)}`\n"
     )
     await m.reply_text(text, reply_markup=build_control_keyboard())
 
 # -------------------------------------------------
-# Callbacks
+# CALLBACKS HANDLER
 # -------------------------------------------------
 @app.on_callback_query(filters.regex("^ai_"))
 async def ai_callbacks(_, q: CallbackQuery):
@@ -169,20 +174,25 @@ async def ai_callbacks(_, q: CallbackQuery):
             await q.answer(owner_only_text(), show_alert=True)
             return
         
+        # التبديل الفعلي للموديل في المحرك
         new_model = toggle_model()
-        if "gpt-4" in new_model:
-            AI_STATE.speed = "heavy"
-            msg = "تم التفعيل: الوضع الذكي"
-        else:
+        
+        # تحديث حالة الواجهة
+        if "mini" in new_model:
             AI_STATE.speed = "light"
-            msg = "تم التفعيل: الوضع السريع"
+            msg = "تم التفعيل: الوضع السريع (GPT-4o Mini)"
+        else:
+            AI_STATE.speed = "heavy"
+            msg = "تم التفعيل: الوضع الذكي (GPT-4o)"
             
         await q.answer(msg, show_alert=True)
+        
+        # تحديث نص الرسالة
         text = (
-            "**لوحة تحكم الذكاء الاصطناعي (G4F Engine)**\n\n"
-            f"• **الحالة:** {'مفعل' if AI_STATE.enabled else 'معطل'}\n"
+            "**🤖 لوحة تحكم الذكاء الاصطناعي (Auto-Switch Engine)**\n\n"
+            f"• **الحالة:** {'✅ مفعل' if AI_STATE.enabled else '❌ معطل'}\n"
             f"• **الموديل:** `{ENGINE.model}`\n"
-            f"• **الوضع:** {'سريع' if AI_STATE.speed == 'light' else 'ذكي'}\n"
+            f"• **الوضع:** {'🚀 سريع' if AI_STATE.speed == 'light' else '🧠 ذكي'}\n"
             f"• **المتصلين:** `{len(AI_STATE.permanent_users)}`\n"
         )
         try:
@@ -193,10 +203,10 @@ async def ai_callbacks(_, q: CallbackQuery):
 
     if data == "ai_back":
         text = (
-            "**لوحة تحكم الذكاء الاصطناعي (G4F Engine)**\n\n"
-            f"• **الحالة:** {'مفعل' if AI_STATE.enabled else 'معطل'}\n"
+            "**🤖 لوحة تحكم الذكاء الاصطناعي (Auto-Switch Engine)**\n\n"
+            f"• **الحالة:** {'✅ مفعل' if AI_STATE.enabled else '❌ معطل'}\n"
             f"• **الموديل:** `{ENGINE.model}`\n"
-            f"• **الوضع:** {'سريع' if AI_STATE.speed == 'light' else 'ذكي'}\n"
+            f"• **الوضع:** {'🚀 سريع' if AI_STATE.speed == 'light' else '🧠 ذكي'}\n"
             f"• **المتصلين:** `{len(AI_STATE.permanent_users)}`\n"
         )
         await q.message.edit_text(text, reply_markup=build_control_keyboard())
@@ -207,13 +217,13 @@ async def ai_callbacks(_, q: CallbackQuery):
             await q.answer(owner_only_text(), show_alert=True)
             return
         AI_STATE.enabled = not AI_STATE.enabled
-        ENGINE.enabled = AI_STATE.enabled
+        ENGINE.enabled = AI_STATE.enabled # مزامنة مع المحرك
         await q.answer("تم تحديث حالة الذكاء.", show_alert=True)
         text = (
-            "**لوحة تحكم الذكاء الاصطناعي (G4F Engine)**\n\n"
-            f"• **الحالة:** {'مفعل' if AI_STATE.enabled else 'معطل'}\n"
+            "**🤖 لوحة تحكم الذكاء الاصطناعي (Auto-Switch Engine)**\n\n"
+            f"• **الحالة:** {'✅ مفعل' if AI_STATE.enabled else '❌ معطل'}\n"
             f"• **الموديل:** `{ENGINE.model}`\n"
-            f"• **الوضع:** {'سريع' if AI_STATE.speed == 'light' else 'ذكي'}\n"
+            f"• **الوضع:** {'🚀 سريع' if AI_STATE.speed == 'light' else '🧠 ذكي'}\n"
             f"• **المتصلين:** `{len(AI_STATE.permanent_users)}`\n"
         )
         try:
@@ -227,41 +237,43 @@ async def ai_callbacks(_, q: CallbackQuery):
             await q.answer(owner_only_text(), show_alert=True)
             return
         AI_STATE.permanent_users.clear()
-        await q.answer("تم تنظيف الذاكرة.", show_alert=True)
+        await q.answer("تم تنظيف الذاكرة وقائمة المتصلين.", show_alert=True)
         return
 
     if data == "ai_restart":
         if uid not in SUDO_USERS:
             await q.answer(owner_only_text(), show_alert=True)
             return
+        await q.answer("جاري إعادة التشغيل...", show_alert=True)
         os._exit(0)
 
     if data == "ai_close":
         await q.message.delete()
 
 # -------------------------------------------------
-# User Commands
+# USER COMMANDS
 # -------------------------------------------------
 @app.on_message(filters.regex(r"^(ذكاء دائم)$") & ~filters.bot)
 async def enable_permanent(_, m: Message):
     AI_STATE.permanent_users.add(m.from_user.id)
-    await m.reply_text("تم تفعيل وضع الذكاء الدائم.")
+    await m.reply_text("**تم تفعيل وضع الذكاء الدائم.**\nالآن يمكنك التحدث مع البوت مباشرة بدون مقدمات.")
 
 @app.on_message(filters.regex(r"^(كفاية|خروج)$") & ~filters.bot)
 async def disable_permanent(_, m: Message):
     AI_STATE.permanent_users.discard(m.from_user.id)
-    await m.reply_text("تم ايقاف الذكاء الدائم.")
+    await m.reply_text("**تم ايقاف الذكاء الدائم.**")
 
 @app.on_message(filters.regex(r"^(مسح ذاكرتي)$") & ~filters.bot)
 async def clear_user(_, m: Message):
     clear_user_memory(m.from_user.id)
-    await m.reply_text("تم مسح ذاكرتك.")
+    await m.reply_text("**تم مسح ذاكرتك.**\nبدأنا صفحة جديدة.")
 
 # -------------------------------------------------
-# Main AI Handler (FAST + SAFE)
+# MAIN AI PROCESSING
 # -------------------------------------------------
 @app.on_message(filters.text & ~filters.bot, group=60)
 async def ai_handler(client, m: Message):
+    # التحقق من أن الذكاء مفعل (يسمح للمطورين بالتجاوز)
     if not AI_STATE.enabled and m.from_user.id not in SUDO_USERS:
         return
 
@@ -270,6 +282,7 @@ async def ai_handler(client, m: Message):
     except Exception:
         bot_id = None
 
+    # هل يجب الرد؟
     if not should_trigger_ai(m, bot_id):
         return
 
@@ -279,14 +292,19 @@ async def ai_handler(client, m: Message):
 
     system_prompt = build_system_prompt(AI_STATE.mode)
 
-    wait_msg = await m.reply_text("جاري التفكير.")
+    # رسالة الانتظار
+    wait_msg = await m.reply_text("⏳")
 
+    # دالة التحديث المباشر (Streaming)
     async def on_update(text: str):
         try:
-            await wait_msg.edit(text[:1800])
+            # تحديث الرسالة كلما وصل جزء جديد من النص
+            await wait_msg.edit(text[:4000]) # حدود تليجرام
         except Exception:
             pass
 
+    # استدعاء المحرك
+    # هنا يتم التعامل مع التبديل التلقائي في حالة فشل السيرفر الأول
     reply = await ask_ollama_stream(
         user_id=m.from_user.id,
         prompt=prompt,
@@ -294,4 +312,9 @@ async def ai_handler(client, m: Message):
         on_update=on_update,
     )
 
-    await wait_msg.edit(reply)
+    # التأكد من أن الرسالة النهائية تم عرضها
+    if reply and reply != wait_msg.text:
+        try:
+            await wait_msg.edit(reply[:4000])
+        except:
+            pass
