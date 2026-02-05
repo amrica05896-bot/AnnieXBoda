@@ -1,21 +1,19 @@
 # Authored By Certified Coders © 2026
-# RACE MODE: Android/iOS Spoofing + Cookies Auth + IPv4 Force
-# FIXED: Removed deprecated arguments (no-call-home) & Added Auto-Cookies
+# RACE MODE: Android/iOS/Web Spoofing + Auto Cookies + IPv4 Force
+# STABLE MODE: pytgcalls-safe formats only (NO image-only / NO broken audio)
 
 import asyncio
 import logging
 import re
 import shlex
-import os  # مهم جداً عشان البحث عن ملف الكوكيز
-from typing import Optional
-from typing import Tuple
+import os
+from typing import Optional, Tuple
 
 from .exceptions import YtDlpError
-from .ffmpeg import cleanup_commands
 from .list_to_cmd import list_to_cmd
 from .types.raw import VideoParameters
 
-py_logger = logging.getLogger('pytgcalls')
+py_logger = logging.getLogger("pytgcalls")
 
 
 class YtDlp:
@@ -28,103 +26,101 @@ class YtDlp:
 
     @staticmethod
     def is_valid(link: str) -> bool:
-        return bool(YtDlp.YOUTUBE_REGX.match(link))
+        return bool(link and YtDlp.YOUTUBE_REGX.match(link))
 
     @staticmethod
     async def extract(
         link: Optional[str],
         video_parameters: VideoParameters,
-        add_commands: Optional[str],
+        add_commands: Optional[str] = None,
     ) -> Tuple[Optional[str], Optional[str]]:
-        if link is None:
+
+        if not link:
             return None, None
 
-        # 🔥 RACE MODE: NUCLEAR CONFIGURATION (16-Core Optimized) 🔥
+        # 🎯 pytgcalls SAFE FORMAT (FAST + STABLE)
+        # - mp4 only
+        # - real video (not image)
+        # - fallback guaranteed
+        ytdlp_format = (
+            "bv*[ext=mp4][height<=720]+ba[ext=m4a]/"
+            "bv*[ext=mp4][height<=360]+ba[ext=m4a]/"
+            "b[ext=mp4]/best"
+        )
+
         commands = [
-            'yt-dlp',
-            '-g',
-            # استخدام أندرويد و iOS لأن استجابتهم أسرع (JSON أصغر)
-            '--extractor-args', 'youtube:player_client=android,ios,web',
-            
-            # تحديد الصيغ (صوت فقط للسرعة، أو فيديو خفيف)
-            '--format', 'bestaudio/best',
-            
-            # --- تحسينات الشبكة (Network Boost) ---
-            '--force-ipv4',               # يمنع تأخير DNS في IPv6
-            '--no-check-certificate',     # تجاوز SSL Handshake
-            '--socket-timeout', '10',     # لو السيرفر ماردش في 10 ثواني اقطع
-            
-            # --- تخطي الفحوصات (Skip Checks) ---
-            '--no-playlist',              
-            '--no-check-formats',         # سرعة صاروخية (يأخذ أول صيغة تقابله)
-            '--no-write-subs',
-            '--no-warnings',
-            '--ignore-errors',
-            '--no-cache-dir',             # عدم القراءة/الكتابة على الهارد
-            
-            # ❌ (تم الحذف) الأوامر التي تسبب الكراش في النسخ الحديثة:
-            # --no-call-home  <-- كان السبب في المشكلة
-            # --no-remote-subtitles
+            "yt-dlp",
+            "-g",
+
+            "--extractor-args",
+            "youtube:player_client=android,ios,web",
+
+            "--format",
+            ytdlp_format,
+
+            # ⚡ Network speed
+            "--force-ipv4",
+            "--socket-timeout", "10",
+
+            # 🧹 Clean & fast
+            "--no-playlist",
+            "--no-write-subs",
+            "--no-warnings",
+            "--ignore-errors",
+            "--no-cache-dir",
         ]
 
-        # ✅ إضافة الكوكيز تلقائياً (Auto-Detect Cookies)
-        # يبحث عن الملف في المسارات المحتملة ويستخدمه إذا وجد
-        possible_cookies = [
-            '/app/cookies.txt',           # مسار الدوكر الرسمي
-            'cookies.txt',                # المسار الحالي
-            'AnnieXMedia/cookies.txt',    # مسار داخل السورس
-            'assets/cookies.txt'
-        ]
+        # 🍪 Auto Cookies (Safe)
+        possible_cookies = (
+            "/app/cookies.txt",
+            "cookies.txt",
+            "AnnieXMedia/cookies.txt",
+            "assets/cookies.txt",
+        )
 
-        for path in possible_cookies:
-            if os.path.exists(path):
-                commands.extend(['--cookies', path])
-                # py_logger.debug(f"🍪 Using cookies from: {path}") 
+        for cookie_path in possible_cookies:
+            if os.path.isfile(cookie_path):
+                commands.extend(["--cookies", cookie_path])
                 break
 
         if add_commands:
-            commands += shlex.split(add_commands)
+            commands.extend(shlex.split(add_commands))
 
         commands.append(link)
 
-        py_logger.log(
-            logging.DEBUG,
-            f'Running with "{list_to_cmd(commands)}" command',
-        )
+        py_logger.debug(f"yt-dlp cmd → {list_to_cmd(commands)}")
+
         try:
             proc = await asyncio.create_subprocess_exec(
                 *commands,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+
             try:
-                # المهلة الزمنية للسباق (Race Timeout)
-                # رفعناها لـ 15 ثانية لتغطية وقت قراءة الكوكيز وفك التشفير
                 stdout, stderr = await asyncio.wait_for(
                     proc.communicate(),
-                    timeout=15, 
+                    timeout=15,
                 )
             except asyncio.TimeoutError:
-                try:
-                    proc.kill() # Kill أسرع من Terminate
-                except:
-                    pass
-                raise YtDlpError('yt-dlp process timeout (Race Lost or Slow Proxy)')
-            
-            if not stdout and stderr:
-                err_msg = stderr.decode()
-                # لو الخطأ بسبب الحظر (رغم وجود الكوكيز أحياناً)، نوضحه
-                if "Sign in" in err_msg:
-                    raise YtDlpError("YouTube Blocked: Check cookies.txt validation.")
-                
-                # أحياناً yt-dlp يرمي تحذيرات في stderr بس بيجيب الرابط في stdout
-                if not stdout:
-                    raise YtDlpError(err_msg)
-            
-            data = stdout.decode().strip().split('\n')
-            if data:
-                # العودة بالرابط المباشر
-                return data[0], data[1] if len(data) >= 2 else data[0]
-            raise YtDlpError('No video URLs found')
+                proc.kill()
+                raise YtDlpError("yt-dlp timeout (slow response or blocked)")
+
+            if not stdout:
+                error = stderr.decode(errors="ignore")
+                if "Sign in" in error:
+                    raise YtDlpError("YouTube blocked – cookies invalid or expired")
+                raise YtDlpError(error or "yt-dlp returned empty output")
+
+            lines = stdout.decode(errors="ignore").strip().splitlines()
+
+            # yt-dlp -g ممكن يرجّع 1 أو 2 URL
+            if len(lines) == 1:
+                return lines[0], lines[0]
+            elif len(lines) >= 2:
+                return lines[0], lines[1]
+
+            raise YtDlpError("No playable streams found")
+
         except FileNotFoundError:
-            raise YtDlpError('yt-dlp is not installed on your system')
+            raise YtDlpError("yt-dlp binary not found")
