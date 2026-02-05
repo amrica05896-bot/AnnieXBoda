@@ -1,5 +1,5 @@
 # Authored By Certified Coders © 2026
-# Optimized for Pillow 12.1.0 & Python 3.12+
+# Optimized for Pillow 12.1.0 & Arabic Text Support
 
 import os
 import re
@@ -7,46 +7,52 @@ import asyncio
 import aiofiles
 import aiohttp
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
-
-# مكتبة البحث غير المتزامن (تأكد أن المكتبة مثبتة)
 from youtubesearchpython.aio import VideosSearch
-
 from config import YOUTUBE_IMG_URL
 from AnnieXMedia.core.dir import CACHE_DIR 
+
+# ✅ استيراد مكتبات تصحيح العربي
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 # ================= CONSTANTS =================
 PANEL_W, PANEL_H = 763, 545
 PANEL_X = (1280 - PANEL_W) // 2
 PANEL_Y = 88
-
-# مستوى الشفافية (7 = شفاف جداً)
 TRANSPARENCY = 7 
 INNER_OFFSET = 36
-
 THUMB_W, THUMB_H = 542, 273
 THUMB_X = PANEL_X + (PANEL_W - THUMB_W) // 2
 THUMB_Y = PANEL_Y + INNER_OFFSET
-
 TITLE_X = 377
 META_X = 377
 TITLE_Y = THUMB_Y + THUMB_H + 10
 META_Y = TITLE_Y + 45
-
 BAR_X, BAR_Y = 388, META_Y + 45
 BAR_RED_LEN = 280
 BAR_TOTAL_LEN = 480
-
 ICONS_W, ICONS_H = 415, 45
 ICONS_X = PANEL_X + (PANEL_W - ICONS_W) // 2
 ICONS_Y = BAR_Y + 48
-
 MAX_TITLE_WIDTH = 580
 # =============================================
 
+def fix_ar(text):
+    """دالة سحرية لإصلاح الحروف العربية المقطعة والمشقلبة"""
+    if not text:
+        return ""
+    try:
+        # 1. إعادة تشكيل الحروف (عشان تشبك في بعض)
+        reshaped_text = arabic_reshaper.reshape(text)
+        # 2. قلب الاتجاه (عشان تبقى من اليمين للشمال)
+        bidi_text = get_display(reshaped_text)
+        return bidi_text
+    except:
+        return text
+
 def trim_to_width(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> str:
-    """قص النص بذكاء ليتناسب مع العرض المحدد"""
+    """قص النص بذكاء"""
     ellipsis = "…"
-    # Pillow 10+ uses getlength correctly
     if font.getlength(text) <= max_w:
         return text
     for i in range(len(text) - 1, 0, -1):
@@ -55,23 +61,19 @@ def trim_to_width(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> str:
     return ellipsis
 
 async def get_thumb(videoid: str) -> str:
-    # التأكد من وجود مجلد الكاش
     if not os.path.isdir(CACHE_DIR):
         os.makedirs(CACHE_DIR)
 
-    cache_path = os.path.join(CACHE_DIR, f"{videoid}_v6_glass_aio.png")
+    cache_path = os.path.join(CACHE_DIR, f"{videoid}_v7_arabic.png")
     if os.path.exists(cache_path):
         return cache_path
 
-    # 1. جلب البيانات من يوتيوب
     try:
-        # البحث باستخدام الـ Video ID
         search = VideosSearch(videoid, limit=1)
         results_data = await search.next()
         result_items = results_data.get("result", [])
         
         if not result_items:
-            # محاولة أخرى بالرابط المباشر لو الـ ID فشل
             search = VideosSearch(f"https://www.youtube.com/watch?v={videoid}", limit=1)
             results_data = await search.next()
             result_items = results_data.get("result", [])
@@ -80,6 +82,7 @@ async def get_thumb(videoid: str) -> str:
             raise ValueError("No results found.")
             
         data = result_items[0]
+        # تنظيف العنوان
         title = re.sub(r"\W+", " ", data.get("title", "Unsupported Title")).title()
         thumbnail = data.get("thumbnails", [{}])[0].get("url", YOUTUBE_IMG_URL)
         duration = data.get("duration")
@@ -89,11 +92,9 @@ async def get_thumb(videoid: str) -> str:
         print(f"Thumbnail Error: {e}")
         title, thumbnail, duration, views = "Unknown Track", YOUTUBE_IMG_URL, "00:00", "N/A"
 
-    # معالجة النصوص
     is_live = not duration or str(duration).strip().lower() in {"", "live", "live now"}
     duration_text = "Live" if is_live else duration or "00:00"
 
-    # 2. تحميل الصورة الأساسية
     thumb_path = os.path.join(CACHE_DIR, f"temp_thumb_{videoid}.png")
     try:
         async with aiohttp.ClientSession() as session:
@@ -106,39 +107,28 @@ async def get_thumb(videoid: str) -> str:
     except Exception:
         return YOUTUBE_IMG_URL
 
-    # ================= معالجة الصورة (The Magic) =================
     try:
-        # فتح الصورة وتحويلها لـ RGBA
         base = Image.open(thumb_path).convert("RGBA")
-        
-        # تغيير الحجم باستخدام LANCZOS (أعلى جودة في Pillow 12)
         base = base.resize((1280, 720), Image.Resampling.LANCZOS)
         
-        # 1. الخلفية العامة (Blurry Background)
-        bg = base.filter(ImageFilter.BoxBlur(5)) # BoxBlur أسرع وأخف
-        bg = ImageEnhance.Brightness(bg).enhance(0.6) # تغميق الخلفية
+        bg = base.filter(ImageFilter.BoxBlur(5))
+        bg = ImageEnhance.Brightness(bg).enhance(0.6)
 
-        # 2. المنطقة الزجاجية (Glass Panel)
         crop = bg.crop((PANEL_X, PANEL_Y, PANEL_X + PANEL_W, PANEL_Y + PANEL_H))
-        crop = crop.filter(ImageFilter.GaussianBlur(30)) # تمويه قوي للزجاج
-        crop = ImageEnhance.Color(crop).enhance(1.5)      # تشبيع الألوان
-        crop = ImageEnhance.Brightness(crop).enhance(1.1) # إضاءة خفيفة
+        crop = crop.filter(ImageFilter.GaussianBlur(30))
+        crop = ImageEnhance.Color(crop).enhance(1.5)
+        crop = ImageEnhance.Brightness(crop).enhance(1.1)
         
-        # طبقة التبييض الشفافة
         tint = Image.new("RGBA", crop.size, (255, 255, 255, TRANSPARENCY))
         glass_panel = Image.alpha_composite(crop, tint)
         
-        # قناع الزوايا الدائرية للبانل
         mask = Image.new("L", (PANEL_W, PANEL_H), 0)
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, PANEL_W, PANEL_H), radius=40, fill=255)
         
-        # لصق البانل الزجاجي
         bg.paste(glass_panel, (PANEL_X, PANEL_Y), mask)
 
-        # الرسم على الصورة
         draw = ImageDraw.Draw(bg)
         
-        # إطار أبيض رفيع حول الزجاج
         draw.rounded_rectangle(
             (PANEL_X, PANEL_Y, PANEL_X + PANEL_W, PANEL_Y + PANEL_H),
             radius=40,
@@ -146,62 +136,50 @@ async def get_thumb(videoid: str) -> str:
             width=2
         )
 
-        # تحميل الخطوط (مع Fallback)
         try:
+            # يفضل استخدام خط يدعم العربي زي Cairo أو Arial
             title_font = ImageFont.truetype("AnnieXMedia/assets/thumb/font2.ttf", 32)
             regular_font = ImageFont.truetype("AnnieXMedia/assets/thumb/font.ttf", 18)
         except OSError:
             title_font = regular_font = ImageFont.load_default()
 
-        # 3. الصورة المصغرة الداخلية (Album Art)
-        # استخدام LANCZOS للتصغير النظيف
         thumb_inner = base.resize((THUMB_W, THUMB_H), Image.Resampling.LANCZOS)
-        
-        # قناع للصورة الداخلية
         tmask = Image.new("L", thumb_inner.size, 0)
         ImageDraw.Draw(tmask).rounded_rectangle((0, 0, THUMB_W, THUMB_H), radius=20, fill=255)
-        
         bg.paste(thumb_inner, (THUMB_X, THUMB_Y), tmask)
 
-        # 4. كتابة النصوص
-        draw.text((TITLE_X, TITLE_Y), trim_to_width(title, title_font, MAX_TITLE_WIDTH), fill="black", font=title_font)
-        draw.text((META_X, META_Y), f"YouTube | {views}", fill="black", font=regular_font)
+        # ✅ تطبيق إصلاح العربي هنا
+        final_title = trim_to_width(title, title_font, MAX_TITLE_WIDTH)
+        final_title = fix_ar(final_title)  # <--- السر هنا
+        
+        final_views = fix_ar(f"YouTube | {views}")
 
-        # 5. شريط التشغيل (Progress Bar)
-        # الخط الأحمر
+        draw.text((TITLE_X, TITLE_Y), final_title, fill="black", font=title_font)
+        draw.text((META_X, META_Y), final_views, fill="black", font=regular_font)
+
         draw.line([(BAR_X, BAR_Y), (BAR_X + BAR_RED_LEN, BAR_Y)], fill="#FF0000", width=6)
-        # الخط الرمادي (المتبقي)
         draw.line([(BAR_X + BAR_RED_LEN, BAR_Y), (BAR_X + BAR_TOTAL_LEN, BAR_Y)], fill="#AAAAAA", width=5)
-        # الدائرة الحمراء (Knob)
         draw.ellipse([(BAR_X + BAR_RED_LEN - 7, BAR_Y - 7), (BAR_X + BAR_RED_LEN + 7, BAR_Y + 7)], fill="#FF0000")
 
-        # التوقيت
         draw.text((BAR_X, BAR_Y + 15), "00:00", fill="black", font=regular_font)
         
-        # ضبط لون كلمة Live للأحمر
         end_color = "#FF0000" if is_live else "black"
         draw.text((BAR_X + BAR_TOTAL_LEN - (80 if is_live else 60), BAR_Y + 15), duration_text, fill=end_color, font=regular_font)
 
-        # 6. الأيقونات (Play Icons)
         icons_path = "AnnieXMedia/assets/thumb/play_icons.png"
         if os.path.isfile(icons_path):
             ic = Image.open(icons_path).convert("RGBA")
             ic = ic.resize((ICONS_W, ICONS_H), Image.Resampling.LANCZOS)
-            
-            # تحويل الأيقونات للون الأسود لتناسب الخلفية الفاتحة
             r, g, b, a = ic.split()
             black_ic = Image.merge("RGBA", (r.point(lambda _: 0), g.point(lambda _: 0), b.point(lambda _: 0), a))
-            
             bg.paste(black_ic, (ICONS_X, ICONS_Y), black_ic)
 
-        # حفظ الناتج النهائي
         bg.save(cache_path)
         
     except Exception as e:
         print(f"Image Processing Error: {e}")
         return YOUTUBE_IMG_URL
     finally:
-        # تنظيف الملفات المؤقتة
         try:
             if os.path.exists(thumb_path):
                 os.remove(thumb_path)
