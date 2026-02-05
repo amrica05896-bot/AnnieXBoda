@@ -1,5 +1,5 @@
 # ===== Core Async & Performance (أقصى سرعة) =====
-uvloop==0.21.0
+uvloop==0.22.1
 aiofiles
 # تفعيل تسريع DNS و C-Parsing
 aiohttp[speedups]
