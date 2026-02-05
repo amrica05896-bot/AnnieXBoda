@@ -1,58 +1,51 @@
-# ===== Core Async & Performance (أقصى سرعة) =====
-uvloop==0.21.0
+# ===== Core Async & High Performance 🚀 =====
+uvloop>=0.21.0
 aiofiles
-# تفعيل تسريع DNS و C-Parsing
 aiohttp[speedups]
 httpx[http2,brotli]>=0.28.1
-psutil
+curl_cffi>=0.7.0b4
+orjson
+ujson
 cachetools
 brotli
 certifi
-# أسرع مكتبة JSON في العالم (مهمة لـ FastAPI)
-orjson
+psutil
 
-# ===== Crypto / Security =====
-argon2-cffi
-pycryptodome
-pytgcrypto
-
-# ===== Scheduling =====
-apscheduler
-
-# ===== Media / Audio / Video =====
-yt-dlp>=2026.2.4
+# ===== Media Processing (Audio/Video/Images) 🎵 =====
+# yt-dlp: Always get the latest for YouTube fixes
+yt-dlp>=2025.1.26
 ffmpeg-python
 pydub
 mutagen
 hachoir
-# ⚠️ تم التبديل لنسخة السيرفرات (أسرع وأخف وتحل مشكلة المساحة)
+# Headless is crucial for servers (No GUI bloat)
 opencv-python-headless
 numpy
-pillow>=12.0.0
-wget
+pillow>=10.2.0
 
-# ===== Telegram / Calls =====
-ntgcalls>=2.0.7
+# ===== Telegram Client & Calls 📞 =====
+ntgcalls>=3.0.1
+# Kurigram (Ensure this fork is stable)
 kurigram>=2.2.18
 pyromod
+pytgcrypto
 
-# ===== Web / API / Servers =====
+# ===== Web Frameworks & API 🌐 =====
 fastapi
-flask
-# تفعيل Cython Parsers للسرعة القصوى
 uvicorn[standard]
 python-multipart
-python-dotenv
+flask
 requests
+python-dotenv
 
-# ===== Databases =====
+# ===== Databases 🗄️ =====
 motor
 pymongo
 
-# ===== Search / AI / TTS =====
+# ===== AI, TTS & Search 🤖 =====
 edge-tts
 gtts
-googletrans
+googletrans==3.1.0a0
 gpytranslate
 SpeechRecognition
 lyricsgenius
@@ -62,17 +55,15 @@ lexica-api
 nekosbest
 g4f
 
-# ===== Scraping / Parsing =====
+# ===== Scraping & Parsing 🕷️ =====
 beautifulsoup4
-bs4
 python-whois
 pyyaml
 unidecode
+# RapidFuzz is 10x faster than FuzzyWuzzy/Levenshtein
 rapidfuzz
-fuzzywuzzy
-python-Levenshtein
 
-# ===== Utilities =====
+# ===== Utilities 🛠️ =====
 pyfiglet
 pyshorteners
 qrcode
@@ -81,15 +72,13 @@ speedtest-cli
 future
 gitpython
 heroku3
+wget
+pytz
+argon2-cffi
+pycryptodome
 
-# ===== Images =====
+# ===== Image Searching =====
 bing_image_downloader
 
-# ===== CURL (Ultra Fast HTTP for yt-dlp fallback) =====
-curl_cffi>=0.6.2
-
-# ===== Time / Locale =====
-pytz
-
-# ===== YouTube Search (patched fork) =====
+# ===== Custom Forks (YouTube Search) =====
 git+https://github.com/q058961234-web/youtube-search-python.git
