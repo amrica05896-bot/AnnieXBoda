@@ -1,10 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
-# - Uses yt-dlp Python API first, then subprocess fallback
-# - Subprocess fallbacks include --remote-components ejs:github
-# - Probes returned URLs to avoid NoVideoSourceFound
-# - Caches metadata and direct URLs with expiry handling
-# Requirements: python3.8+, yt-dlp, aiohttp recommended. Optional: orjson, curl_cffi
+# Fixed: Added download_thumb method logic
 
 import asyncio
 import contextlib
@@ -298,6 +294,32 @@ class YouTubeAPI:
     async def thumbnail(self, link: str, videoid: Union[bool, str, None] = None) -> str:
         d, _ = await self.track(link, videoid)
         return d.get("thumb", "")
+    
+    # -------------------------------------------------------------
+    # ✅ FIX: Added download_thumb method for song.py compatibility
+    # -------------------------------------------------------------
+    async def download_thumb(self, url: str) -> Optional[str]:
+        """Downloads the thumbnail to a temp path and returns the path."""
+        if not url:
+            return None
+        try:
+            # Ensure downloads dir exists
+            base_dir = "downloads"
+            if not os.path.exists(base_dir):
+                os.makedirs(base_dir, exist_ok=True)
+            
+            path = os.path.join(base_dir, f"thumb_{int(time.time())}.jpg")
+            
+            session = await _ensure_aio_session()
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.read()
+                    with open(path, "wb") as f:
+                        f.write(data)
+                    return path
+        except Exception as e:
+            log.warning(f"Failed to download thumbnail: {e}")
+        return None
 
     def _to_seconds(self, t: Optional[Union[str,int]]) -> int:
         if not t:
