@@ -86,7 +86,7 @@ heroku3
 bing_image_downloader
 
 # ===== CURL (Ultra Fast HTTP for yt-dlp fallback) =====
-curl_cffi>=0.6.2
+curl_cffi>=0.14.0
 
 # ===== Time / Locale =====
 pytz
