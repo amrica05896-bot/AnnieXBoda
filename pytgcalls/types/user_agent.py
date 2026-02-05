@@ -1,8 +1,10 @@
-from typing import List
-from typing import Optional
+from typing import List, Optional
 
 
 class AgentInfo:
+    """
+    Stores information about a specific browser component (e.g., Chrome/122.0 or Android 14).
+    """
     def __init__(
         self,
         name: str,
@@ -19,6 +21,9 @@ class AgentInfo:
 
 
 class UserAgent:
+    """
+    Combines a list of AgentInfo objects into a standard User-Agent string.
+    """
     def __init__(
         self,
         user_agents: List[AgentInfo],
@@ -26,16 +31,25 @@ class UserAgent:
         self.user_agents: List[AgentInfo] = user_agents
 
     def __str__(self):
-        return ' '.join([
-            f'{user_agent.name}/{user_agent.version}'
-            ' (' + '; '.join(
-                filter(
-                    bool, [
-                        user_agent.device,
-                        user_agent.os_name,
-                        user_agent.arch_type,
-                    ],
-                ),
-            ) + ');'
-            for user_agent in self.user_agents
-        ]).replace(' ()', '')
+        # تجميع الأجزاء بذكاء لإزالة الفواصل الزائدة
+        components = []
+        
+        for agent in self.user_agents:
+            # تجميع التفاصيل اللي بين القوسين (Device, OS, Arch)
+            details_list = [
+                item for item in [agent.device, agent.os_name, agent.arch_type]
+                if item # فقط القيم الموجودة (غير None)
+            ]
+            
+            # تكوين النص الأساسي: Name/Version
+            agent_str = f"{agent.name}/{agent.version}"
+            
+            # إضافة التفاصيل بين قوسين لو موجودة
+            if details_list:
+                details_str = "; ".join(details_list)
+                agent_str += f" ({details_str})"
+            
+            components.append(agent_str)
+
+        # دمج كل المكونات بمسافة واحدة (Standard Format)
+        return " ".join(components)
