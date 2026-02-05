@@ -18,6 +18,7 @@ import yt_dlp
 # optional faster json
 try:
     import orjson as _orjson  # type: ignore
+
     def _loads_bytes(b: bytes):
         return _orjson.loads(b)
 except Exception:
@@ -63,6 +64,7 @@ COOKIE_PATHS = [
     "/app/cookies.txt",
 ]
 
+
 def get_cookie_file() -> Optional[str]:
     for p in COOKIE_PATHS:
         try:
@@ -72,11 +74,13 @@ def get_cookie_file() -> Optional[str]:
             continue
     return None
 
+
 async def _ensure_aio_session() -> aiohttp.ClientSession:
     global _aio_session
     if _aio_session is None or _aio_session.closed:
         _aio_session = aiohttp.ClientSession(connector=_aio_connector, raise_for_status=False)
     return _aio_session
+
 
 async def _exec_proc(*args: str, timeout: int = 10) -> Tuple[bytes, bytes]:
     proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -87,6 +91,7 @@ async def _exec_proc(*args: str, timeout: int = 10) -> Tuple[bytes, bytes]:
         with contextlib.suppress(Exception):
             proc.kill()
         return b"", b"timeout"
+
 
 def _normalize_link(link: str, videoid: Union[bool, str, None] = None) -> str:
     if videoid:
@@ -100,6 +105,7 @@ def _normalize_link(link: str, videoid: Union[bool, str, None] = None) -> str:
         return "https://www.youtube.com/watch?v=" + link.split("/")[-1].split("?")[0]
     return link.split("&")[0]
 
+
 def _parse_expire(url: str) -> Optional[int]:
     try:
         params = parse_qs(urlparse(url).query)
@@ -108,6 +114,7 @@ def _parse_expire(url: str) -> Optional[int]:
     except Exception:
         pass
     return None
+
 
 async def _probe_url(url: str, timeout: float = PROBE_TIMEOUT) -> Tuple[bool, Optional[str]]:
     """
@@ -133,6 +140,7 @@ async def _probe_url(url: str, timeout: float = PROBE_TIMEOUT) -> Tuple[bool, Op
         return False, None
     return False, None
 
+
 def _score_format(fmt: dict, prefer_audio: bool) -> int:
     score = 0
     proto = (fmt.get("protocol") or "").lower()
@@ -144,13 +152,14 @@ def _score_format(fmt: dict, prefer_audio: bool) -> int:
     if vcodec and vcodec != "none" and acodec and acodec != "none": score += 50
     if prefer_audio and acodec and acodec != "none": score += 15
     if ext in ("mp4",): score += 10
-    if ext in ("m4a","webm"): score += 8
+    if ext in ("m4a", "webm"): score += 8
     try:
         br = int(fmt.get("tbr") or fmt.get("abr") or 0)
         score += br // 100
     except Exception:
         pass
     return score
+
 
 class YouTubeAPI:
     def __init__(self):
@@ -234,7 +243,7 @@ class YouTubeAPI:
         if self.cookie:
             cmd += ["--cookies", self.cookie]
         cmd += ["--dump-json", prepared]
-        out, _err = await _exec_proc(*cmd, timeout=12)
+        out, err = await _exec_proc(*cmd, timeout=12)
         if out:
             try:
                 info = _loads_bytes(out)
@@ -251,7 +260,12 @@ class YouTubeAPI:
                     _meta_cache[key] = (now, details, info.get("id", ""))
                 return details, info.get("id", "")
             except Exception:
-                pass
+                # try to inspect stderr
+                try:
+                    _err = err.decode(errors="ignore") if err else ""
+                    log.debug("yt-dlp dump-json stderr: %s", _err)
+                except Exception:
+                    pass
 
         return {"title": "Unknown", "link": prepared, "vidid": "", "duration_min": None, "thumb": "", "cookiefile": self.cookie}, ""
 
@@ -293,6 +307,7 @@ class YouTubeAPI:
                 if self.cookie:
                     ydl_opts["cookiefile"] = self.cookie
                 if self.impersonate:
+                    # yt-dlp uses impersonate option if curl_cffi installed
                     ydl_opts["impersonate"] = "chrome"
                 try:
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -304,12 +319,13 @@ class YouTubeAPI:
 
         # fallback to subprocess -g if API failed
         if not info or (isinstance(info, dict) and info.get("_err")):
-            log.debug("yt-dlp API failed for %s: %s", prepared, info.get("_err") if isinstance(info, dict) else repr(info))
+            err_msg = info.get("_err") if isinstance(info, dict) else repr(info)
+            log.debug("yt-dlp API failed for %s: %s", prepared, err_msg)
             try:
                 cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", prepared]
                 if self.cookie:
                     cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--no-warnings", "--force-ipv4", prepared]
-                out, _err = await _exec_proc(*cmd, timeout=8)
+                out, _ = await _exec_proc(*cmd, timeout=8)
                 if out:
                     candidate = out.decode().splitlines()[0].strip()
                     ok, _ctype = await _probe_url(candidate)
@@ -320,7 +336,7 @@ class YouTubeAPI:
                             _direct_cache[key] = (expiry, candidate)
                         return candidate
             except Exception:
-                pass
+                log.debug("subprocess fallback failed for %s", prepared)
             return None
 
         # inspect info
@@ -346,18 +362,24 @@ class YouTubeAPI:
             proto = (f.get("protocol") or "").lower()
             if not proto.startswith(("http", "https", "m3u8")):
                 continue
+            # Skip video-only if prefer_audio
             if prefer_audio and (f.get("acodec") or "") == "none":
                 continue
+            # Prefer muxed video when requesting video
             if not prefer_audio and (f.get("vcodec") or "") != "none" and (f.get("acodec") or "") != "none":
-                candidates.append((_score_format(f, prefer_audio), url)); continue
+                candidates.append((_score_format(f, prefer_audio), url))
+                continue
+            # audio formats
             if (f.get("acodec") or "") != "none":
-                candidates.append((_score_format(f, prefer_audio), url)); continue
+                candidates.append((_score_format(f, prefer_audio), url))
+                continue
+            # HLS fallback
             if proto.startswith("m3u8"):
                 candidates.append((40, url))
 
+        # sort and probe top candidates (limit tries)
         candidates.sort(key=lambda x: x[0], reverse=True)
 
-        # probe top candidates (limit tries)
         tries = 0
         for _score, cand in candidates:
             if tries >= 4:
@@ -408,7 +430,8 @@ class YouTubeAPI:
         except Exception:
             vid = str(int(time.time()))
 
-        ram_base = os.path.join("/dev/shm" if os.path.exists("/dev/shm") else os.path.abspath("downloads"), vid)
+        downloads_base = "/dev/shm" if os.path.exists("/dev/shm") else os.path.abspath("downloads")
+        ram_base = os.path.join(downloads_base, vid)
         os.makedirs(os.path.dirname(ram_base), exist_ok=True)
 
         # 1) RAM cache check
@@ -457,7 +480,8 @@ class YouTubeAPI:
         # 3) try direct fast-path
         try:
             direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
-        except Exception:
+        except Exception as e:
+            log.debug("get_direct_link error: %s", e)
             direct = None
 
         if direct:
@@ -486,7 +510,7 @@ class YouTubeAPI:
                     "prefer_ffmpeg": True,
                 }
                 if not is_video:
-                    ydl_opts["postprocessors"] = [{"key": "FFmpegExtractAudio","preferredcodec": "mp3","preferredquality": "192"}]
+                    ydl_opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
                 else:
                     ydl_opts["merge_output_format"] = "mp4"
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -551,4 +575,6 @@ class YouTubeAPI:
             result = []
         return result
 
+
+# exported instance
 YouTube = YouTubeAPI()
