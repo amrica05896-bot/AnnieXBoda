@@ -245,7 +245,7 @@ async def cb_handler(_, q):
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("تغيير صوت الأذان (ملف/رابط)", callback_data="devset_menu_sound")],
             [InlineKeyboardButton("تغيير الاستيكر", callback_data="devset_menu_sticker")],
-            [InlineKeyboardButton("بث تجريبي هنا", callback_data=f"test_azan_single_{chat_id}")],
+            [InlineKeyboardButton("بث تجريبي للكل", callback_data="test_azan_global")], # زر جلوبال
             [InlineKeyboardButton("رجوع", callback_data="cmd_back_main")]
         ])
         return await q.edit_message_text(text, reply_markup=kb)
@@ -270,18 +270,41 @@ async def cb_handler(_, q):
         await q.answer("تم تحديث البيانات")
         return
 
-    # --- التست (للمالك فقط) ---
-    if data.startswith("test_azan_single_"):
+    # --- التست (المعدل: يدعم الجلوبال) ---
+    if data.startswith("test_azan_"):
         if uid not in DEVS: 
             return await q.answer("أمر التست للمالك فقط منعاً للإزعاج", show_alert=True)
         
-        await q.answer("جاري بدء البث التجريبي...", show_alert=False)
-        try:
-            # تمرير None للرابط ليستخدم الملف المخزن
-            await start_azan_stream(chat_id, "Fajr", None, force_test=True)
-        except Exception as e:
-            await q.message.reply(f"حدث خطأ: {e}")
-        return
+        # 1. بث تجريبي للكل (Global Test)
+        if data == "test_azan_global":
+            await q.answer("جاري بدء البث التجريبي للكل...", show_alert=True)
+            await q.message.reply("جاري نشر أذان الفجر (تجريبي) لجميع الجروبات المفعلة... يرجى الانتظار.")
+            
+            count = 0
+            tasks = []
+            async for doc in settings_db.find({"azan_active": True}):
+                c_id = doc.get("chat_id")
+                if c_id:
+                    # نستخدم الفجر كمثال للتست
+                    tasks.append(start_azan_stream(c_id, "Fajr", None, force_test=True))
+                    count += 1
+                    if len(tasks) >= 10:
+                        await asyncio.gather(*tasks, return_exceptions=True)
+                        tasks = []
+                        await asyncio.sleep(1)
+            
+            if tasks: await asyncio.gather(*tasks, return_exceptions=True)
+            await q.message.reply(f"تم إرسال البث التجريبي لـ {count} مجموعة بنجاح.")
+            return
+
+        # 2. بث تجريبي للجروب الحالي فقط (Single Test)
+        if "single" in data:
+            await q.answer("جاري بدء البث التجريبي هنا...", show_alert=False)
+            try:
+                await start_azan_stream(chat_id, "Fajr", None, force_test=True)
+            except Exception as e:
+                await q.message.reply(f"حدث خطأ: {e}")
+            return
 
     # --- تغيير الإعدادات (Setters) ---
     if data.startswith("set_"):
@@ -435,7 +458,7 @@ async def dev_input_wait(_, m):
         CURRENT_RESOURCES[pkey]["link"] = file_id
         # لو رابط يوتيوب بنجيب الـ ID، لو ملف بنكتب TelegramFile
         vid = extract_vidid(file_id) if isinstance(file_id, str) and "http" in file_id else "TelegramFile"
-        CURRENT_RESOURCES[key]["vidid"] = vid
+        CURRENT_RESOURCES[pkey]["vidid"] = vid
         
         await resources_db.update_one({"type": "azan_data"}, {"$set": {f"data.{pkey}.link": file_id, f"data.{pkey}.vidid": vid}}, upsert=True)
         await m.reply(f"تم تغيير صوت الأذان لصلاة {PRAYER_NAMES_AR[pkey]} بنجاح.")
