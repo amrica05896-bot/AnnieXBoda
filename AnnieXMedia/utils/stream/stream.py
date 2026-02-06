@@ -1,13 +1,13 @@
 # Authored By Certified Coders © 2025
 # Fixed for utils/stream/stream.py
-# FIX: Auto-Fallback for missing Language Keys (No more KeyErrors)
+# FIX: REMOVED Extra Buttons (Skip/Close) - Only Custom Buttons Allowed
 
 import asyncio
 import os
 from typing import Union
 from random import randint
 
-from pyrogram.types import InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import FloodWait
 
 import config
@@ -19,7 +19,8 @@ from AnnieXMedia.utils.database import (
     is_active_chat,
 )
 from AnnieXMedia.utils.exceptions import AssistantErr
-from AnnieXMedia.utils.inline import aq_markup, close_markup, stream_markup
+# 🛑 Removed stream_markup from imports to prevent accidental usage
+from AnnieXMedia.utils.inline import aq_markup, close_markup
 from AnnieXMedia.utils.pastebin import ANNIEBIN
 from AnnieXMedia.utils.stream.queue import put_queue, put_queue_index
 from AnnieXMedia.utils.thumbnails import get_thumb
@@ -31,7 +32,6 @@ async def safe_delete(message):
     except:
         pass
 
-# 🛑 دالة مساعدة لجلب النصوص بأمان (تمنع الـ KeyError)
 def get_safe_text(dictionary, key, default):
     try:
         if isinstance(dictionary, dict) and key in dictionary:
@@ -39,6 +39,18 @@ def get_safe_text(dictionary, key, default):
         return default
     except:
         return default
+
+# 🛑 دالة الأزرار المخصصة (4 أزرار فقط: استكمال، مؤقت، إعادة، إنهاء)
+def custom_stream_markup(chat_id, vidid):
+    buttons = [
+        [
+            InlineKeyboardButton(text="▷", callback_data=f"stream_admin Resume|{chat_id}"),
+            InlineKeyboardButton(text="II", callback_data=f"stream_admin Pause|{chat_id}"),
+            InlineKeyboardButton(text="↻", callback_data=f"stream_admin Replay|{chat_id}"),
+            InlineKeyboardButton(text="▢", callback_data=f"song_stop_custom|{chat_id}|{vidid}"),
+        ]
+    ]
+    return buttons
 
 @capture_internal_err
 async def stream(
@@ -63,7 +75,7 @@ async def stream(
     if forceplay:
         await StreamController.force_stop_stream(chat_id)
 
-    # نصوص احتياطية (في حال فشل جلبها من ملف اللغة)
+    # نصوص احتياطية لضمان عدم توقف البوت
     TXT_STREAM_1 = "<b>بدأ التشغيل</b>\n\n<b>العنوان:</b> <a href={0}>{1}</a>\n<b>المدة:</b> {2} دقيقة\n<b>بواسطة:</b> {3}"
     TXT_STREAM_2 = "<b>بدأ التشغيل (مباشر)</b>\n\n<b>النوع:</b> بث مباشر\n<b>بواسطة:</b> {0}"
     TXT_QUEUE_4 = "<b>تمت الإضافة للقائمة #{0}</b>\n\n<b>العنوان:</b> {1}\n<b>المدة:</b> {2} دقيقة\n<b>بواسطة:</b> {3}"
@@ -142,10 +154,10 @@ async def stream(
                 )
                 
                 img = await get_thumb(vidid)
-                button = stream_markup(_, chat_id)
+                # 🛑 استبدال الأزرار القديمة بالأزرار المخصصة
+                button = custom_stream_markup(chat_id, vidid)
                 await safe_delete(mystic)
                 
-                # 🛑 استخدام النص الآمن
                 base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
                 caption_text = "🧚 " + base_txt.format(
                     f"https://t.me/{app.username}?start=info_{vidid}",
@@ -222,7 +234,6 @@ async def stream(
             button = aq_markup(_, chat_id)
             await safe_delete(mystic)
             
-            # 🛑 نص آمن
             q4 = get_safe_text(_, "queue_4", TXT_QUEUE_4)
             await app.send_message(
                 chat_id=original_chat_id,
@@ -254,10 +265,10 @@ async def stream(
             )
             
             img = await get_thumb(vidid)
-            button = stream_markup(_, chat_id)
+            # 🛑 استبدال الأزرار القديمة بالأزرار المخصصة
+            button = custom_stream_markup(chat_id, vidid)
             await safe_delete(mystic)
             
-            # 🛑 نص آمن (الحل للمشكلة)
             base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
             caption_text = "🧚 " + base_txt.format(
                 f"https://t.me/{app.username}?start=info_{vidid}",
@@ -284,6 +295,7 @@ async def stream(
         file_path = result.get("filepath")
         title = result.get("title")
         duration_min = result.get("duration_min")
+        vidid = result.get("vidid", "soundcloud")
         
         if await is_active_chat(chat_id):
             await put_queue(
@@ -299,7 +311,6 @@ async def stream(
             )
             position = len(db.get(chat_id)) - 1
             button = aq_markup(_, chat_id)
-            
             q4 = get_safe_text(_, "queue_4", TXT_QUEUE_4)
             await app.send_message(
                 chat_id=original_chat_id,
@@ -322,7 +333,8 @@ async def stream(
                 "audio",
                 forceplay=forceplay,
             )
-            button = stream_markup(_, chat_id)
+            # 🛑 استبدال الأزرار القديمة بالأزرار المخصصة
+            button = custom_stream_markup(chat_id, vidid)
             await safe_delete(mystic)
             
             base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
@@ -345,6 +357,7 @@ async def stream(
         link = result.get("link")
         title = (result.get("title")).title()
         duration_min = result.get("dur", result.get("duration_min", "00:00"))
+        vidid = link # Use link as ID for telegram files
 
         if await is_active_chat(chat_id):
             await put_queue(
@@ -386,7 +399,8 @@ async def stream(
             if is_video:
                 await add_active_video_chat(chat_id)
             
-            button = stream_markup(_, chat_id)
+            # 🛑 استبدال الأزرار القديمة بالأزرار المخصصة
+            button = custom_stream_markup(chat_id, vidid)
             await safe_delete(mystic)
             
             base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
@@ -458,7 +472,8 @@ async def stream(
                 forceplay=forceplay,
             )
             img = await get_thumb(vidid)
-            button = stream_markup(_, chat_id)
+            # 🛑 استبدال الأزرار القديمة بالأزرار المخصصة
+            button = custom_stream_markup(chat_id, vidid)
             await safe_delete(mystic)
             
             base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
@@ -480,6 +495,7 @@ async def stream(
         link = result
         title = "رابط خارجي"
         duration_min = "00:00"
+        vidid = link 
 
         if await is_active_chat(chat_id):
             await put_queue_index(
@@ -494,7 +510,6 @@ async def stream(
             )
             position = len(db.get(chat_id)) - 1
             button = aq_markup(_, chat_id)
-            
             q4 = get_safe_text(_, "queue_4", TXT_QUEUE_4)
             await mystic.edit_text(
                 text="🧚 " + q4.format(position, title[:27], duration_min, user_name),
@@ -520,7 +535,8 @@ async def stream(
                 "video" if is_video else "audio",
                 forceplay=forceplay,
             )
-            button = stream_markup(_, chat_id)
+            # 🛑 استبدال الأزرار القديمة بالأزرار المخصصة
+            button = custom_stream_markup(chat_id, vidid)
             await safe_delete(mystic)
             
             base_txt = get_safe_text(_, "stream_2", TXT_STREAM_2)
