@@ -1,47 +1,36 @@
 # Authored By Certified Coders (c) 2026
-# System: Azan Maestro (Enterprise V14 - Full Automation)
+# System: Azan Maestro (Enterprise V14 - Stream Integration)
 # Location: AnnieXMedia/plugins/AzanSystem/az_utils.py
 # Features:
-# - Smart Active Assistant Detection
-# - Smooth Stream Switching (No Restart)
-# - Graceful Error Handling (No Crash)
-# - Auto Leave After Azan
-# - Full Integration with YouTube.py
+# - Smart Assistant Prep (Joins group automatically)
+# - Delegated Streaming (Uses stream.py for playback)
+# - No Buttons Mode (Sends streamtype='adhan')
+# - Crash Proof (Timeout Handling)
 
 import asyncio
 import aiohttp
 import random
-import re
-import time
 import logging
 import pytz
 import functools
 from datetime import datetime
 from typing import Optional, Dict, Any
 
-# --- [ Scheduling & Telegram Client ] ---
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pyrogram import enums
-from pyrogram.raw.functions.phone import CreateGroupCall
 from pyrogram.errors import (
     FloodWait,
-    PeerIdInvalid,
-    ChannelInvalid,
     UserNotParticipant,
-    UserAlreadyParticipant, 
-    GroupcallInvalid,
-    ChatAdminRequired,
-    GroupcallForbidden
+    ChatAdminRequired
 )
 
 # --- [ Internal Imports ] ---
-from AnnieXMedia import app, YouTube
-from AnnieXMedia.core.call import StreamController
-# استيراد قائمة المساعدين لتوزيع الحمل
+from AnnieXMedia import app
+# 🛑 استيراد دالة التشغيل المركزية
+from AnnieXMedia.utils.stream.stream import stream
+# استيراد المساعدين لتجهيزهم فقط (الانضمام للجروب)
 from AnnieXMedia.core.userbot import assistants
-
-# --- [ Database Imports ] ---
-from AnnieXMedia.utils.database import chatsdb, remove_served_chat, get_client
+from AnnieXMedia.utils.database import get_client
 
 # --- [ Configuration & Local DB ] ---
 from .az_conf import (
@@ -63,16 +52,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("Azan_Maestro_Pro")
 
-# --- [ Constants & Global Variables ] ---
+# --- [ Constants ] ---
 CAIRO_TZ = pytz.timezone('Africa/Cairo')
-MAX_CONCURRENT_STREAMS = 20  
-stream_semaphore = asyncio.Semaphore(MAX_CONCURRENT_STREAMS)
 scheduler = AsyncIOScheduler(timezone=CAIRO_TZ)
-AZAN_DURATION_SECONDS = 240  # 4 دقائق
-
+# لا نحتاج Semafore هنا لأن stream.py يدير الطابور، لكن نحتفظ به للتنظيم
+MAX_CONCURRENT_STREAMS = 15  
+stream_semaphore = asyncio.Semaphore(MAX_CONCURRENT_STREAMS)
 
 # ==================================================================
-# [SECTION 1] Helpers & Decorators
+# [SECTION 1] Database & Helpers
 # ==================================================================
 
 def retry_operation(max_retries=3, delay=2):
@@ -87,18 +75,10 @@ def retry_operation(max_retries=3, delay=2):
                     last_exc = e
                     if attempt < max_retries:
                         await asyncio.sleep(delay)
-            logger.error(f"Function {func.__name__} failed after {max_retries} retries.")
+            logger.error(f"Function {func.__name__} failed: {last_exc}")
             raise last_exc
         return wrapper
     return decorator
-
-def extract_vidid(url: str) -> Optional[str]:
-    match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
-    return match.group(1) if match else None
-
-# ==================================================================
-# [SECTION 2] Database Management
-# ==================================================================
 
 async def get_chat_doc(chat_id: int) -> Dict[str, Any]:
     if chat_id in local_cache:
@@ -109,7 +89,6 @@ async def get_chat_doc(chat_id: int) -> Dict[str, Any]:
             doc = {
                 "chat_id": chat_id,
                 "azan_active": True,
-                "forced_active": False,
                 "dua_active": True,
                 "night_dua_active": True,
                 "prayers": {k: True for k in CURRENT_RESOURCES.keys()}
@@ -119,24 +98,6 @@ async def get_chat_doc(chat_id: int) -> Dict[str, Any]:
         return doc
     except Exception:
         return {}
-
-async def update_doc(chat_id: int, key: str, value, sub_key: str = None):
-    try:
-        if sub_key:
-            await settings_db.update_one({"chat_id": chat_id}, {"$set": {f"prayers.{sub_key}": value}}, upsert=True)
-            if chat_id in local_cache: local_cache[chat_id].setdefault("prayers", {})[sub_key] = value
-        else:
-            await settings_db.update_one({"chat_id": chat_id}, {"$set": {key: value}}, upsert=True)
-            if chat_id in local_cache: local_cache[chat_id][key] = value
-    except Exception:
-        pass
-
-async def check_rights(user_id: int, chat_id: int) -> bool:
-    if user_id in DEVS: return True
-    try:
-        mem = await app.get_chat_member(chat_id, user_id)
-        return mem.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
-    except: return False
 
 @retry_operation(max_retries=3)
 async def load_resources():
@@ -155,249 +116,151 @@ async def load_resources():
         logger.error(f"Resource Load Error: {e}")
 
 # ==================================================================
-# [SECTION 3] Smart Assistant Logic (Prevent Restart & Crash)
+# [SECTION 2] Smart Assistant Prep (The Glue)
 # ==================================================================
 
-async def get_smart_assistant(chat_id):
+async def prepare_assistant_membership(chat_id: int):
     """
-    تحديد المساعد الانسب:
-    1. لو فيه مساعد بالفعل جوه الكول، نرجعه هو (عشان منقفلش الكول).
-    2. لو مفيش، نرجع المساعد الافتراضي.
+    تأكد أن المساعد عضو في الجروب فقط.
+    لن نقوم بفتح الكول هنا، سنترك هذه المهمة لملف stream.py
     """
     try:
-        # بنجرب اول مساعد في القائمة كـ Probe
-        default_ub = await get_client(assistants[0])
-        
-        # محاولة معرفة من في الكول
+        # استخدام المساعد الأول أو العشوائي
+        ub = await get_client(random.choice(assistants))
         try:
-            participants = await default_ub.get_group_call_participants(chat_id)
-            for p in participants:
-                # فحص هل المشارك هو احد مساعدينا
-                for num in assistants:
-                    ub = await get_client(num)
-                    if p.source == ub.me.id:
-                        return ub, True # (Client, Is_Already_In_Call)
-        except:
-            pass
-        
-        # لو مفيش حد نعرفه، نرجع المساعد العشوائي/الافتراضي
-        return await get_client(random.choice(assistants)), False
-
-    except:
-        return await get_client(assistants[0]), False
-
-async def prepare_call_environment(chat_id: int, assistant, is_in_call: bool, force_log: bool = False):
-    """
-    تجهيز البيئة بذكاء:
-    - لو المساعد جوه (is_in_call=True)، منعملش حاجة، هو جاهز.
-    - لو مش جوه، ندخله ونفتح الكول لو مقفول.
-    """
-    # 1. لو المساعد بالفعل في الكول، نتخطى خطوات الانضمام
-    if is_in_call:
-        return True
-
-    # 2. الانضمام للجروب
-    try:
-        await assistant.get_chat_member(chat_id, "me")
-    except UserNotParticipant:
-        try:
-            invite_link = await app.export_chat_invite_link(chat_id)
-            if "+" in invite_link: 
-                await assistant.join_chat(invite_link)
-            else: 
-                chat = await app.get_chat(chat_id)
-                if chat.username: 
-                    await assistant.join_chat(chat.username)
-            await asyncio.sleep(1.5)
-        except Exception as e:
-            if force_log: logger.error(f"Failed to join {chat_id}: {e}")
-            return False
-
-    # 3. فتح الكول (فقط لو مش مفتوح)
-    try:
-        await assistant.get_group_call(chat_id)
-    except (GroupcallInvalid, GroupcallForbidden):
-        try:
-            peer = await assistant.resolve_peer(chat_id)
-            await assistant.invoke(CreateGroupCall(
-                peer=peer,
-                random_id=random.randint(0, 100000)
-            ))
-            if force_log: logger.info(f"Voice Chat Started forcibly in {chat_id}")
-            await asyncio.sleep(2)
+            await ub.get_chat_member(chat_id, "me")
+            return True # هو بالفعل عضو
+        except UserNotParticipant:
+            # محاولة الانضمام
+            try:
+                invite_link = await app.export_chat_invite_link(chat_id)
+                if "+" in invite_link: 
+                    await ub.join_chat(invite_link)
+                else: 
+                    chat = await app.get_chat(chat_id)
+                    if chat.username: 
+                        await ub.join_chat(chat.username)
+                await asyncio.sleep(1)
+                return True
+            except Exception as e:
+                logger.warning(f"Assistant join failed for {chat_id}: {e}")
+                return False
         except Exception:
-            pass # ممكن يكون اتفتح في نفس اللحظة
-    except Exception:
-        pass
-    
-    return True
+            return True # افتراض النجاح لتفادي التعطيل
+    except Exception as e:
+        logger.error(f"Assistant Prep Error: {e}")
+        return False
 
 # ==================================================================
-# [SECTION 4] Stream Execution Engine (Graceful Failure)
+# [SECTION 3] The Execution Engine (Simplified)
 # ==================================================================
 
 async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = None, force_test: bool = False):
+    # 1. التحقق من الإعدادات
     if not force_test:
         doc = await get_chat_doc(chat_id)
         if not doc.get("azan_active", True):
             return
+        if not doc.get("prayers", {}).get(prayer_key, True):
+            return
 
     async with stream_semaphore:
-        res = CURRENT_RESOURCES.get(prayer_key)
-        if not res: return
-        
-        # التعديل الجديد: التاكد من تجهيز الرابط باستخدام YouTube.py القوي
-        # اذا لم يتم تمرير رابط جاهز (مثلا في التست اليدوي)
-        if not play_target:
-            raw_link = res.get("link")
-            if raw_link and ("youtube" in raw_link or "youtu.be" in raw_link):
-                try:
-                    # نستخدم YouTube.py الخاص بك للتحميل او استخراج الرابط المباشر
-                    play_target, _ = await YouTube.download(
-                        raw_link, 
-                        None, 
-                        video=False, 
-                        videoid=False
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to fetch YouTube link via Wrapper: {e}")
-                    play_target = raw_link # Fallback
-            else:
-                play_target = raw_link
-
-        if not play_target: return
-
         try:
-            # 1. ارسال الميديا (Sticker/Text)
+            # 2. تجهيز بيانات الأذان
+            res = CURRENT_RESOURCES.get(prayer_key)
+            if not res: return
+            
+            final_link = play_target if play_target else res.get("link")
+            if not final_link: return
+
+            # 3. إرسال الإشعار (الرسالة التي سيتم تعديلها لاحقاً)
             if res.get("sticker"):
                 try: await app.send_sticker(chat_id, res["sticker"])
                 except: pass
             
-            caption = f"<b>حان الان موعد اذان {res.get('name','')}</b>\n<b>بالتوقيت المحلي لمدينة القاهره 🕌</b>"
-            try: await app.send_message(chat_id, caption)
-            except: pass
+            caption = f"<b>حان الآن موعد أذان {res.get('name','')}</b>\n<b>بالتوقيت المحلي لمدينة القاهرة 🕌</b>"
+            try: 
+                mystic = await app.send_message(chat_id, caption)
+            except: 
+                return # لو معرفش يبعت رسالة يبقى الجروب طار أو البوت انطرد
 
-            # 2. اختيار المساعد الذكي
-            # assistant: الكلاينت، is_in_call: هل هو موجود حاليا في الصوت؟
-            assistant, is_in_call = await get_smart_assistant(chat_id)
-            
-            # 3. التجهيز (فقط لو مش موجود)
-            if not is_in_call:
-                success = await prepare_call_environment(chat_id, assistant, is_in_call, force_log=force_test)
-                if not success and force_test:
-                    await app.send_message(chat_id, "فشل تجهيز المساعد (تاكد من الصلاحيات).")
-                    return 
+            # 4. تجهيز المساعد (الانضمام للجروب فقط)
+            # عشان نتفادى Timeout أو أخطاء الانضمام أثناء الستريم
+            await prepare_assistant_membership(chat_id)
 
-            # 4. تشغيل البث
-            try:
-                # دالة join_call هنا ذكية:
-                # - لو المساعد جوه: هتعمل "Switch Stream" (تغيير الصوت فقط).
-                # - لو المساعد بره: هتدخل وتشغل.
-                await StreamController.join_call(
-                    chat_id, 
-                    chat_id, 
-                    play_target, 
-                    video=False
-                )
-                if force_test: await app.send_message(chat_id, "البث بدا بنجاح.")
+            # 5. تجهيز قاموس البيانات لملف Stream
+            # ده أهم جزء، بنجهز البيانات كأننا Song.py بالظبط
+            stream_data = {
+                "link": final_link,
+                "vidid": f"azan_{prayer_key}", # ID مميز للأذان
+                "title": f"أذان {res.get('name', 'الصلاة')}",
+                "duration_min": "04:00",
+                "thumb": res.get("sticker") or None # نستخدم الستيكر كصورة لو مفيش
+            }
 
-                # 5. جدولة الخروج
-                asyncio.create_task(stop_stream_after_delay(chat_id, AZAN_DURATION_SECONDS))
+            # 6. تشغيل الأذان عبر Stream.py
+            # streamtype="adhan" -> عشان يخفي الأزرار
+            # forceplay=True -> عشان يوقف أي أغنية شغالة ويطردها
+            await stream(
+                {}, # قاموس اللغة (فارغ لأننا نستخدم النصوص الاحتياطية)
+                mystic, # الرسالة ليتم تعديلها أو حذفها
+                0, # User ID وهمي للنظام
+                stream_data,
+                chat_id,
+                "Azan System", # اسم المستخدم "النظام"
+                chat_id,
+                video=False,
+                streamtype="adhan", # 🛑 السر هنا: النوع أذان
+                forceplay=True # 🛑 السر الثاني: تشغيل إجباري
+            )
 
-            except Exception as e:
-                if force_test: 
-                    await app.send_message(chat_id, f"خطأ التشغيل: {e}")
-                else:
-                    logger.warning(f"Skipping Azan for {chat_id} due to stream error: {e}")
-                return 
-
-            # 6. تسجيل العملية في اللوج
+            # 7. تسجيل اللوج
             if not force_test:
                 try:
                     now = datetime.now(CAIRO_TZ)
                     log_key = f"{chat_id}_{now.strftime('%Y-%m-%d_%H:%M')}"
-                    if not await azan_logs_db.find_one({"key": log_key}):
-                        await azan_logs_db.insert_one({
-                            "chat_id": chat_id,
-                            "key": log_key,
-                            "prayer_key": prayer_key,
-                            "time": now.strftime("%I:%M %p")
-                        })
+                    await azan_logs_db.insert_one({
+                        "chat_id": chat_id,
+                        "key": log_key,
+                        "prayer_key": prayer_key,
+                        "time": now.strftime("%I:%M %p")
+                    })
                 except: pass
 
         except Exception as e:
-            logger.error(f"Critical Stream Error {chat_id}: {e}")
-
-async def stop_stream_after_delay(chat_id: int, delay: int):
-    """
-    وظيفة تنتظر انتهاء مدة الاذان ثم تخرج المساعد.
-    """
-    await asyncio.sleep(delay)
-    try:
-        # بنعمل Stop Stream، وده طبيعي بيخلي المساعد يخرج من الكول
-        await StreamController.stop_stream(chat_id)
-    except Exception:
-        pass
+            logger.error(f"Azan Stream Failed {chat_id}: {e}")
+            if force_test: await app.send_message(chat_id, f"خطأ: {e}")
 
 # ==================================================================
-# [SECTION 5] Global Broadcast Loop
+# [SECTION 4] Broadcaster & Scheduler
 # ==================================================================
 
 async def broadcast_azan(prayer_key: str):
+    logger.info(f"STARTING AZAN: {prayer_key}")
     res = CURRENT_RESOURCES.get(prayer_key)
     if not res: return
     
-    logger.info(f"STARTING BROADCAST: {prayer_key}")
-    
-    # 1. تجهيز الرابط مرة واحدة للكل
-    # هذا يقلل الحمل ويضمن استخدام YouTube.py القوي
-    play_target = None
-    try:
-        raw_link = res["link"]
-        if "youtube" in raw_link or "youtu.be" in raw_link:
-             play_target, _ = await YouTube.download(raw_link, None, video=False, videoid=False)
-        else:
-             play_target = raw_link
-        
-        if not play_target: play_target = raw_link
-    except:
-        play_target = res["link"]
+    # استخدام الرابط الخام، و stream.py سيتولى فحصه (يوتيوب أو مباشر)
+    play_link = res["link"]
 
     tasks = []
-    # 2. اللف على الجروبات
     async for doc in settings_db.find({"azan_active": True}):
         c_id = doc.get("chat_id")
-        if not c_id: continue
-        
-        if doc.get("prayers", {}).get(prayer_key, True):
-            tasks.append(start_azan_stream(c_id, prayer_key, play_target))
-            
-            if len(tasks) >= 20:
+        if c_id:
+            tasks.append(start_azan_stream(c_id, prayer_key, play_link))
+            if len(tasks) >= 10: # دفعات صغيرة لتفادي الضغط
                 await asyncio.gather(*tasks, return_exceptions=True)
                 tasks = []
-                await asyncio.sleep(0.5) 
+                await asyncio.sleep(1) 
 
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
-    
-    logger.info("Broadcast Completed.")
+    logger.info("Azan Broadcast Finished.")
 
-
-async def send_duas_batch(dua_list, setting_key, title, target_chat_id: Optional[int] = None):
+async def send_duas_batch(dua_list, setting_key, title):
     selected = random.sample(dua_list, min(4, len(dua_list)))
-    dua_emojis = ["💕", "🤍", "🤎"]
-    text = f"<b>{title}</b>\n\n"
-    for d in selected:
-        emo = random.choice(dua_emojis)
-        text += f"• {d} {emo}\n\n"
-    text += "<b>تقبل الله منا ومنكم صالح الاعمال</b>"
-
-    if target_chat_id:
-        try:
-            if CURRENT_DUA_STICKER: await app.send_sticker(target_chat_id, CURRENT_DUA_STICKER)
-            await app.send_message(target_chat_id, text)
-        except: pass
-        return
+    text = f"<b>{title}</b>\n\n" + "\n\n".join([f"• {d} 🤍" for d in selected])
+    text += "\n\n<b>تقبل الله منا ومنكم</b>"
 
     async for entry in settings_db.find({setting_key: True}):
         try:
@@ -406,21 +269,17 @@ async def send_duas_batch(dua_list, setting_key, title, target_chat_id: Optional
                 if CURRENT_DUA_STICKER:
                     try: await app.send_sticker(c_id, CURRENT_DUA_STICKER)
                     except: pass
-                try: await app.send_message(c_id, text)
-                except FloodWait as f: await asyncio.sleep(f.value)
-                except: pass
-                await asyncio.sleep(1.2)
+                await app.send_message(c_id, text)
+                await asyncio.sleep(1.5)
         except: continue
 
-
 # ==================================================================
-# [SECTION 6] Scheduler & Init
+# [SECTION 5] Init & Updates
 # ==================================================================
 
 async def get_azan_times() -> Optional[Dict[str, str]]:
     try:
-        timeout = aiohttp.ClientTimeout(total=20)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession() as session:
             url = "http://api.aladhan.com/v1/timingsByCity"
             params = {"city": "Cairo", "country": "Egypt", "method": "5"}
             async with session.get(url, params=params) as resp:
@@ -430,7 +289,6 @@ async def get_azan_times() -> Optional[Dict[str, str]]:
     except: return None
 
 async def update_scheduler():
-    logger.info("Update Scheduler...")
     await load_resources()
     times = await get_azan_times()
     if not times: return
@@ -445,7 +303,7 @@ async def update_scheduler():
                 h, m = map(int, t_str.split(":"))
                 scheduler.add_job(broadcast_azan, "cron", hour=h, minute=m, args=[key], id=f"azan_{key}")
             except: continue
-    logger.info("Scheduler Updated.")
+    logger.info("Scheduler Updated with new times.")
 
 def init_azan_scheduler():
     if not scheduler.running:
