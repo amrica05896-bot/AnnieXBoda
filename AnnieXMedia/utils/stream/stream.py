@@ -5,6 +5,7 @@
 import asyncio
 import os
 from typing import Union
+from random import randint
 
 from pyrogram.types import InlineKeyboardMarkup
 from pyrogram.errors import FloodWait
@@ -25,6 +26,9 @@ from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
 async def safe_delete(message):
+    """
+    Safely delete a message without crashing if the message ID is invalid or inaccessible.
+    """
     try:
         await message.delete()
     except:
@@ -125,7 +129,7 @@ async def stream(
                 img = await get_thumb(vidid)
                 button = stream_markup(_, chat_id)
                 
-                # الحذف هنا آمن لأننا نجحنا وسنرسل رسالة جديدة
+                # Deleting here is safe because we succeeded and will send a new message
                 await safe_delete(mystic)
                 
                 caption_text = "🧚 " + _["stream_1"].format(
@@ -234,7 +238,7 @@ async def stream(
             img = await get_thumb(vidid)
             button = stream_markup(_, chat_id)
             
-            # الحذف هنا آمن فقط عند النجاح
+            # Deleting here is safe because we succeeded and will send a new message
             await safe_delete(mystic)
             
             caption_text = "🧚 " + _["stream_1"].format(
