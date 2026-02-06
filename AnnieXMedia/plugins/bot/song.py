@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: Song Plugin (Smart Warehouse + List + Interactive Controls)
-# Modified: Custom Stop Button (No Delete) + Resume Button + Fix Errors
+# Modified: Custom Stop Button (No Delete) + Resume Button + Simplified Caption
 
 import os
 import re
@@ -323,23 +323,24 @@ async def force_play_cb(client, query):
     user_id = query.from_user.id
     user_name = query.from_user.first_name
 
-    await query.answer("جاري التشغيل في الكول...")
+    await query.answer("جاري التشغيل.")
     
-    # 🛑 تعريف قاموس اللغة الوهمي لتفادي خطأ TypeError
+    # 🛑 تعريف قاموس اللغة الوهمي مع النص المبسط "جـاري الـتشغيل." فقط
     _ = {
         "CLOSE_BUTTON": "إغلاق",
         "P_B_1": "صوت", 
         "P_B_2": "فيديو",
-        "play_2": "تم التشغيل بواسطة {}",
+        "play_2": "تم التشغيل.",
+        "stream_1": "جـاري الـتشغيل.", # 👈 التعديل هنا
         "playcb_1": "يجب أن تكون في المكالمة."
     }
 
     try:
         details, _track_id = await YouTube.track(vidid, videoid=vidid)
-        mystic = await query.message.reply_text(f"جاري تشغيل: {details['title']}")
+        mystic = await query.message.reply_text("جـاري الـتشغيل.") # 👈 رسالة مبسطة
         
         await stream(
-            _, # تمرير القاموس الوهمي
+            _, # تمرير القاموس الوهمي المبسط
             mystic,
             user_id,
             details,
@@ -353,7 +354,6 @@ async def force_play_cb(client, query):
         await mystic.delete()
         
         # 🆕 تعديل الأزرار لتشمل (Resume ▷) و (Stop ▢ المخصص)
-        # الزرار المخصص: song_stop_custom|chat_id|vidid
         new_buttons = [
             [
                 InlineKeyboardButton(text="▷", callback_data=f"stream_admin Resume|{chat_id}"),
