@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2025
 # Fixed for utils/stream/stream.py
-# FIX: REMOVED Extra Buttons (Skip/Close) - Only Custom Buttons Allowed
+# FINAL FIX: Hardcoded Custom Buttons ONLY (No Skip, No Close, No Defaults)
 
 import asyncio
 import os
@@ -19,8 +19,8 @@ from AnnieXMedia.utils.database import (
     is_active_chat,
 )
 from AnnieXMedia.utils.exceptions import AssistantErr
-# 🛑 Removed stream_markup from imports to prevent accidental usage
-from AnnieXMedia.utils.inline import aq_markup, close_markup
+# 🛑 Removed external markup imports to prevent default buttons
+from AnnieXMedia.utils.inline import aq_markup
 from AnnieXMedia.utils.pastebin import ANNIEBIN
 from AnnieXMedia.utils.stream.queue import put_queue, put_queue_index
 from AnnieXMedia.utils.thumbnails import get_thumb
@@ -40,17 +40,18 @@ def get_safe_text(dictionary, key, default):
     except:
         return default
 
-# 🛑 دالة الأزرار المخصصة (4 أزرار فقط: استكمال، مؤقت، إعادة، إنهاء)
-def custom_stream_markup(chat_id, vidid):
-    buttons = [
+# 🛑 دالة إنشاء الأزرار المخصصة (4 أزرار فقط)
+def get_custom_buttons(chat_id, vidid):
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton(text="▷", callback_data=f"stream_admin Resume|{chat_id}"),
-            InlineKeyboardButton(text="II", callback_data=f"stream_admin Pause|{chat_id}"),
-            InlineKeyboardButton(text="↻", callback_data=f"stream_admin Replay|{chat_id}"),
-            InlineKeyboardButton(text="▢", callback_data=f"song_stop_custom|{chat_id}|{vidid}"),
+            [
+                InlineKeyboardButton(text="▷", callback_data=f"stream_admin Resume|{chat_id}"),
+                InlineKeyboardButton(text="II", callback_data=f"stream_admin Pause|{chat_id}"),
+                InlineKeyboardButton(text="↻", callback_data=f"stream_admin Replay|{chat_id}"),
+                InlineKeyboardButton(text="▢", callback_data=f"song_stop_custom|{chat_id}|{vidid}"),
+            ]
         ]
-    ]
-    return buttons
+    )
 
 @capture_internal_err
 async def stream(
@@ -75,7 +76,7 @@ async def stream(
     if forceplay:
         await StreamController.force_stop_stream(chat_id)
 
-    # نصوص احتياطية لضمان عدم توقف البوت
+    # نصوص احتياطية
     TXT_STREAM_1 = "<b>بدأ التشغيل</b>\n\n<b>العنوان:</b> <a href={0}>{1}</a>\n<b>المدة:</b> {2} دقيقة\n<b>بواسطة:</b> {3}"
     TXT_STREAM_2 = "<b>بدأ التشغيل (مباشر)</b>\n\n<b>النوع:</b> بث مباشر\n<b>بواسطة:</b> {0}"
     TXT_QUEUE_4 = "<b>تمت الإضافة للقائمة #{0}</b>\n\n<b>العنوان:</b> {1}\n<b>المدة:</b> {2} دقيقة\n<b>بواسطة:</b> {3}"
@@ -154,8 +155,9 @@ async def stream(
                 )
                 
                 img = await get_thumb(vidid)
-                # 🛑 استبدال الأزرار القديمة بالأزرار المخصصة
-                button = custom_stream_markup(chat_id, vidid)
+                # 🛑 استخدام الأزرار المخصصة
+                custom_markup = get_custom_buttons(chat_id, vidid)
+                
                 await safe_delete(mystic)
                 
                 base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
@@ -170,7 +172,7 @@ async def stream(
                         original_chat_id,
                         photo=img,
                         caption=caption_text,
-                        reply_markup=InlineKeyboardMarkup(button),
+                        reply_markup=custom_markup,
                     )
                     db[chat_id][0]["mystic"] = run
                     db[chat_id][0]["markup"] = "stream"
@@ -187,7 +189,8 @@ async def stream(
         except:
             playlist_photo = config.PLAYLIST_IMG_URL
             
-        upl = close_markup(_)
+        # زر إغلاق القائمة (يمكن إبقاؤه أو تغييره حسب الرغبة)
+        upl = InlineKeyboardMarkup([[InlineKeyboardButton(text="إغلاق", callback_data="close")]])
         final_position = len(db.get(chat_id) or []) - 1
         
         p21 = get_safe_text(_, "play_21", TXT_PLAY_21)
@@ -199,7 +202,7 @@ async def stream(
         )
 
     # ==========================
-    # 2. YOUTUBE MODE (DIRECT STREAM + HYBRID)
+    # 2. YOUTUBE MODE
     # ==========================
     elif streamtype == "youtube":
         link = result.get("link")
@@ -265,8 +268,9 @@ async def stream(
             )
             
             img = await get_thumb(vidid)
-            # 🛑 استبدال الأزرار القديمة بالأزرار المخصصة
-            button = custom_stream_markup(chat_id, vidid)
+            # 🛑 استخدام الأزرار المخصصة
+            custom_markup = get_custom_buttons(chat_id, vidid)
+            
             await safe_delete(mystic)
             
             base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
@@ -281,7 +285,7 @@ async def stream(
                     original_chat_id,
                     photo=img,
                     caption=caption_text,
-                    reply_markup=InlineKeyboardMarkup(button),
+                    reply_markup=custom_markup,
                 )
                 db[chat_id][0]["mystic"] = run
                 db[chat_id][0]["markup"] = "stream"
@@ -295,7 +299,7 @@ async def stream(
         file_path = result.get("filepath")
         title = result.get("title")
         duration_min = result.get("duration_min")
-        vidid = result.get("vidid", "soundcloud")
+        vidid = result.get("vidid", "soundcloud") 
         
         if await is_active_chat(chat_id):
             await put_queue(
@@ -333,8 +337,8 @@ async def stream(
                 "audio",
                 forceplay=forceplay,
             )
-            # 🛑 استبدال الأزرار القديمة بالأزرار المخصصة
-            button = custom_stream_markup(chat_id, vidid)
+            # 🛑 أزرار مخصصة
+            custom_markup = get_custom_buttons(chat_id, vidid)
             await safe_delete(mystic)
             
             base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
@@ -344,7 +348,7 @@ async def stream(
                 caption="🧚 " + base_txt.format(
                     config.SUPPORT_CHAT, title[:23], duration_min, user_name
                 ),
-                reply_markup=InlineKeyboardMarkup(button),
+                reply_markup=custom_markup,
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
@@ -357,7 +361,7 @@ async def stream(
         link = result.get("link")
         title = (result.get("title")).title()
         duration_min = result.get("dur", result.get("duration_min", "00:00"))
-        vidid = link # Use link as ID for telegram files
+        vidid = link 
 
         if await is_active_chat(chat_id):
             await put_queue(
@@ -373,7 +377,6 @@ async def stream(
             )
             position = len(db.get(chat_id)) - 1
             button = aq_markup(_, chat_id)
-            
             q4 = get_safe_text(_, "queue_4", TXT_QUEUE_4)
             await app.send_message(
                 chat_id=original_chat_id,
@@ -399,8 +402,8 @@ async def stream(
             if is_video:
                 await add_active_video_chat(chat_id)
             
-            # 🛑 استبدال الأزرار القديمة بالأزرار المخصصة
-            button = custom_stream_markup(chat_id, vidid)
+            # 🛑 أزرار مخصصة
+            custom_markup = get_custom_buttons(chat_id, vidid)
             await safe_delete(mystic)
             
             base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
@@ -408,7 +411,7 @@ async def stream(
                 original_chat_id,
                 photo=config.TELEGRAM_VIDEO_URL if is_video else config.TELEGRAM_AUDIO_URL,
                 caption="🧚 " + base_txt.format(link, title[:23], duration_min, user_name),
-                reply_markup=InlineKeyboardMarkup(button),
+                reply_markup=custom_markup,
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
@@ -437,7 +440,6 @@ async def stream(
             )
             position = len(db.get(chat_id)) - 1
             button = aq_markup(_, chat_id)
-            
             q4 = get_safe_text(_, "queue_4", TXT_QUEUE_4)
             await app.send_message(
                 chat_id=original_chat_id,
@@ -472,8 +474,8 @@ async def stream(
                 forceplay=forceplay,
             )
             img = await get_thumb(vidid)
-            # 🛑 استبدال الأزرار القديمة بالأزرار المخصصة
-            button = custom_stream_markup(chat_id, vidid)
+            # 🛑 أزرار مخصصة
+            custom_markup = get_custom_buttons(chat_id, vidid)
             await safe_delete(mystic)
             
             base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
@@ -486,7 +488,7 @@ async def stream(
                     duration_min,
                     user_name,
                 ),
-                reply_markup=InlineKeyboardMarkup(button),
+                reply_markup=custom_markup,
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
@@ -495,7 +497,7 @@ async def stream(
         link = result
         title = "رابط خارجي"
         duration_min = "00:00"
-        vidid = link 
+        vidid = link # Use link as ID
 
         if await is_active_chat(chat_id):
             await put_queue_index(
@@ -535,8 +537,8 @@ async def stream(
                 "video" if is_video else "audio",
                 forceplay=forceplay,
             )
-            # 🛑 استبدال الأزرار القديمة بالأزرار المخصصة
-            button = custom_stream_markup(chat_id, vidid)
+            # 🛑 أزرار مخصصة
+            custom_markup = get_custom_buttons(chat_id, vidid)
             await safe_delete(mystic)
             
             base_txt = get_safe_text(_, "stream_2", TXT_STREAM_2)
@@ -544,7 +546,7 @@ async def stream(
                 original_chat_id,
                 photo=config.STREAM_IMG_URL,
                 caption="🧚 " + base_txt.format(user_name),
-                reply_markup=InlineKeyboardMarkup(button),
+                reply_markup=custom_markup,
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
