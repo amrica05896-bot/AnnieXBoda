@@ -1,6 +1,5 @@
 # Authored By Certified Coders © 2026
-# System: Song Plugin (Smart Warehouse + List + Interactive Controls)
-# Modified: Custom Stop Button (No Delete) + Resume Button + Simplified Caption
+# System: Song Plugin (Clean Version - No Dummy Dicts)
 
 import os
 import re
@@ -100,7 +99,7 @@ async def unlock_buttons(client, message):
     await message.reply_text("تم تفعيل أزرار البحث.")
 
 # ==========================================================
-#  2. أمر (ليست / list) - مع أزرار التشغيل
+#  2. أمر (ليست / list)
 # ==========================================================
 @app.on_message(filters.command(["ليست", "list"], prefixes=["", "/"]) & filters.group & ~BANNED_USERS)
 async def list_command(client, message):
@@ -146,7 +145,7 @@ async def list_command(client, message):
         await mystic.edit_text("حدث خطأ أثناء البحث.")
 
 # ==========================================================
-#  3. الأوامر القديمة (يوت، هات، فيديو) - بدون أزرار تشغيل
+#  3. الأوامر القديمة
 # ==========================================================
 @app.on_message(filters.regex(r"^/?(ابعتلي|هات|هاتلي|تنزيل|تحميل|song)(\s+.+)?$") & filters.group & ~BANNED_USERS)
 async def smart_song_handler(client, message: Message):
@@ -303,7 +302,7 @@ async def direct_download_handler(client, message, url, is_video_force=False, sh
         await mystic.edit_text(f"خطأ: {e}")
 
 # ==========================================================
-#  🆕 5. معالج زر التشغيل والإيقاف المخصص
+#  🆕 5. معالج زر التشغيل (Clean - No Dummy Dict)
 # ==========================================================
 
 @app.on_callback_query(filters.regex(pattern=r"list_dl") & ~BANNED_USERS)
@@ -323,24 +322,17 @@ async def force_play_cb(client, query):
     user_id = query.from_user.id
     user_name = query.from_user.first_name
 
-    await query.answer("جاري التشغيل.")
+    await query.answer("جاري التشغيل في الكول...")
     
-    # 🛑 تعريف قاموس اللغة الوهمي مع النص المبسط "جـاري الـتشغيل." فقط
-    _ = {
-        "CLOSE_BUTTON": "إغلاق",
-        "P_B_1": "صوت", 
-        "P_B_2": "فيديو",
-        "play_2": "تم التشغيل.",
-        "stream_1": "جـاري الـتشغيل.", # 👈 التعديل هنا
-        "playcb_1": "يجب أن تكون في المكالمة."
-    }
+    # 🛑 تم حذف القاموس الوهمي _ = {...} 
+    # سيتم استخدام قاموس فارغ، وملف stream.py سيتولى الباقي
 
     try:
         details, _track_id = await YouTube.track(vidid, videoid=vidid)
-        mystic = await query.message.reply_text("جـاري الـتشغيل.") # 👈 رسالة مبسطة
+        mystic = await query.message.reply_text("جـاري الـتشغيل.") 
         
         await stream(
-            _, # تمرير القاموس الوهمي المبسط
+            {}, # قاموس فارغ (No Dummy Data)
             mystic,
             user_id,
             details,
@@ -367,7 +359,7 @@ async def force_play_cb(client, query):
     except Exception as e:
         await query.message.reply_text(f"فشل التشغيل: {e}")
 
-# 🛑 المعالج المخصص لزر الإيقاف (عشان ميمسحش الرسالة)
+# 🛑 المعالج المخصص لزر الإيقاف
 @app.on_callback_query(filters.regex("song_stop_custom") & ~BANNED_USERS)
 async def custom_stop_cb(client, query):
     try:
@@ -377,16 +369,14 @@ async def custom_stop_cb(client, query):
 
         await query.answer("تم الإنهاء.")
 
-        # 1. إيقاف التشغيل
         try: await StreamController.stop_stream(chat_id)
         except: pass
 
-        # 2. تغيير الأزرار لـ (إعادة تشغيل) فقط، دون حذف الرسالة
         replay_button = [[InlineKeyboardButton(text="↻", callback_data=f"force_play {vidid}")]]
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(replay_button))
 
     except Exception as e:
-        print(f"Stop Error: {e}")
+        pass
 
 # ==========================================================
 #  6. Callbacks العادية
