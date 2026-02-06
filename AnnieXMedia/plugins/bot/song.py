@@ -1,5 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: Song Plugin (Smart Warehouse + Artist Name Logic) - No Emoji Edition
+# Modified: Added List Command (Pyromod) + Interactive Play Button (List Only)
 
 import os
 import re
@@ -12,6 +13,7 @@ from pyrogram.types import (
     InputMediaAudio,
     InputMediaVideo,
     Message,
+    ForceReply
 )
 
 # استيرادات AnnieXMedia
@@ -22,6 +24,8 @@ from AnnieXMedia.utils.formatters import convert_bytes
 from AnnieXMedia.utils.inline.song import song_markup
 # استيراد دوال المستودع والكاش
 from AnnieXMedia.utils.database import get_config, set_config, get_cached_file, cache_file
+# استيراد دالة التشغيل (مطلوب لزر تشغيل الان)
+from AnnieXMedia.utils.stream.stream import stream
 
 # تحديد المطورين (Sudo)
 SUDO_USERS = OWNER_ID if isinstance(OWNER_ID, list) else [OWNER_ID]
@@ -30,11 +34,8 @@ SUDO_USERS = OWNER_ID if isinstance(OWNER_ID, list) else [OWNER_ID]
 #  🧹 دالة تنظيف العناوين (The Cleaner)
 # ==========================================================
 def clean_title(title: str) -> str:
-    # 1. إزالة ما بين الأقواس المربعة والدائرية [Official] (Video)
     title = re.sub(r'\[.*?\]', '', title)
     title = re.sub(r'\(.*?\)', '', title)
-    
-    # 2. إزالة كلمات محددة تتكرر في يوتيوب
     bad_words = [
         "Official Video", "Official Audio", "Lyrics", "Video", 
         "Music Video", "HD", "HQ", "4K", "ft.", "feat.", 
@@ -44,10 +45,7 @@ def clean_title(title: str) -> str:
         title = title.replace(word, "")
         title = title.replace(word.lower(), "")
         title = title.replace(word.upper(), "")
-
-    # 3. إزالة المسافات الزائدة
-    title = title.strip()
-    return title
+    return title.strip()
 
 # ==========================================================
 #  1. أوامر التحكم بالجودة (للمالك فقط)
@@ -55,13 +53,11 @@ def clean_title(title: str) -> str:
 
 @app.on_message(filters.command(["رفع الجودة", "ارفع الجودة", "تفعيل الجودة"], prefixes="") & filters.user(SUDO_USERS))
 async def enable_hq_cmd(client, message):
-    # هذا الأمر يغير المتغير في SongDownloader مباشرة
     SongDownloader.enable_quality()
     await message.reply_text("تم تفعيل الجودة العالية (HQ) للجميع.")
 
 @app.on_message(filters.command(["قفل الجودة", "اقفل الجودة", "تعطيل الجودة"], prefixes="") & filters.user(SUDO_USERS))
 async def disable_hq_cmd(client, message):
-    # هذا الأمر يعيد المتغير لوضع السرعة
     SongDownloader.disable_quality()
     await message.reply_text("تم تعطيل الجودة العالية والعودة للوضع السريع.")
 
@@ -90,7 +86,59 @@ async def unlock_buttons(client, message):
     await message.reply_text("تم تفعيل أزرار البحث والاختيارات.")
 
 # ==========================================================
-#  3. المعالج الذكي (هات / ابعتلي / song)
+#  🆕 2.5. أمر (ليست / list) الجديد مع Pyromod
+# ==========================================================
+
+@app.on_message(filters.command(["ليست", "list"], prefixes=["", "/"]) & filters.group & ~BANNED_USERS)
+async def list_command(client, message):
+    if await get_config("download_locked") and message.from_user.id not in SUDO_USERS:
+        return await message.reply_text("عذراً، التنزيل متوقف حالياً للصيانة.")
+
+    # 1. إذا لم يكتب الاسم، ننتظر الرد (Pyromod)
+    if len(message.text.split()) == 1:
+        try:
+            # استخدام pyromod ask
+            response = await client.ask(
+                message.chat.id, 
+                "ارسل اسـم الفنان الان .", 
+                user_id=message.from_user.id, 
+                timeout=30,
+                reply_markup=ForceReply(selective=True)
+            )
+            query = response.text
+        except:
+            return 
+    else:
+        query = message.text.split(None, 1)[1]
+
+    # بدء البحث
+    mystic = await message.reply_text("**جـاري البحث...**")
+    try:
+        # استخدام دالة البحث عن 10 نتائج (الموجودة في ملف YouTube.py)
+        results = await YouTube.search(query, limit=10)
+        if not results:
+            return await mystic.edit_text("لم يتم العثور على نتائج.")
+
+        buttons = []
+        for vid in results:
+            title = vid["title"][:40] 
+            vidid = vid["vidid"]
+            # زر خاص للقائمة يختلف عن الزر العادي
+            buttons.append([InlineKeyboardButton(text=title, callback_data=f"list_dl {vidid}")])
+
+        buttons.append([InlineKeyboardButton(text="الـمـالك", url="https://t.me/S_G0C7")])
+        buttons.append([InlineKeyboardButton(text="إغلاق", callback_data="close")])
+
+        await mystic.delete()
+        await message.reply_text(
+            f"نتائج البحث عن: {query}",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+    except Exception as e:
+        await mystic.edit_text("حدث خطأ أثناء البحث.")
+
+# ==========================================================
+#  3. المعالج الذكي (هات / ابعتلي / song) - كما هو
 # ==========================================================
 
 @app.on_message(filters.regex(r"^/?(ابعتلي|هات|هاتلي|تنزيل|تحميل|song)(\s+.+)?$") & filters.group & ~BANNED_USERS)
@@ -150,7 +198,7 @@ async def smart_song_handler(client, message: Message):
 
 
 # ==========================================================
-#  4. أمر (يوت / yut)
+#  4. أمر (يوت / yut) - كما هو
 # ==========================================================
 
 @app.on_message(filters.command(["يوت", "yut"], prefixes=["", "/"]) & ~BANNED_USERS)
@@ -197,10 +245,36 @@ async def yut_command(client, message):
 
 
 # ==========================================================
+#  🆕 أمر الفيديو المخصص (video/فيد)
+# ==========================================================
+@app.on_message(filters.command(["video", "فيد", "فيديو"], prefixes=["", "/"]) & ~BANNED_USERS)
+async def video_only_command(client, message):
+    if len(message.command) < 2:
+        return await message.reply_text("اكتب اسم الفيديو.")
+    
+    query = message.text.split(None, 1)[1]
+    url = await YouTube.url(message)
+    if not url and ("http" in query): url = query
+
+    if url:
+        return await direct_download_handler(client, message, url, is_video_force=True)
+
+    mystic = await message.reply_text("**جـاري البحث...**")
+    try:
+        details = await YouTube.details(query)
+        if details:
+            vidid = details[4]
+            link = f"https://www.youtube.com/watch?v={vidid}"
+            await mystic.delete()
+            await direct_download_handler(client, message, link, is_video_force=True)
+    except:
+        await mystic.edit_text("حدث خطأ.")
+
+# ==========================================================
 #  5. دالة التحميل والرفع (المستودع الذكي)
 # ==========================================================
 
-async def direct_download_handler(client, message, url, is_video_force=False):
+async def direct_download_handler(client, message, url, is_video_force=False, show_play_btn=False):
     mystic = await message.reply_text("**جـاري المعالجة...**")
     
     try:
@@ -230,11 +304,19 @@ async def direct_download_handler(client, message, url, is_video_force=False):
         if not artist_name or artist_name.lower() == "annie bot":
              artist_name = "Unknown Artist"
 
-        # تنسيق الرسالة النهائية بدون ايموجي
+        # تنسيق الرسالة النهائية
         caption_text = (
             f"**الطـلب بواسطـة:** {message.from_user.mention}\n"
             f"**عنـوان المقطـع:** {song_title}"
         )
+
+        # 🆕 إعداد أزرار التشغيل (فقط إذا طُلبت - أي من الليست)
+        reply_markup = None
+        if show_play_btn:
+            buttons = [
+                [InlineKeyboardButton(text="- تشغيل الان.", callback_data=f"force_play {vidid}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(buttons)
 
         # -----------------------------------------------------------------
         # الثغرة: فحص المستودع (Warehouse Check)
@@ -250,6 +332,7 @@ async def direct_download_handler(client, message, url, is_video_force=False):
                         message.chat.id,
                         video=cached_file_id,
                         caption=caption_text,
+                        reply_markup=reply_markup,
                         reply_to_message_id=message.id
                     )
                 else:
@@ -257,6 +340,7 @@ async def direct_download_handler(client, message, url, is_video_force=False):
                         message.chat.id,
                         audio=cached_file_id,
                         caption=caption_text,
+                        reply_markup=reply_markup,
                         reply_to_message_id=message.id
                     )
                 await mystic.delete()
@@ -323,6 +407,7 @@ async def direct_download_handler(client, message, url, is_video_force=False):
                     caption=caption_text,
                     duration=duration_sec,
                     thumb=thumb_path,
+                    reply_markup=reply_markup,
                     supports_streaming=True
                 )
             else:
@@ -333,7 +418,8 @@ async def direct_download_handler(client, message, url, is_video_force=False):
                     duration=duration_sec,
                     title=song_title,
                     performer=artist_name,
-                    thumb=thumb_path
+                    thumb=thumb_path,
+                    reply_markup=reply_markup
                 )
         except Exception:
              pass
@@ -352,7 +438,67 @@ async def direct_download_handler(client, message, url, is_video_force=False):
 
 
 # ==========================================================
-#  6. معالجة الأزرار (Callbacks)
+#  🆕 معالجة أزرار الليست والتشغيل
+# ==========================================================
+
+@app.on_callback_query(filters.regex(pattern=r"list_dl") & ~BANNED_USERS)
+async def list_dl_handler(client, query):
+    try: await query.answer("جـاري التنزيل...", show_alert=True)
+    except: pass
+    
+    vidid = query.data.split()[1]
+    yturl = f"https://www.youtube.com/watch?v={vidid}"
+    
+    # هنا نمرر True لإظهار زر التشغيل
+    await direct_download_handler(client, query.message, yturl, is_video_force=False, show_play_btn=True)
+
+@app.on_callback_query(filters.regex("force_play") & ~BANNED_USERS)
+async def force_play_cb(client, query):
+    try:
+        vidid = query.data.split()[1]
+    except: return
+
+    chat_id = query.message.chat.id
+    user_id = query.from_user.id
+    user_name = query.from_user.first_name
+
+    await query.answer("جـاري التشغيل...")
+    
+    # 1. تغيير الأزرار لأزرار التحكم
+    new_buttons = [
+        [
+            InlineKeyboardButton(text="▢", callback_data=f"stream_admin Stop|{chat_id}"),
+            InlineKeyboardButton(text="↻", callback_data=f"stream_admin Replay|{chat_id}"),
+            InlineKeyboardButton(text="II", callback_data=f"stream_admin Pause|{chat_id}"),
+        ]
+    ]
+    try:
+        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_buttons))
+    except: pass
+
+    # 2. بدء التشغيل
+    try:
+        details, _ = await YouTube.track(vidid, videoid=vidid)
+        mystic = await query.message.reply_text(f"جاري تشغيل: {details['title']}")
+        
+        await stream(
+            _,
+            mystic,
+            user_id,
+            details,
+            chat_id,
+            user_name,
+            chat_id,
+            video=False,
+            streamtype="youtube",
+            forceplay=True, 
+        )
+        await mystic.delete()
+    except Exception as e:
+        await query.message.reply_text("فشل التشغيل، تأكد من وجود مكالمة.")
+
+# ==========================================================
+#  6. معالجة الأزرار العادية (Callbacks)
 # ==========================================================
 
 @app.on_callback_query(filters.regex(pattern=r"song_back") & ~BANNED_USERS)
@@ -426,6 +572,6 @@ async def song_download_cb(client, query):
 
     yturl = f"https://www.youtube.com/watch?v={vidid}"
     
-    # استخدام الدالة الرئيسية
+    # استخدام الدالة الرئيسية (بدون زر تشغيل)
     is_video = True if stype == "video" else False
-    await direct_download_handler(client, query.message, yturl, is_video_force=is_video)
+    await direct_download_handler(client, query.message, yturl, is_video_force=is_video, show_play_btn=False)
