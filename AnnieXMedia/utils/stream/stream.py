@@ -26,9 +26,6 @@ from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
 async def safe_delete(message):
-    """
-    Safely delete a message without crashing if the message ID is invalid or inaccessible.
-    """
     try:
         await message.delete()
     except:
