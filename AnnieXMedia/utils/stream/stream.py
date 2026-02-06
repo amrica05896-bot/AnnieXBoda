@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2025
 # Fixed for utils/stream/stream.py
-# CRASH FIX: Removed safe_delete from exception blocks to prevent MessageIdInvalid
+# FIX: Auto-Fallback for missing Language Keys (No more KeyErrors)
 
 import asyncio
 import os
@@ -31,6 +31,15 @@ async def safe_delete(message):
     except:
         pass
 
+# 🛑 دالة مساعدة لجلب النصوص بأمان (تمنع الـ KeyError)
+def get_safe_text(dictionary, key, default):
+    try:
+        if isinstance(dictionary, dict) and key in dictionary:
+            return dictionary[key]
+        return default
+    except:
+        return default
+
 @capture_internal_err
 async def stream(
     _,
@@ -54,11 +63,20 @@ async def stream(
     if forceplay:
         await StreamController.force_stop_stream(chat_id)
 
+    # نصوص احتياطية (في حال فشل جلبها من ملف اللغة)
+    TXT_STREAM_1 = "<b>بدأ التشغيل</b>\n\n<b>العنوان:</b> <a href={0}>{1}</a>\n<b>المدة:</b> {2} دقيقة\n<b>بواسطة:</b> {3}"
+    TXT_STREAM_2 = "<b>بدأ التشغيل (مباشر)</b>\n\n<b>النوع:</b> بث مباشر\n<b>بواسطة:</b> {0}"
+    TXT_QUEUE_4 = "<b>تمت الإضافة للقائمة #{0}</b>\n\n<b>العنوان:</b> {1}\n<b>المدة:</b> {2} دقيقة\n<b>بواسطة:</b> {3}"
+    TXT_PLAY_19 = "قائمة التشغيل المضافة:"
+    TXT_PLAY_20 = "الموضع في القائمة -"
+    TXT_PLAY_21 = "تمت إضافة {0} مقاطع.\n\n<b>تحقق:</b> <a href={1}>اضغط هنا</a>"
+
     # ==========================
     # 1. PLAYLIST MODE
     # ==========================
     if streamtype == "playlist":
-        msg = f"{_['play_19']}\n\n"
+        p19 = get_safe_text(_, "play_19", TXT_PLAY_19)
+        msg = f"{p19}\n\n"
         count = 0
         for search in result:
             if int(count) == config.PLAYLIST_FETCH_LIMIT:
@@ -89,8 +107,9 @@ async def stream(
                 )
                 position = len(db.get(chat_id)) - 1
                 count += 1
+                p20 = get_safe_text(_, "play_20", TXT_PLAY_20)
                 msg += f"{count}. {title[:70]}\n"
-                msg += f"{_['play_20']} {position}\n\n"
+                msg += f"{p20} {position}\n\n"
             else:
                 if not forceplay:
                     db[chat_id] = []
@@ -99,8 +118,7 @@ async def stream(
                         vidid, mystic, video=is_video, videoid=vidid
                     )
                 except Exception:
-                    # ❌ REMOVED safe_delete here to prevent crash
-                    raise AssistantErr(_["play_14"])
+                    raise AssistantErr(get_safe_text(_, "play_14", "فشل التشغيل"))
 
                 await StreamController.join_call(
                     chat_id,
@@ -125,11 +143,11 @@ async def stream(
                 
                 img = await get_thumb(vidid)
                 button = stream_markup(_, chat_id)
-                
-                # Deleting here is safe because we succeeded and will send a new message
                 await safe_delete(mystic)
                 
-                caption_text = "🧚 " + _["stream_1"].format(
+                # 🛑 استخدام النص الآمن
+                base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
+                caption_text = "🧚 " + base_txt.format(
                     f"https://t.me/{app.username}?start=info_{vidid}",
                     title[:23],
                     duration_min,
@@ -159,10 +177,12 @@ async def stream(
             
         upl = close_markup(_)
         final_position = len(db.get(chat_id) or []) - 1
+        
+        p21 = get_safe_text(_, "play_21", TXT_PLAY_21)
         return await app.send_photo(
             original_chat_id,
             photo=playlist_photo,
-            caption="🧚 " + _["play_21"].format(final_position, link),
+            caption="🧚 " + p21.format(final_position, link),
             reply_markup=upl,
         )
 
@@ -181,12 +201,10 @@ async def stream(
                 vidid, mystic, video=is_video, videoid=vidid
             )
         except Exception:
-            # ❌ REMOVED safe_delete here to prevent crash
-            raise AssistantErr(_["play_14"])
+            raise AssistantErr(get_safe_text(_, "play_14", "فشل التشغيل"))
 
         if not file_path:
-             # ❌ REMOVED safe_delete here to prevent crash
-             raise AssistantErr(_["play_14"])
+             raise AssistantErr(get_safe_text(_, "play_14", "فشل التشغيل"))
 
         if await is_active_chat(chat_id):
             await put_queue(
@@ -203,9 +221,12 @@ async def stream(
             position = len(db.get(chat_id)) - 1
             button = aq_markup(_, chat_id)
             await safe_delete(mystic)
+            
+            # 🛑 نص آمن
+            q4 = get_safe_text(_, "queue_4", TXT_QUEUE_4)
             await app.send_message(
                 chat_id=original_chat_id,
-                text="🧚 " + _["queue_4"].format(position, title[:27], duration_min, user_name),
+                text="🧚 " + q4.format(position, title[:27], duration_min, user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
         else:
@@ -234,11 +255,11 @@ async def stream(
             
             img = await get_thumb(vidid)
             button = stream_markup(_, chat_id)
-            
-            # Deleting here is safe because we succeeded and will send a new message
             await safe_delete(mystic)
             
-            caption_text = "🧚 " + _["stream_1"].format(
+            # 🛑 نص آمن (الحل للمشكلة)
+            base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
+            caption_text = "🧚 " + base_txt.format(
                 f"https://t.me/{app.username}?start=info_{vidid}",
                 title[:23],
                 duration_min,
@@ -278,9 +299,11 @@ async def stream(
             )
             position = len(db.get(chat_id)) - 1
             button = aq_markup(_, chat_id)
+            
+            q4 = get_safe_text(_, "queue_4", TXT_QUEUE_4)
             await app.send_message(
                 chat_id=original_chat_id,
-                text="🧚 " + _["queue_4"].format(position, title[:27], duration_min, user_name),
+                text="🧚 " + q4.format(position, title[:27], duration_min, user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
         else:
@@ -302,10 +325,11 @@ async def stream(
             button = stream_markup(_, chat_id)
             await safe_delete(mystic)
             
+            base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
             run = await app.send_photo(
                 original_chat_id,
                 photo=config.SOUNCLOUD_IMG_URL,
-                caption="🧚 " + _["stream_1"].format(
+                caption="🧚 " + base_txt.format(
                     config.SUPPORT_CHAT, title[:23], duration_min, user_name
                 ),
                 reply_markup=InlineKeyboardMarkup(button),
@@ -336,9 +360,11 @@ async def stream(
             )
             position = len(db.get(chat_id)) - 1
             button = aq_markup(_, chat_id)
+            
+            q4 = get_safe_text(_, "queue_4", TXT_QUEUE_4)
             await app.send_message(
                 chat_id=original_chat_id,
-                text="🧚 " + _["queue_4"].format(position, title[:27], duration_min, user_name),
+                text="🧚 " + q4.format(position, title[:27], duration_min, user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
         else:
@@ -363,10 +389,11 @@ async def stream(
             button = stream_markup(_, chat_id)
             await safe_delete(mystic)
             
+            base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
             run = await app.send_photo(
                 original_chat_id,
                 photo=config.TELEGRAM_VIDEO_URL if is_video else config.TELEGRAM_AUDIO_URL,
-                caption="🧚 " + _["stream_1"].format(link, title[:23], duration_min, user_name),
+                caption="🧚 " + base_txt.format(link, title[:23], duration_min, user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
             db[chat_id][0]["mystic"] = run
@@ -396,9 +423,11 @@ async def stream(
             )
             position = len(db.get(chat_id)) - 1
             button = aq_markup(_, chat_id)
+            
+            q4 = get_safe_text(_, "queue_4", TXT_QUEUE_4)
             await app.send_message(
                 chat_id=original_chat_id,
-                text="🧚 " + _["queue_4"].format(position, title[:27], duration_min, user_name),
+                text="🧚 " + q4.format(position, title[:27], duration_min, user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
         else:
@@ -407,7 +436,7 @@ async def stream(
             
             n, file_path = await YouTube.video(link)
             if n == 0:
-                raise AssistantErr(_["str_3"])
+                raise AssistantErr(get_safe_text(_, "str_3", "فشل البث"))
 
             await StreamController.join_call(
                 chat_id,
@@ -432,10 +461,11 @@ async def stream(
             button = stream_markup(_, chat_id)
             await safe_delete(mystic)
             
+            base_txt = get_safe_text(_, "stream_1", TXT_STREAM_1)
             run = await app.send_photo(
                 original_chat_id,
                 photo=img,
-                caption="🧚 " + _["stream_1"].format(
+                caption="🧚 " + base_txt.format(
                     f"https://t.me/{app.username}?start=info_{vidid}",
                     title[:23],
                     duration_min,
@@ -464,8 +494,10 @@ async def stream(
             )
             position = len(db.get(chat_id)) - 1
             button = aq_markup(_, chat_id)
+            
+            q4 = get_safe_text(_, "queue_4", TXT_QUEUE_4)
             await mystic.edit_text(
-                text="🧚 " + _["queue_4"].format(position, title[:27], duration_min, user_name),
+                text="🧚 " + q4.format(position, title[:27], duration_min, user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
         else:
@@ -491,10 +523,11 @@ async def stream(
             button = stream_markup(_, chat_id)
             await safe_delete(mystic)
             
+            base_txt = get_safe_text(_, "stream_2", TXT_STREAM_2)
             run = await app.send_photo(
                 original_chat_id,
                 photo=config.STREAM_IMG_URL,
-                caption="🧚 " + _["stream_2"].format(user_name),
+                caption="🧚 " + base_txt.format(user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
             db[chat_id][0]["mystic"] = run
