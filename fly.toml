@@ -2,7 +2,7 @@ app = "anniexboda-mxodcg"
 primary_region = "iad"
 
 # ===============================
-# Build Configuration
+# Build Configuratio
 # ===============================
 [build]
   dockerfile = "Dockerfile"
