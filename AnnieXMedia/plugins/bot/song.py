@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Song Plugin (Exclusive Play Button Logic)
-# Feature: "Play Now" button appears ONLY when selecting from /list
+# System: Song Plugin (Final Version)
+# Features: Exclusive List Play Button + Inline Stream Control
 
 import os
 import re
@@ -109,7 +109,7 @@ def _build_list_keyboard(results: list, user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 # ==========================================================
-#  المعالج الذكي (song / هات) -> (زر التشغيل مغلق ❌)
+#  المعالج الذكي (song / هات) -> (زر التشغيل مخفي ❌)
 # ==========================================================
 @app.on_message(filters.regex(r"^/?(ابعتلي|هات|هاتلي|تنزيل|تحميل|song)(\s+.+)?$") & filters.group & ~BANNED_USERS)
 async def smart_song_handler(client, message: Message):
@@ -159,7 +159,7 @@ async def smart_song_handler(client, message: Message):
         )
 
 # ==========================================================
-#  أمر (يوت / yut) -> (زر التشغيل مغلق ❌)
+#  أمر (يوت / yut) -> (زر التشغيل مخفي ❌)
 # ==========================================================
 @app.on_message(filters.command(["يوت", "yut"], prefixes=["", "/"]) & ~BANNED_USERS)
 async def yut_command(client, message):
@@ -223,7 +223,7 @@ async def list_command(client, message: Message):
                 if not ids: return
                 for vid in ids[:limit]:
                     try:
-                        # في البلاي ليست الجماعية نغلق زر التشغيل تجنباً للازعاج
+                        # في البلاي ليست الجماعية نغلق زر التشغيل
                         await direct_download_handler(client, message, f"https://www.youtube.com/watch?v={vid}", False, show_play_btn=False)
                         await asyncio.sleep(1)
                     except: continue
@@ -256,7 +256,7 @@ async def list_command(client, message: Message):
 # ==========================================================
 async def direct_download_handler(client, message, url, is_video_force=False, show_play_btn=False):
     """
-    show_play_btn: إذا كانت True سيظهر زر التشغيل، وإذا كانت False لن يظهر.
+    show_play_btn: المتحكم الوحيد في ظهور زر التشغيل.
     """
     mystic = await message.reply_text("جاري المعالجة...")
     try:
@@ -330,9 +330,10 @@ async def direct_download_handler(client, message, url, is_video_force=False, sh
         await mystic.edit_text(f"خطأ: {e}")
 
 # ==========================================================
-#  Callbacks (Selection from List - HERE PLAY BUTTON IS TRUE)
+#  Callbacks (Select & Force Play)
 # ==========================================================
 
+# 🛑 هذا الكولاك الوحيد الذي يرسل True لزر التشغيل
 @app.on_callback_query(filters.regex(pattern=r"list_select") & ~BANNED_USERS)
 async def list_select_cb(client, query):
     try:
@@ -346,11 +347,11 @@ async def list_select_cb(client, query):
 
     yturl = f"https://www.youtube.com/watch?v={vidid}"
     try:
-        # 🛑🛑 هنا فقط نرسل show_play_btn=True 🛑🛑
-        # لأن المستخدم اختار من الليست
+        # ✅ show_play_btn=True هنا بس (لأنه جاي من الليست)
         await direct_download_handler(client, query.message, yturl, is_video_force=False, show_play_btn=True)
     except: await query.message.reply_text("فشل.")
 
+# 🛑 كولاك زر التشغيل: يشغل بوضع الكوستوم (Inline Edit)
 @app.on_callback_query(filters.regex(pattern=r"force_play") & ~BANNED_USERS)
 async def force_play_cb(client, query):
     try: vidid = query.data.split()[1]
@@ -362,21 +363,20 @@ async def force_play_cb(client, query):
 
     await query.answer("جاري التشغيل...")
     
-    # الربط مع stream.py الكوستوم
     try:
         details, _ = await YouTube.track(vidid, videoid=vidid)
-        mystic = await query.message.reply_text("جاري التشغيل في الكول...") 
         
+        # 🛑 التريك: بنبعت رسالة الملف (query.message) عشان الاستريم يعدل زراريرها
         await stream(
-            {}, 
-            mystic,
+            {}, # dummy dict
+            query.message, # <--- الرسالة نفسها (mystic)
             user_id,
             details,
             chat_id,
             user_name,
             chat_id,
             video=False,
-            streamtype="custom", # لتفعيل الـ 4 زرارير
+            streamtype="custom", # ✅ كلمة السر لتعديل الأزرار
             forceplay=True, 
         )
     except Exception as e:
@@ -403,7 +403,7 @@ async def song_download_cb(client, query):
     vidid = data[2]
     is_video = True if data[0].strip().endswith("video") else False
     yturl = f"https://www.youtube.com/watch?v={vidid}"
-    # Play Button = False here (Normal Download)
+    # ❌ show_play_btn=False
     await direct_download_handler(client, query.message, yturl, is_video_force=is_video, show_play_btn=False)
 
 @app.on_callback_query(filters.regex(pattern=r"song_helper") & ~BANNED_USERS)
@@ -414,5 +414,5 @@ async def song_helper_cb(client, query):
     vidid = query.data.split("|")[1]
     is_audio = "audio" in query.data
     yturl = f"https://www.youtube.com/watch?v={vidid}"
-    # Play Button = False here (Normal Download)
+    # ❌ show_play_btn=False
     await direct_download_handler(client, query.message, yturl, is_video_force=not is_audio, show_play_btn=False)
