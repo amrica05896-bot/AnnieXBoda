@@ -1,15 +1,13 @@
-# utils/stream/stream.py
-# Updated 2026 - Compatibility layer for pytgcalls / ntgcalls newer versions
-# - safer deletes, fallback for StreamController API changes
-# - robust error handling and minimal side-effect on failures
-# - preserves original logic/markup behavior
+# Authored By Certified Coders © 2026
+# System: Stream Controller (Full Version)
+# Integrated with: custom_markup (inline/custom.py)
 
 import asyncio
 import os
 from random import randint
 from typing import Union, Any
 
-from pyrogram.types import InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import FloodWait
 
 import config
@@ -19,6 +17,8 @@ from AnnieXMedia.misc import db
 from AnnieXMedia.utils.database import add_active_video_chat, is_active_chat
 from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.inline import aq_markup, close_markup, stream_markup
+# 🛑 [NEW] Import the custom markup file
+from AnnieXMedia.utils.inline.custom import custom_markup
 from AnnieXMedia.utils.pastebin import ANNIEBIN
 from AnnieXMedia.utils.stream.queue import put_queue, put_queue_index
 from AnnieXMedia.utils.thumbnails import get_thumb
@@ -124,9 +124,63 @@ async def stream(
                 pass
 
     # -----------------------------
+    # 🛑 0) CUSTOM SONG MODE (INTEGRATED)
+    # -----------------------------
+    if streamtype == "custom":
+        link = result.get("link")
+        vidid = result.get("vidid")
+        title = (result.get("title")).title()
+        duration_min = result.get("duration_min")
+        thumbnail = result.get("thumb")
+
+        try:
+            file_path, direct = await YouTube.download(vidid, mystic, video=is_video, videoid=vidid)
+        except Exception:
+            raise AssistantErr(_["play_14"])
+
+        if not forceplay:
+            db[chat_id] = []
+
+        try:
+            await _join_call_with_fallback(chat_id, original_chat_id, file_path, video=is_video, image=thumbnail)
+        except Exception:
+            raise AssistantErr(_["play_14"])
+
+        await put_queue(
+            chat_id,
+            original_chat_id,
+            file_path if direct else f"vid_{vidid}",
+            title,
+            duration_min,
+            user_name,
+            vidid,
+            user_id,
+            "video" if is_video else "audio",
+            forceplay=forceplay,
+        )
+
+        # Use the NEW custom_markup from inline/custom.py
+        button = custom_markup(_, chat_id, vidid)
+        
+        await safe_delete(mystic)
+        try:
+            run = await safe_send_photo(
+                original_chat_id,
+                photo=await get_thumb(vidid),
+                caption=f"🧚 بدأ التشغيل: <b>{title}</b>\nالمدة: {duration_min}\nبواسطة: {user_name}",
+                reply_markup=button
+            )
+            if run:
+                db[chat_id][0]["mystic"] = run
+                db[chat_id][0]["markup"] = "custom" # Save as custom so timer doesn't override
+        except Exception:
+            pass
+        return
+
+    # -----------------------------
     # 1) PLAYLIST MODE
     # -----------------------------
-    if streamtype == "playlist":
+    elif streamtype == "playlist":
         msg = f"{_['play_19']}\n\n"
         count = 0
 
