@@ -1,10 +1,11 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Smart Switch + Direct Link Resolver)
-# Fixes: "Join/Leave" Bug on 2nd Song, Direct Stream Stability
+# System: Call Controller (Local Lib Fix)
+# Fixes: ImportError (AlreadyJoinedError), Direct Stream Stability
 
 import asyncio
 import os
 import traceback
+import yt_dlp
 from datetime import datetime, timedelta
 from typing import Union
 
@@ -13,11 +14,11 @@ from pyrogram import Client
 from pyrogram.errors import FloodWait, ChatAdminRequired
 from pyrogram.types import InlineKeyboardMarkup
 from pytgcalls import PyTgCalls
+# 🛑 تم إزالة AlreadyJoinedError لأنه غير موجود في مكتبتك
 from pytgcalls.exceptions import (
     NoActiveGroupCall, 
     NoAudioSourceFound, 
-    NoVideoSourceFound,
-    AlreadyJoinedError
+    NoVideoSourceFound
 )
 from pytgcalls.types import (
     AudioQuality, 
@@ -55,9 +56,28 @@ from AnnieXMedia.utils.errors import capture_internal_err
 autoend = {}
 counter = {}
 
-# --- [Stream Settings] ---
+# --- [1] Local Link Extractor ---
+async def get_direct_link(videoid: str):
+    link = f"https://www.youtube.com/watch?v={videoid}"
+    opts = {
+        "format": "bestaudio/best",
+        "quiet": True,
+        "no_warnings": True,
+        "geo_bypass": True,
+        "nocheckcertificate": True,
+    }
+    try:
+        loop = asyncio.get_running_loop()
+        def _extract():
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(link, download=False)
+                return info.get("url")
+        return await loop.run_in_executor(None, _extract)
+    except:
+        return link
+
+# --- [2] Stream Settings ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
-    # إعدادات الثبات (Anti-Lag Buffer 15MB)
     titan_flags = (
         "-threads 2 "
         "-probesize 10M "
@@ -79,7 +99,7 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
 
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.HIGH, # Studio ثقيل جداً على البث المباشر
+        audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p, 
         audio_flags=audio_flags,
         video_flags=video_flags,
@@ -167,22 +187,20 @@ class Call:
     @capture_internal_err
     async def skip_stream(self, chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
-        # تحويل الرابط إلى مباشر إذا كان رابط يوتيوب لضمان عمل Change Stream
+        
         final_link = link
         if "youtube" in link or "youtu.be" in link:
              try:
-                 direct = await YouTube.get_direct_link(link, prefer_audio=not video)
+                 direct = await get_direct_link(link.split("v=")[-1] if "v=" in link else link.split("/")[-1])
                  if direct: final_link = direct
              except: pass
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         
-        # 🛑 منطق التبديل الذكي (The Fix)
         if chat_id in self.active_calls:
             try:
                 await assistant.change_stream(chat_id, stream)
             except Exception:
-                # لو فشل التبديل، اخرج وادخل
                 try: await assistant.leave_call(chat_id)
                 except: pass
                 await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=False))
@@ -259,11 +277,9 @@ class Call:
         stream = dynamic_media_stream(path=link, video=bool(video))
         ksk = GroupCallConfig(auto_start=False)
 
-        # تنظيف الحالة السابقة
         try:
-            if chat_id in self.active_calls:
-                await assistant.leave_call(chat_id)
-                await asyncio.sleep(0.5)
+            await assistant.leave_call(chat_id)
+            await asyncio.sleep(0.5) 
         except: pass
 
         retries = 3
@@ -280,14 +296,16 @@ class Call:
                     await asyncio.sleep(2)
                     continue
                 raise AssistantErr(_["call_10"])
-            except (AlreadyJoinedError):
-                break 
             except (asyncio.TimeoutError, asyncio.exceptions.CancelledError, Exception) as e:
+                # 🛑 FIX: بدلاً من except AlreadyJoinedError، نفحص نص الخطأ
+                if "already joined" in str(e).lower() or "active call" in str(e).lower():
+                    break # هو جوه الكول بالفعل، تمام
+                
                 if "Timeout" in str(e) or "Cancelled" in str(e):
                     if attempt < retries - 1:
                         try: await assistant.leave_call(chat_id)
                         except: pass
-                        await asyncio.sleep(1.5)
+                        await asyncio.sleep(2)
                         continue
                     else:
                         raise AssistantErr("فشل الاتصال، حاول مرة أخرى.")
@@ -358,12 +376,18 @@ class Call:
             # 🛑 [CORE FIX] دالة التشغيل التي تمنع الخروج
             async def _play_stream(stream_obj):
                 try:
-                    # لو البوت متسجل إنه في الكول، استخدم change_stream بدلاً من play
                     if chat_id in self.active_calls:
                         await client.change_stream(chat_id, stream_obj)
                     else:
                         await client.play(chat_id, stream_obj)
-                except (AlreadyJoinedError, Exception):
+                except Exception as e:
+                    # لو الخطأ "Already Joined" يبقى نغير الاستريم
+                    if "already joined" in str(e).lower():
+                        try:
+                            await client.change_stream(chat_id, stream_obj)
+                            return
+                        except: pass
+                    
                     # لو فشل التبديل، اخرج وادخل (كخيار أخير)
                     try:
                         await client.leave_call(chat_id)
@@ -374,28 +398,21 @@ class Call:
 
             try:
                 # 🛑 [LINK RESOLVER] استخراج الرابط المباشر
-                # ده بيحل مشكلة إن ملف يوتيوب بتاعك مفيهوش دالة video
                 final_link = queued
                 
-                # لو الملف يوتيوب (سواء لايف أو فيديو عادي)
                 if "live_" in queued or "vid_" in queued or "index_" in queued:
-                    youtube_url = f"https://www.youtube.com/watch?v={videoid}"
-                    
-                    # نستخدم دالة get_direct_link من ملف يوتيوب بتاعك
-                    # دي هترجع رابط مباشر (Direct URL) يفهمه FFMPEG
                     try:
-                        # prefer_audio=True لو مش فيديو، عشان يوفر في النت
-                        direct_url = await YouTube.get_direct_link(youtube_url, prefer_audio=not video)
+                        direct_url = await get_direct_link(videoid)
                         if direct_url:
                             final_link = direct_url
                         else:
-                            # لو معرفش يجيب المباشر، جرب download اللي بترجع رابط مباشر برضو في ملفك
-                            path, is_direct = await YouTube.download(youtube_url, None, video=video, videoid=True)
-                            if path: final_link = path
+                            # Fallback to download logic if available, else link
+                            try:
+                                path, is_direct = await YouTube.download(f"https://www.youtube.com/watch?v={videoid}", None, video=video, videoid=True)
+                                if path: final_link = path
+                            except: pass
                     except Exception as e:
                         LOGGER(__name__).error(f"Link extraction failed: {e}")
-                        # لو فشل خالص، كمل بالرابط العادي يمكن يشتغل
-                        final_link = youtube_url
 
                 stream = dynamic_media_stream(path=final_link, video=video)
                 await _play_stream(stream)
