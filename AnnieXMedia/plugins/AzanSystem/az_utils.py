@@ -1,7 +1,7 @@
 # Authored By Certified Coders (c) 2026
 # System: Azan Maestro (Enterprise V14 - Fixed & Compatible)
 # Location: AnnieXMedia/plugins/AzanSystem/az_utils.py
-# FIX: Added 'extract_vidid' to resolve ImportError & Streamlined Stream Call
+# FIX: Force Assistant Join & Correct Client Passing
 
 import asyncio
 import aiohttp
@@ -18,7 +18,8 @@ from pyrogram import enums
 from pyrogram.errors import (
     FloodWait,
     UserNotParticipant,
-    ChatAdminRequired
+    ChatAdminRequired,
+    UserAlreadyParticipant
 )
 
 # --- [ Internal Imports ] ---
@@ -76,7 +77,6 @@ def retry_operation(max_retries=3, delay=2):
         return wrapper
     return decorator
 
-# 🛑 الدالة المفقودة (تمت إضافتها لمنع الأخطاء)
 def extract_vidid(url: str) -> Optional[str]:
     match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
     return match.group(1) if match else None
@@ -139,22 +139,45 @@ async def load_resources():
 # ==================================================================
 
 async def prepare_assistant_membership(chat_id: int):
+    """
+    يحاول التأكد من وجود المساعد في الجروب.
+    1. يحاول إضافة المساعد مباشرة عبر البوت.
+    2. لو فشل، بيحاول يخلي المساعد يدخل بنفسه.
+    """
     try:
-        ub = await get_client(random.choice(assistants))
+        # اختيار مساعد عشوائي
+        userbot = await get_client(random.choice(assistants))
+        
+        # المحاولة 1: البوت يضيف المساعد
         try:
-            await ub.get_chat_member(chat_id, "me")
+            await app.add_chat_members(chat_id, userbot.me.username)
+            return True
+        except UserAlreadyParticipant:
+            return True
+        except Exception:
+            pass
+
+        # المحاولة 2: المساعد يدخل بنفسه
+        try:
+            await userbot.get_chat_member(chat_id, "me")
             return True 
         except UserNotParticipant:
             try:
-                invite_link = await app.export_chat_invite_link(chat_id)
-                if "+" in invite_link: 
-                    await ub.join_chat(invite_link)
-                else: 
+                # محاولة الحصول على رابط دعوة
+                try:
+                    invite_link = await app.export_chat_invite_link(chat_id)
+                except:
+                    # لو البوت مش ادمن، يجرب يستخدم اليوزر نيم
                     chat = await app.get_chat(chat_id)
-                    if chat.username: 
-                        await ub.join_chat(chat.username)
-                await asyncio.sleep(1)
-                return True
+                    invite_link = chat.username
+
+                if invite_link:
+                    if "+" in str(invite_link): 
+                        await userbot.join_chat(invite_link)
+                    else: 
+                        await userbot.join_chat(str(invite_link))
+                    await asyncio.sleep(1)
+                    return True
             except Exception as e:
                 logger.warning(f"Assistant join failed for {chat_id}: {e}")
                 return False
@@ -184,7 +207,7 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
             final_link = play_target if play_target else res.get("link")
             if not final_link: return
 
-            # إرسال الإشعار
+            # إرسال الإشعار (الرسالة والاستيكر)
             if res.get("sticker"):
                 try: await app.send_sticker(chat_id, res["sticker"])
                 except: pass
@@ -195,8 +218,14 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
             except: 
                 return 
 
-            # التأكد من وجود المساعد
-            await prepare_assistant_membership(chat_id)
+            # 🛑 خطوة مهمة: التأكد من وجود المساعد
+            is_in_chat = await prepare_assistant_membership(chat_id)
+            if not is_in_chat:
+                # لو فشل الدخول، نحاول مرة أخيرة بالدعوة المباشرة
+                try: 
+                    ub = await get_client(random.choice(assistants))
+                    await app.invite_chat_members(chat_id, ub.me.id)
+                except: pass
 
             # تجهيز البيانات لملف Stream.py
             stream_data = {
@@ -207,10 +236,10 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
                 "thumb": res.get("sticker") or None
             }
 
-            # التشغيل عبر Stream.py (Force Play + Adhan Type)
-            # 🛑 لاحظ: streamtype="adhan" هي كلمة السر لإخفاء الأزرار
+            # التشغيل عبر Stream.py
+            # 🛑 التصحيح: نمرر 'app' كـ client بدلاً من {}
             await stream(
-                {}, 
+                app, 
                 mystic, 
                 0, 
                 stream_data,
@@ -218,8 +247,8 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
                 "Azan System", 
                 chat_id,
                 video=False,
-                streamtype="adhan", 
-                forceplay=True 
+                streamtype="adhan", # لإخفاء الأزرار
+                forceplay=True # لفرض التشغيل (يوقف أي أغنية شغالة)
             )
 
             if not force_test:
@@ -236,7 +265,7 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
 
         except Exception as e:
             logger.error(f"Azan Stream Failed {chat_id}: {e}")
-            if force_test: await app.send_message(chat_id, f"خطأ: {e}")
+            if force_test: await app.send_message(chat_id, f"خطأ في البث: {e}\nتأكد من فتح المكالمة الصوتية.")
 
 # ==================================================================
 # [SECTION 4] Broadcaster & Scheduler
