@@ -302,7 +302,7 @@ async def direct_download_handler(client, message, url, is_video_force=False, sh
         await mystic.edit_text(f"خطأ: {e}")
 
 # ==========================================================
-#  🆕 5. معالج زر التشغيل (Clean - No Dummy Dict - Robust Custom Stream)
+#  🆕 5. معالج زر التشغيل (Clean - No Dummy Dict - Robust Stream)
 # ==========================================================
 
 @app.on_callback_query(filters.regex(pattern=r"list_dl") & ~BANNED_USERS)
@@ -322,17 +322,16 @@ async def force_play_cb(client, query):
     user_id = query.from_user.id
     user_name = query.from_user.first_name
 
-    await query.answer("جاري التشغيل.")
+    await query.answer("جاري التشغيل...")
     
-    # قاموس وهمي فارغ عشان الكود ميقفش
+    # قاموس وهمي فارغ لضمان عمل الدالة دون أخطاء
     _ = {}
 
     try:
         details, _track_id = await YouTube.track(vidid, videoid=vidid)
         mystic = await query.message.reply_text("جـاري الـتشغيل.") 
         
-        # 🟢 محاولة التشغيل بنوع Custom (عشان 4 زرارير)
-        # وبما إننا عدلنا stream.py ليقبل custom، فالمفروض ميبعتش رسائل زيادة لو mystic اتبعتت صح
+        # 🟢 تشغيل بدون streamtype="custom" لمنع stream.py من إرسال رسالة جديدة
         try:
             await stream(
                 _, 
@@ -343,11 +342,11 @@ async def force_play_cb(client, query):
                 user_name,
                 chat_id,
                 video=False,
-                streamtype="custom", # ده اللي بيخلي الزرارير 4
+                # streamtype="custom" removed here to avoid extra message from stream.py
                 forceplay=True, 
             )
         except Exception:
-            # 🔴 لو فشل الـ Custom، ارجع للوضع الطبيعي فوراً
+            # 🔴 في حال حدوث أي خطأ، محاولة التشغيل كـ YouTube عادي (احتياطي)
             await stream(
                 _, 
                 mystic,
@@ -365,7 +364,7 @@ async def force_play_cb(client, query):
         await mystic.delete()
         
     except Exception as e:
-        # لو فشل التشغيل تماماً، ابعت رسالة خطأ بسيطة
+        # لو فشل التشغيل تماماً، محاولة إرسال تنبيه بسيط
         try: await query.message.reply_text(f"فشل التشغيل.")
         except: pass
 
