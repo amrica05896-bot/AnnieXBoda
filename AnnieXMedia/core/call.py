@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Audio Pipe Fixed)
-# Fixes: SIGPIPE (Silent Join), v=1 Error, Timeouts
+# System: Call Controller (Stable Audio & Fixes)
+# Fixes: NoneType Error, SIGPIPE, v=1 Error
 
 import asyncio
 import os
@@ -58,12 +58,12 @@ counter = {}
 
 # --- [1] Strict ID Extractor ---
 def extract_video_id(url: str) -> Union[str, None]:
-    """استخراج ID اليوتيوب فقط إذا كان صحيحاً (11 حرف)"""
+    if not url: return None
     pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)'
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
-# --- [2] Local Link Extractor (The Saver) ---
+# --- [2] Local Link Extractor ---
 async def get_direct_link(videoid: str):
     link = f"https://www.youtube.com/watch?v={videoid}"
     opts = {
@@ -83,9 +83,8 @@ async def get_direct_link(videoid: str):
     except:
         return link
 
-# --- [3] Stream Settings (Fixed Audio Flags) ---
+# --- [3] Stream Settings (Stable) ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
-    # إعدادات FFmpeg قوية لضمان عدم انقطاع الـ Pipe
     titan_flags = (
         "-threads 2 "
         "-probesize 10M "
@@ -106,9 +105,9 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         media_path=path,
         audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p, 
-        # 🛑 الفيديو IGNORE عشان مايتقلش
+        # 🛑 الفيديو IGNORE لو مش مطلوب عشان نخفف الحمل
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
-        # 🛑 الصوت REQUIRED ضروري عشان FFmpeg يشتغل وميضربش SIGPIPE
+        # 🛑 الصوت REQUIRED ضروري عشان SIGPIPE ميعملش مشاكل
         audio_flags=MediaStream.Flags.REQUIRED,
         ffmpeg_parameters=titan_flags,
     )
@@ -196,14 +195,18 @@ class Call:
         assistant = await group_assistant(self, chat_id)
         
         final_link = link
-        # استخراج الرابط المباشر لتفادي فحص المكتبة الثقيل
-        if "youtube" in link or "youtu.be" in link:
+        # 🛑 FIX: الحماية من NoneType Error
+        if link and ("youtube" in link or "youtu.be" in link):
              vid_id = extract_video_id(link)
              if vid_id: 
                  try:
                      direct = await get_direct_link(vid_id)
                      if direct: final_link = direct
                  except: pass
+
+        # لو الرابط لسه None (بسبب خطأ ما)، نوقف العملية عشان ما تضربش Error
+        if not final_link:
+            return
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         
@@ -287,7 +290,8 @@ class Call:
         
         # 1. Strict Link Preparation
         final_link = link
-        if "youtube" in link or "youtu.be" in link:
+        # لو الرابط يوتيوب، نحاول نجيب المباشر
+        if link and ("youtube" in link or "youtu.be" in link):
             vid_id = extract_video_id(link)
             if vid_id: 
                 try:
@@ -319,9 +323,11 @@ class Call:
                     continue
                 raise AssistantErr(_["call_10"])
             except (asyncio.TimeoutError, asyncio.exceptions.CancelledError, Exception) as e:
+                # تجاهل Already Joined
                 if "already joined" in str(e).lower() or "active call" in str(e).lower():
                     break
                 
+                # التعامل مع التايم أوت
                 if "Timeout" in str(e) or "Cancelled" in str(e) or "yt-dlp timeout" in str(e):
                     if attempt < retries - 1:
                         try: await assistant.leave_call(chat_id)
@@ -329,6 +335,7 @@ class Call:
                         await asyncio.sleep(2)
                         continue
                     else:
+                        LOGGER(__name__).error(f"💣 [JOIN FAILED] Chat: {chat_id} - Timeout/Blocked")
                         raise AssistantErr("فشل الاتصال بسبب ضغط الشبكة.")
                 else:
                     LOGGER(__name__).error(f"💣 [JOIN ERROR] Chat: {chat_id} | Error: {e}")
