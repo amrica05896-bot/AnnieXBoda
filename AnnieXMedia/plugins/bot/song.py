@@ -1,7 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Song Plugin (Smart Warehouse + Artist Name Logic) - No Emoji Edition
-# Added commands: "ليست" and "لست"
-# Fix: send text + reply_markup for نتائج الليست to avoid WEBPAGE_MEDIA_EMPTY
+# System: Song Plugin (Clean List UI + Direct Download)
+# Update: List message is minimal ("Choose from list"), buttons contain titles.
 
 import os
 import re
@@ -99,12 +98,16 @@ async def unlock_buttons(client, message):
 # ==========================================================
 def _build_list_keyboard(results: list, user_id: int) -> InlineKeyboardMarkup:
     keyboard = []
+    # هنا بنبني الكيبورد بأسماء الأغاني عشان تظهر كأزرار
     for i, r in enumerate(results[:DEFAULT_LIST_LIMIT], start=1):
         title = r.get("title", "Unknown")
         vidid = r.get("vidid", "")
-        text = f"{i}. {title[:40]}"
+        # تنظيف العنوان عشان الزر ميبقاش طويل أوي
+        clean_t = clean_title(title)[:40]
+        text = f"{i}. {clean_t}"
         callback = f"list_select {vidid}|{user_id}"
         keyboard.append([InlineKeyboardButton(text=text, callback_data=callback)])
+    
     keyboard.append([
         InlineKeyboardButton(text="المالك", url=OWNER_USERNAME_LINK),
         InlineKeyboardButton(text="إغلاق", callback_data="list_close"),
@@ -205,21 +208,32 @@ async def yut_command(client, message):
         await mystic.edit_text("حدث خطأ أثناء البحث.")
 
 # ==========================================================
-#  أمر (ليست / لست) - الجديد
+#  أمر (ليست / لست) - الجديد والمعدل
 # ==========================================================
 @app.on_message(filters.command(["ليست", "لست"], prefixes=["", "/"]) & ~BANNED_USERS)
 async def list_command(client, message: Message):
     if await get_config("download_locked") and message.from_user.id not in SUDO_USERS:
         return await message.reply_text("التنزيل مغلق حالياً.")
 
-    if len(message.command) < 2:
-        return await message.reply_text("اكتب اسم الفنان أو الرابط بعد الأمر.")
+    if len(message.text.split()) == 1:
+        # لو المستخدم كتب "ليست" بس، نطلب منه يكتب الاسم
+        try:
+            response = await client.ask(
+                message.chat.id, 
+                "ارسل اسـم الفنان الان .", 
+                user_id=message.from_user.id, 
+                timeout=30,
+                reply_markup=ForceReply(selective=True)
+            )
+            query = response.text
+        except: return 
+    else:
+        query = message.text.split(None, 1)[1].strip()
 
-    query = message.text.split(None, 1)[1].strip()
     if not query:
-        return await message.reply_text("يرجى كتابة اسم الفنان أو الرابط بعد الأمر.")
+        return await message.reply_text("يرجى كتابة اسم الفنان أو الرابط.")
 
-    # إذا رابط بلاي ليست
+    # إذا رابط بلاي ليست (بيتعامل معاه لوحده)
     if "http" in query and ("list=" in query or "playlist" in query):
         await message.reply_text("تم الكشف عن بلاي ليست.\nجاري التنزيل.\nجاري الرفع.")
         async def _process_playlist():
@@ -255,18 +269,18 @@ async def list_command(client, message: Message):
     if not results:
         return await mystic.edit_text("لم يتم العثور على نتائج.")
 
+    # بناء الكيبورد
     keyboard = _build_list_keyboard(results, message.from_user.id)
 
-    # نبني نص مختصر بنتائج البحث ليعرض فوق الأزرار
-    lines = []
-    for i, r in enumerate(results[:limit], start=1):
-        t = r.get("title", "Unknown")
-        dur = r.get("duration", "")
-        lines.append(f"{i}. {t} {(' - ' + dur) if dur else ''}")
-    text = f"نتائج البحث لـ: {query}\n\n" + "\n".join(lines)
+    # 🛑 التعديل المطلوب: الرسالة تكون بسيطة جداً
+    text = (
+        "اخـتار من الـقـائمة التالية.\n"
+        "\n"
+        "                                       ـ"
+    )
 
     await mystic.delete()
-    # نرسل نص مع الأزرار (هذا يتجنب مشاكل إرسال صورة خارجة)
+    # نرسل الرسالة البسيطة مع الكيبورد المليان
     return await message.reply_text(text, reply_markup=keyboard)
 
 # ==========================================================
