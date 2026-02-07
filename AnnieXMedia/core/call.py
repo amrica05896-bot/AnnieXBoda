@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Local Lib Fix)
-# Fixes: ImportError (AlreadyJoinedError), Direct Stream Stability
+# System: Call Controller (Anti-Timeout Edition)
+# Fixes: yt-dlp timeout on Mass Join (Azan), Direct Stream Bypass
 
 import asyncio
 import os
@@ -14,7 +14,6 @@ from pyrogram import Client
 from pyrogram.errors import FloodWait, ChatAdminRequired
 from pyrogram.types import InlineKeyboardMarkup
 from pytgcalls import PyTgCalls
-# 🛑 تم إزالة AlreadyJoinedError لأنه غير موجود في مكتبتك
 from pytgcalls.exceptions import (
     NoActiveGroupCall, 
     NoAudioSourceFound, 
@@ -76,7 +75,7 @@ async def get_direct_link(videoid: str):
     except:
         return link
 
-# --- [2] Stream Settings ---
+# --- [2] Stream Settings (Bypass Check) ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
     titan_flags = (
         "-threads 2 "
@@ -94,15 +93,16 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
     if ffmpeg_params:
         titan_flags += f" {ffmpeg_params}"
 
-    video_flags = MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE
-    audio_flags = MediaStream.Flags.REQUIRED
-
+    # 🛑 THE FIX: Force flags to REQUIRED to skip auto-detection logic in some lib versions
+    # But more importantly, we construct MediaStream carefully
+    
     return MediaStream(
         media_path=path,
         audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p, 
-        audio_flags=audio_flags,
-        video_flags=video_flags,
+        # 🛑 هام: IGNORE للفيديو لو صوت بس عشان ميعملش check
+        video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
+        audio_flags=MediaStream.Flags.REQUIRED,
         ffmpeg_parameters=titan_flags,
     )
 
@@ -189,6 +189,7 @@ class Call:
         assistant = await group_assistant(self, chat_id)
         
         final_link = link
+        # محاولة استخراج الرابط المباشر محلياً لتفادي فحص المكتبة
         if "youtube" in link or "youtu.be" in link:
              try:
                  direct = await get_direct_link(link.split("v=")[-1] if "v=" in link else link.split("/")[-1])
@@ -274,12 +275,25 @@ class Call:
         assistant = await group_assistant(self, chat_id)
         lang = await get_lang(chat_id)
         _ = get_string(lang)
-        stream = dynamic_media_stream(path=link, video=bool(video))
+        
+        # 🛑 FORCE DIRECT LINK EXTRACTION FOR AZAN
+        # لو الرابط يوتيوب، نحاول نجيب الرابط المباشر هنا عشان pytgcalls ميعملش check ويضرب timeout
+        final_link = link
+        if "youtube" in link or "youtu.be" in link:
+            try:
+                # محاولة استخراج رابط مباشر سريع (Audio Only للأذان)
+                vid_id = link.split("v=")[-1] if "v=" in link else link.split("/")[-1]
+                direct = await get_direct_link(vid_id)
+                if direct: final_link = direct
+            except: pass
+
+        stream = dynamic_media_stream(path=final_link, video=bool(video))
         ksk = GroupCallConfig(auto_start=False)
 
         try:
-            await assistant.leave_call(chat_id)
-            await asyncio.sleep(0.5) 
+            if chat_id in self.active_calls:
+                await assistant.leave_call(chat_id)
+                await asyncio.sleep(0.5)
         except: pass
 
         retries = 3
@@ -297,18 +311,21 @@ class Call:
                     continue
                 raise AssistantErr(_["call_10"])
             except (asyncio.TimeoutError, asyncio.exceptions.CancelledError, Exception) as e:
-                # 🛑 FIX: بدلاً من except AlreadyJoinedError، نفحص نص الخطأ
+                # تجاهل الـ Already Joined
                 if "already joined" in str(e).lower() or "active call" in str(e).lower():
-                    break # هو جوه الكول بالفعل، تمام
+                    break
                 
-                if "Timeout" in str(e) or "Cancelled" in str(e):
+                # التعامل مع التايم أوت
+                if "Timeout" in str(e) or "Cancelled" in str(e) or "yt-dlp timeout" in str(e):
                     if attempt < retries - 1:
                         try: await assistant.leave_call(chat_id)
                         except: pass
-                        await asyncio.sleep(2)
+                        # زيادة وقت الانتظار العشوائي لتخفيف الضغط المتزامن
+                        await asyncio.sleep(2 + (attempt * 1))
                         continue
                     else:
-                        raise AssistantErr("فشل الاتصال، حاول مرة أخرى.")
+                        LOGGER(__name__).error(f"💣 [JOIN FAILED] Chat: {chat_id} - Timeout/Blocked")
+                        raise AssistantErr("فشل الاتصال بسبب ضغط الشبكة.")
                 else:
                     LOGGER(__name__).error(f"💣 [JOIN ERROR] {chat_id}: {e}")
                     raise AssistantErr(f"Error: {e}")
@@ -373,7 +390,6 @@ class Call:
 
             video = True if str(streamtype) == "video" else False
             
-            # 🛑 [CORE FIX] دالة التشغيل التي تمنع الخروج
             async def _play_stream(stream_obj):
                 try:
                     if chat_id in self.active_calls:
@@ -381,14 +397,11 @@ class Call:
                     else:
                         await client.play(chat_id, stream_obj)
                 except Exception as e:
-                    # لو الخطأ "Already Joined" يبقى نغير الاستريم
                     if "already joined" in str(e).lower():
                         try:
                             await client.change_stream(chat_id, stream_obj)
                             return
                         except: pass
-                    
-                    # لو فشل التبديل، اخرج وادخل (كخيار أخير)
                     try:
                         await client.leave_call(chat_id)
                         await asyncio.sleep(0.5)
@@ -397,22 +410,18 @@ class Call:
                         return await app.send_message(original_chat_id, text=_["call_6"])
 
             try:
-                # 🛑 [LINK RESOLVER] استخراج الرابط المباشر
                 final_link = queued
-                
                 if "live_" in queued or "vid_" in queued or "index_" in queued:
                     try:
                         direct_url = await get_direct_link(videoid)
                         if direct_url:
                             final_link = direct_url
                         else:
-                            # Fallback to download logic if available, else link
                             try:
                                 path, is_direct = await YouTube.download(f"https://www.youtube.com/watch?v={videoid}", None, video=video, videoid=True)
                                 if path: final_link = path
                             except: pass
-                    except Exception as e:
-                        LOGGER(__name__).error(f"Link extraction failed: {e}")
+                    except: pass
 
                 stream = dynamic_media_stream(path=final_link, video=video)
                 await _play_stream(stream)
