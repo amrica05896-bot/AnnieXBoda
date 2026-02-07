@@ -324,15 +324,12 @@ async def force_play_cb(client, query):
 
     await query.answer("جاري التشغيل في الكول...")
     
-    # 🛑 تم حذف القاموس الوهمي _ = {...} 
-    # سيتم استخدام قاموس فارغ، وملف stream.py سيتولى الباقي
-
     try:
         details, _track_id = await YouTube.track(vidid, videoid=vidid)
         mystic = await query.message.reply_text("جـاري الـتشغيل.") 
         
         await stream(
-            {}, # قاموس فارغ (No Dummy Data)
+            {}, 
             mystic,
             user_id,
             details,
@@ -340,7 +337,8 @@ async def force_play_cb(client, query):
             user_name,
             chat_id,
             video=False,
-            streamtype="youtube",
+            # 🛑 السر هنا: نرسل النوع custom عشان يظهر 4 زرارير
+            streamtype="custom", 
             forceplay=True, 
         )
         await mystic.delete()
@@ -354,7 +352,8 @@ async def force_play_cb(client, query):
                 InlineKeyboardButton(text="▢", callback_data=f"song_stop_custom|{chat_id}|{vidid}"),
             ]
         ]
-        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_buttons))
+        # السطر ده اختياري، لأن stream.py هيبعت رسالة جديدة فيها الأزرار
+        # await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_buttons))
 
     except Exception as e:
         await query.message.reply_text(f"فشل التشغيل: {e}")
