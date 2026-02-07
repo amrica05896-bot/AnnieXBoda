@@ -49,7 +49,7 @@ counter = {}
 
 # --- Helper Function for Streams ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
-    titan_flags = "-threads 16 -ac 2"
+    titan_flags = "-threads 4 -ac 2" # Reduced threads to prevent CPU choke
     if str(path).startswith("http"):
         titan_flags += " -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
     
@@ -257,24 +257,21 @@ class Call:
             raise AssistantErr(_["call_11"])
         except (ConnectionNotFound, TelegramServerError):
             raise AssistantErr(_["call_10"])
-        # 🔥 إضافة معالجة لخطأ AttributeError (NoneType)
-        except AttributeError:
-             try:
-                 # محاولة الخروج ثم الدخول كحل أخير
-                 await assistant.leave_call(chat_id)
-                 await asyncio.sleep(1)
-                 await assistant.play(chat_id, stream, config=ksk)
-             except:
-                 LOGGER(__name__).error(f"💣 [JOIN ERROR - RETRY FAILED] Chat: {chat_id}")
-                 raise AssistantErr("حدث خطأ في الاتصال، يرجى إعادة المحاولة.")
-        except Exception as e:
-            LOGGER(__name__).error(f"💣 [JOIN ERROR] Chat: {chat_id}\n{traceback.format_exc()}")
-            try:
-                 await asyncio.sleep(1)
-                 await assistant.play(chat_id, stream, config=ksk)
-            except:
-                 raise AssistantErr(f"ᴜɴᴀʙʟᴇ ᴛᴏ ᴊᴏɪɴ ᴛʜᴇ ɢʀᴏᴜᴘ ᴄᴀʟʟ.\nRᴇᴀsᴏɴ: {e}")
-                 
+        # 🛑 FIX: Handling Timeouts and CancelledErrors by retrying safely
+        except (asyncio.TimeoutError, asyncio.exceptions.CancelledError, Exception) as e:
+            # Handle PyTgCalls internal Timeout/Cancellation
+            if "Timeout" in str(e) or "Cancelled" in str(e) or "timeout" in str(e):
+                try:
+                    await assistant.leave_call(chat_id)
+                    await asyncio.sleep(2)
+                    await assistant.play(chat_id, stream, config=ksk)
+                except Exception as final_e:
+                    LOGGER(__name__).error(f"💣 [JOIN RETRY FAILED] Chat: {chat_id} - Error: {final_e}")
+                    raise AssistantErr("فشل الاتصال بالكول بسبب ضعف الشبكة، حاول مرة أخرى.")
+            else:
+                LOGGER(__name__).error(f"💣 [JOIN ERROR] Chat: {chat_id}\n{traceback.format_exc()}")
+                raise AssistantErr(f"ᴜɴᴀʙʟᴇ ᴛᴏ ᴊᴏɪɴ ᴛʜᴇ ɢʀᴏᴜᴘ ᴄᴀʟʟ.\nRᴇᴀsᴏɴ: {e}")
+                  
         self.active_calls.add(chat_id)
         await add_active_chat(chat_id)
         await music_on(chat_id)
