@@ -1,7 +1,7 @@
 # Authored By Certified Coders (c) 2026
-# System: Azan Maestro (Anti-Crash Version)
+# System: Azan Maestro (Crash-Proof Edition)
 # Location: AnnieXMedia/plugins/AzanSystem/az_utils.py
-# FIX: Central Download + Sequential Broadcasting to prevent CPU Choke & Timeouts.
+# FIX: Added 'seconds' to DB dict to prevent Seeker Crash + Local Download.
 
 import asyncio
 import aiohttp
@@ -54,7 +54,6 @@ logger = logging.getLogger("Azan_Maestro_Stable")
 # --- [ Constants ] ---
 CAIRO_TZ = pytz.timezone('Africa/Cairo')
 scheduler = AsyncIOScheduler(timezone=CAIRO_TZ)
-# قللنا العدد المتزامن جداً عشان السيرفر ميمتش
 MAX_CONCURRENT_STREAMS = 1  
 stream_semaphore = asyncio.Semaphore(MAX_CONCURRENT_STREAMS)
 
@@ -198,10 +197,6 @@ async def _direct_join_call(chat_id, file_path):
     return False
 
 async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = None, force_test: bool = False):
-    """
-    يقوم بتشغيل الأذان في مجموعة واحدة.
-    play_target: يجب أن يكون مسار ملف محلي (Local Path) لتجنب الـ Timeouts.
-    """
     if not force_test:
         doc = await get_chat_doc(chat_id)
         if not doc.get("azan_active", True): return
@@ -211,7 +206,6 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
         res = CURRENT_RESOURCES.get(prayer_key)
         if not res: return
         
-        # لو مفيش مسار محلي، نستخدم الرابط (وده خطر بس احتياطي)
         final_file = play_target if play_target else res.get("link")
         if not final_file: return
 
@@ -227,6 +221,7 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
         db[chat_id] = []
         await add_active_video_chat(chat_id)
         
+        # 🛑 FIX: إضافة 'seconds' و 'played' لمنع KeyError في seeker.py
         db[chat_id].append({
             "vidid": "adhan",
             "title": f"أذان {res.get('name')}",
@@ -238,13 +233,15 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
             "file": final_file, 
             "markup": "adhan", 
             "mystic": None,
+            "seconds": 240, # Fix for KeyError: 'seconds'
+            "played": 0,    # Fix for played time
+            "dur": "04:00"
         })
 
         # 3. التأكد من المساعد
         await prepare_assistant_membership(chat_id)
 
         # 4. الانضمام للكول (تشغيل الصوت)
-        # استخدام الملف المحلي يمنع الـ Timeout في ffmpeg check
         success = await _direct_join_call(chat_id, final_file)
         
         if not success:
@@ -292,7 +289,6 @@ async def broadcast_azan(prayer_key: str):
     local_file_path = None
 
     # 🛑 الخطوة 1: التحميل المركزي (مرة واحدة فقط)
-    # ده بيمنع إن البوت يعمل فحص للرابط 50 مرة في نفس الثانية
     try:
         logger.info("Downloading Azan file locally...")
         if "http" in link:
@@ -302,38 +298,26 @@ async def broadcast_azan(prayer_key: str):
                 local_file_path = dl_path
                 logger.info(f"File downloaded to: {local_file_path}")
             else:
-                local_file_path = link # فشل التحميل، استخدم الرابط
+                local_file_path = link 
         else:
-            local_file_path = link # هو أصلاً ملف محلي
+            local_file_path = link 
     except Exception as e:
         logger.error(f"Download failed: {e}")
         local_file_path = link
 
-    # 🛑 الخطوة 2: النشر التسلسلي (Sequential Broadcasting)
-    # بنمشي جروب جروب بفاصل زمني عشان الـ CPU ميموتش
-    
+    # 🛑 الخطوة 2: النشر التسلسلي
     count = 0
     async for doc in settings_db.find({"azan_active": True}):
         c_id = doc.get("chat_id")
         if c_id:
-            # تشغيل الأذان باستخدام الملف المحلي
             try:
                 await start_azan_stream(c_id, prayer_key, local_file_path)
                 count += 1
-                
-                # 🛑 السر هنا: الانتظار 2 ثانية بين كل جروب والتاني
-                # ده بيمنع الـ TimeoutError والـ CancelledError
-                await asyncio.sleep(2) 
-                
+                await asyncio.sleep(2) # انتظار 2 ثانية
             except Exception as e:
                 logger.error(f"Error broadcasting to {c_id}: {e}")
 
     logger.info(f"Azan Broadcast Finished for {count} chats.")
-    
-    # تنظيف الملف المحمل (اختياري، ممكن نسيبه عشان الصلاة اللي بعدها)
-    # if local_file_path and os.path.exists(local_file_path) and "http" in link:
-    #     try: os.remove(local_file_path)
-    #     except: pass
 
 async def send_duas_batch(dua_list, setting_key, title, target_chat_id=None):
     if target_chat_id:
