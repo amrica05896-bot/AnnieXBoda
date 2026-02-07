@@ -1,7 +1,7 @@
 # Authored By Certified Coders (c) 2026
 # System: Azan Maestro (Final Stable Edition)
 # Location: AnnieXMedia/plugins/AzanSystem/az_utils.py
-# FIXES: Custom Message + Anti-Timeout + Admin Compatibility
+# FIXES: Mass Join Crash, Local File Enforcer, Database Schema
 
 import asyncio
 import aiohttp
@@ -77,6 +77,7 @@ def retry_operation(max_retries=3, delay=2):
 
 # 🛑 [RESTORED] دالة استخراج الـ ID المطلوبة لملف الأدمن
 def extract_vidid(url: str) -> Optional[str]:
+    if not url: return None
     match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
     return match.group(1) if match else None
 
@@ -178,37 +179,53 @@ async def prepare_assistant_membership(chat_id: int):
 # [SECTION 3] Direct Stream Engine
 # ==================================================================
 
-# 🛑 دالة تحميل مضمونة (لتفادي الروابط وحل مشكلة الـ Timeout)
+# 🛑 دالة تحميل مضمونة (الحل الجذري للـ Timeout)
 async def _download_locally_guaranteed(url: str, filename_prefix: str) -> str:
+    # التأكد من وجود مجلد التحميل
+    if not os.path.exists("downloads"):
+        os.makedirs("downloads")
+        
     path = f"downloads/{filename_prefix}.mp3"
+    
+    # لو الملف موجود وحجمه منطقي، استخدمه فوراً
     if os.path.exists(path) and os.path.getsize(path) > 1024:
         return path
     
-    # محاولة التحميل عبر يوتيوب أولاً
+    # محاولة 1: التحميل عبر yt-dlp (الأفضل للجودة)
     try:
-        dl_path, is_direct = await YouTube.download(url, None, video=False, videoid=filename_prefix)
-        if dl_path and os.path.exists(dl_path) and not str(dl_path).startswith("http"):
-            return dl_path
+        # استخدام دالة التحميل من ملف يوتيوب لكن بنجبره يرجع مسار
+        opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': path,
+            'quiet': True,
+            'no_warnings': True,
+        }
+        # هنا بنعمل تحميل بسيط بدون تعقيدات الكلاس
+        proc = await asyncio.create_subprocess_shell(
+            f"yt-dlp -f 'bestaudio' -o '{path}' '{url}'",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        await proc.communicate()
+        
+        if os.path.exists(path):
+            return path
     except: pass
 
-    # لو فشل أو رجع رابط، نحمل يدوياً بـ aiohttp
+    # محاولة 2: لو فشل yt-dlp، نجرب aiohttp (لو رابط مباشر)
     try:
-        if "youtube" in url or "youtu.be" in url:
-             try: url = await YouTube.get_direct_link(url) or url
-             except: pass
-        
-        if not str(url).startswith("http"): return url
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status == 200:
-                    with open(path, 'wb') as f:
-                        f.write(await resp.read())
-                    return path
+        if not "youtube" in url:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        with open(path, 'wb') as f:
+                            f.write(await resp.read())
+                        return path
     except Exception as e:
         logger.error(f"Manual download failed: {e}")
     
-    return url # كحل أخير
+    # لو كله فشل، رجع الرابط زي ما هو (أمرنا لله)
+    return url
 
 async def _direct_join_call(chat_id, file_path):
     candidates = ["join_call", "join_stream", "join", "start_stream", "start_call"]
@@ -216,6 +233,7 @@ async def _direct_join_call(chat_id, file_path):
         fn = getattr(StreamController, name, None)
         if callable(fn):
             try:
+                # بنبعت False للفيديو عشان الأذان صوت بس
                 res = fn(chat_id, chat_id, file_path, video=False)
                 if asyncio.iscoroutine(res): await res
                 return True
@@ -236,14 +254,14 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
         final_file = play_target if play_target else res.get("link")
         if not final_file: return
 
-        # 1. إيقاف أي بث حالي
+        # 1. إيقاف أي بث حالي (Force Stop Cleanly)
         try:
             stop_fn = getattr(StreamController, "force_stop_stream", None) or getattr(StreamController, "stop_stream", None)
             if stop_fn: await stop_fn(chat_id)
-            await asyncio.sleep(0.3) 
+            await asyncio.sleep(0.2) 
         except: pass
 
-        # 2. تجهيز الداتابيز
+        # 2. تجهيز الداتابيز (بيانات كاملة لمنع Seeker Crash)
         db[chat_id] = []
         await add_active_video_chat(chat_id)
         
@@ -251,26 +269,28 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
             "vidid": "adhan_local",
             "title": f"أذان {res.get('name')}",
             "duration": "04:00",
-            "streamtype": "audio",
+            "streamtype": "audio", # مهم جداً
             "by": "AzanSystem",
             "user_id": 777,
             "chat_id": chat_id,
             "file": final_file, 
             "markup": "adhan", 
             "mystic": None,
-            "seconds": 240, 
+            "seconds": 240, # ضروري لمنع errors
             "played": 0,    
-            "dur": "04:00"
+            "dur": "04:00",
+            "speed": 1.0,
+            "stream_mode": "local"
         })
 
         # 3. التأكد من المساعد
         await prepare_assistant_membership(chat_id)
 
-        # 4. الانضمام
+        # 4. الانضمام (باستخدام الملف المحلي)
         success = await _direct_join_call(chat_id, final_file)
         
         if not success:
-             logger.error(f"Failed to join call for {chat_id}")
+             # logger.error(f"Failed to join call for {chat_id}")
              return
 
         # 5. إرسال التنبيهات
@@ -278,7 +298,7 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
             try: await app.send_sticker(chat_id, res["sticker"])
             except: pass
         
-        # 🛑 [تعديل النص حسب الطلب]
+        # 🛑 الرسالة المطلوبة
         caption = f"🕌 حان الان موعد اذان {res.get('name', '')} بالتوقيت المحلي لمدينة القاهرة."
         try: await app.send_message(chat_id, caption)
         except: pass
@@ -301,7 +321,7 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
         if force_test: await app.send_message(chat_id, f"خطأ: {e}")
 
 # ==================================================================
-# [SECTION 4] Broadcaster & Scheduler
+# [SECTION 4] Broadcaster & Scheduler (The Core Logic)
 # ==================================================================
 
 async def broadcast_azan(prayer_key: str):
@@ -312,22 +332,27 @@ async def broadcast_azan(prayer_key: str):
     link = res["link"]
     local_file_path = None
 
+    # 🛑 الخطوة الذهبية: تحميل الملف مرة واحدة وتخزينه
     try:
         logger.info("Downloading Azan file locally...")
+        # بنحمل الملف باسم ثابت للصلاة (مثل azan_Fajr.mp3)
         local_file_path = await _download_locally_guaranteed(link, f"azan_{prayer_key}")
         logger.info(f"Broadcast File Ready: {local_file_path}")
     except Exception as e:
         logger.error(f"Download failed: {e}")
-        local_file_path = link
+        local_file_path = link # Fallback to link if download totally fails
 
+    # 🛑 النشر التسلسلي (Loop)
     count = 0
     async for doc in settings_db.find({"azan_active": True}):
         c_id = doc.get("chat_id")
         if c_id:
             try:
+                # نمرر الملف المحلي (سريع ومضمون)
                 await start_azan_stream(c_id, prayer_key, local_file_path)
                 count += 1
-                await asyncio.sleep(1.5) 
+                # انتظار بسيط جداً عشان ندي فرصة للمساعد يدخل
+                await asyncio.sleep(1.0) 
             except Exception as e:
                 logger.error(f"Error broadcasting to {c_id}: {e}")
 
