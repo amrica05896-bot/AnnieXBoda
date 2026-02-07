@@ -1,7 +1,7 @@
 # Authored By Certified Coders (c) 2026
-# System: Azan Maestro (Direct Call Engine Mode)
+# System: Azan Maestro (Anti-Crash Version)
 # Location: AnnieXMedia/plugins/AzanSystem/az_utils.py
-# FIX: Force Local Download to prevent pytgcalls Timeout + Updated Text.
+# FIX: Central Download + Sequential Broadcasting to prevent CPU Choke & Timeouts.
 
 import asyncio
 import aiohttp
@@ -25,7 +25,7 @@ from pyrogram.errors import (
 
 # --- [ Internal Imports ] ---
 from AnnieXMedia import app, YouTube
-# 🛑 استيراد المتحكم في الكول مباشرة
+# استيراد المتحكم في الكول مباشرة
 from AnnieXMedia.core.call import StreamController
 from AnnieXMedia.utils.database import get_client, add_active_video_chat
 from AnnieXMedia.misc import db
@@ -49,12 +49,13 @@ logging.basicConfig(
     format='%(asctime)s - [AzanEngine] - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-logger = logging.getLogger("Azan_Maestro_Direct")
+logger = logging.getLogger("Azan_Maestro_Stable")
 
 # --- [ Constants ] ---
 CAIRO_TZ = pytz.timezone('Africa/Cairo')
 scheduler = AsyncIOScheduler(timezone=CAIRO_TZ)
-MAX_CONCURRENT_STREAMS = 15  
+# قللنا العدد المتزامن جداً عشان السيرفر ميمتش
+MAX_CONCURRENT_STREAMS = 1  
 stream_semaphore = asyncio.Semaphore(MAX_CONCURRENT_STREAMS)
 
 # ==================================================================
@@ -197,124 +198,144 @@ async def _direct_join_call(chat_id, file_path):
     return False
 
 async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = None, force_test: bool = False):
+    """
+    يقوم بتشغيل الأذان في مجموعة واحدة.
+    play_target: يجب أن يكون مسار ملف محلي (Local Path) لتجنب الـ Timeouts.
+    """
     if not force_test:
         doc = await get_chat_doc(chat_id)
         if not doc.get("azan_active", True): return
         if not doc.get("prayers", {}).get(prayer_key, True): return
 
-    async with stream_semaphore:
+    try:
+        res = CURRENT_RESOURCES.get(prayer_key)
+        if not res: return
+        
+        # لو مفيش مسار محلي، نستخدم الرابط (وده خطر بس احتياطي)
+        final_file = play_target if play_target else res.get("link")
+        if not final_file: return
+
+        # 1. إيقاف أي بث حالي (Force Stop)
         try:
-            res = CURRENT_RESOURCES.get(prayer_key)
-            if not res: return
-            
-            final_link = play_target if play_target else res.get("link")
-            if not final_link: return
+            stop_fn = getattr(StreamController, "force_stop_stream", None) or getattr(StreamController, "stop_stream", None)
+            if stop_fn: await stop_fn(chat_id)
+            # انتظار بسيط لتجنب التضارب
+            await asyncio.sleep(0.5) 
+        except: pass
 
-            # 1. إيقاف أي بث حالي (Force Stop)
+        # 2. تنظيف الداتابيز وتجهيزها لوضع الأذان
+        db[chat_id] = []
+        await add_active_video_chat(chat_id)
+        
+        db[chat_id].append({
+            "vidid": "adhan",
+            "title": f"أذان {res.get('name')}",
+            "duration": "04:00",
+            "streamtype": "adhan",
+            "by": "System",
+            "user_id": 777,
+            "chat_id": chat_id,
+            "file": final_file, 
+            "markup": "adhan", 
+            "mystic": None,
+        })
+
+        # 3. التأكد من المساعد
+        await prepare_assistant_membership(chat_id)
+
+        # 4. الانضمام للكول (تشغيل الصوت)
+        # استخدام الملف المحلي يمنع الـ Timeout في ffmpeg check
+        success = await _direct_join_call(chat_id, final_file)
+        
+        if not success:
+             logger.error(f"Failed to join call for {chat_id}")
+             return
+
+        # 5. إرسال الاستيكر
+        if res.get("sticker"):
+            try: await app.send_sticker(chat_id, res["sticker"])
+            except: pass
+        
+        # 6. إرسال الرسالة النصية
+        caption = f"<b>🕌 حان الآن موعد أذان {res.get('name','')}</b>\n<b>بالتوقيت المحلي لمدينه القاهره.</b>"
+        try: 
+            await app.send_message(chat_id, caption, reply_markup=None)
+        except: pass
+
+        # 7. تسجيل في السجل
+        if not force_test:
             try:
-                stop_fn = getattr(StreamController, "force_stop_stream", None) or getattr(StreamController, "stop_stream", None)
-                if stop_fn: await stop_fn(chat_id)
+                now = datetime.now(CAIRO_TZ)
+                log_key = f"{chat_id}_{now.strftime('%Y-%m-%d_%H:%M')}"
+                await azan_logs_db.insert_one({
+                    "chat_id": chat_id,
+                    "key": log_key,
+                    "prayer_key": prayer_key,
+                    "time": now.strftime("%I:%M %p")
+                })
             except: pass
 
-            # 2. تنظيف الداتابيز وتجهيزها لوضع الأذان
-            db[chat_id] = []
-            await add_active_video_chat(chat_id)
-            
-            # إضافة بيانات وهمية عشان البوت ميفصلش الكول
-            # Markup = adhan (عشان التايمر ميبصش عليه)
-            db[chat_id].append({
-                "vidid": "adhan",
-                "title": f"أذان {res.get('name')}",
-                "duration": "04:00",
-                "streamtype": "adhan",
-                "by": "System",
-                "user_id": 777,
-                "chat_id": chat_id,
-                "file": final_link, 
-                "markup": "adhan",  # 🛑 السر هنا: مفيش مارك أب
-                "mystic": None,     # 🛑 مفيش رسالة يعدل عليها
-            })
-
-            # 3. التأكد من المساعد
-            await prepare_assistant_membership(chat_id)
-
-            # 4. تحميل الملف (الحل الجذري للـ Timeout)
-            file_path = None
-            try:
-                # محاولة التحميل المحلي أولاً لتجنب استخدام yt-dlp داخل الكول
-                if "http" in final_link:
-                     downloaded_file, _ = await YouTube.download(final_link, None, video=False, videoid="adhan")
-                     if downloaded_file and os.path.exists(downloaded_file):
-                         file_path = downloaded_file
-            except Exception as e:
-                logger.error(f"Download Error: {e}")
-
-            # لو التحميل فشل، بنستخدم الرابط كما هو (وده اللي بيسبب المشكلة غالباً)
-            if not file_path:
-                file_path = final_link
-
-            # 5. الانضمام للكول (تشغيل الصوت)
-            success = await _direct_join_call(chat_id, file_path)
-            
-            # لو فشل الاتصال بالملف المحلي، نجرب الرابط المباشر كحل أخير
-            if not success and file_path != final_link:
-                 await _direct_join_call(chat_id, final_link)
-
-            # 6. إرسال الاستيكر
-            if res.get("sticker"):
-                try: await app.send_sticker(chat_id, res["sticker"])
-                except: pass
-            
-            # 7. إرسال الرسالة النصية (النص الجديد المعدل)
-            caption = f"<b>🕌 حان الآن موعد أذان {res.get('name','')}</b>\n<b>بالتوقيت المحلي لمدينه القاهره.</b>"
-            try: 
-                await app.send_message(chat_id, caption, reply_markup=None)
-            except: pass
-
-            # 8. تسجيل في السجل
-            if not force_test:
-                try:
-                    now = datetime.now(CAIRO_TZ)
-                    log_key = f"{chat_id}_{now.strftime('%Y-%m-%d_%H:%M')}"
-                    await azan_logs_db.insert_one({
-                        "chat_id": chat_id,
-                        "key": log_key,
-                        "prayer_key": prayer_key,
-                        "time": now.strftime("%I:%M %p")
-                    })
-                except: pass
-
-        except Exception as e:
-            logger.error(f"Azan Stream Failed {chat_id}: {e}")
-            if force_test: await app.send_message(chat_id, f"خطأ في البث: {e}")
+    except Exception as e:
+        logger.error(f"Azan Stream Failed {chat_id}: {e}")
+        if force_test: await app.send_message(chat_id, f"خطأ في البث: {e}")
 
 # ==================================================================
-# [SECTION 4] Broadcaster & Scheduler
+# [SECTION 4] Broadcaster & Scheduler (The Fix is Here)
 # ==================================================================
 
 async def broadcast_azan(prayer_key: str):
-    logger.info(f"STARTING AZAN: {prayer_key}")
+    logger.info(f"STARTING AZAN BROADCAST: {prayer_key}")
     res = CURRENT_RESOURCES.get(prayer_key)
     if not res: return
     
-    play_link = res["link"]
+    link = res["link"]
+    local_file_path = None
 
-    tasks = []
+    # 🛑 الخطوة 1: التحميل المركزي (مرة واحدة فقط)
+    # ده بيمنع إن البوت يعمل فحص للرابط 50 مرة في نفس الثانية
+    try:
+        logger.info("Downloading Azan file locally...")
+        if "http" in link:
+            # بنحمل الملف في مجلد downloads
+            dl_path, _ = await YouTube.download(link, None, video=False, videoid=f"azan_{prayer_key}")
+            if dl_path and os.path.exists(dl_path):
+                local_file_path = dl_path
+                logger.info(f"File downloaded to: {local_file_path}")
+            else:
+                local_file_path = link # فشل التحميل، استخدم الرابط
+        else:
+            local_file_path = link # هو أصلاً ملف محلي
+    except Exception as e:
+        logger.error(f"Download failed: {e}")
+        local_file_path = link
+
+    # 🛑 الخطوة 2: النشر التسلسلي (Sequential Broadcasting)
+    # بنمشي جروب جروب بفاصل زمني عشان الـ CPU ميموتش
+    
+    count = 0
     async for doc in settings_db.find({"azan_active": True}):
         c_id = doc.get("chat_id")
         if c_id:
-            tasks.append(start_azan_stream(c_id, prayer_key, play_link))
-            if len(tasks) >= 10:
-                await asyncio.gather(*tasks, return_exceptions=True)
-                tasks = []
-                await asyncio.sleep(1) 
+            # تشغيل الأذان باستخدام الملف المحلي
+            try:
+                await start_azan_stream(c_id, prayer_key, local_file_path)
+                count += 1
+                
+                # 🛑 السر هنا: الانتظار 2 ثانية بين كل جروب والتاني
+                # ده بيمنع الـ TimeoutError والـ CancelledError
+                await asyncio.sleep(2) 
+                
+            except Exception as e:
+                logger.error(f"Error broadcasting to {c_id}: {e}")
 
-    if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
-    logger.info("Azan Broadcast Finished.")
+    logger.info(f"Azan Broadcast Finished for {count} chats.")
+    
+    # تنظيف الملف المحمل (اختياري، ممكن نسيبه عشان الصلاة اللي بعدها)
+    # if local_file_path and os.path.exists(local_file_path) and "http" in link:
+    #     try: os.remove(local_file_path)
+    #     except: pass
 
 async def send_duas_batch(dua_list, setting_key, title, target_chat_id=None):
-    # دعم الـ target_chat_id للتست الفردي
     if target_chat_id:
         selected = random.sample(dua_list, min(4, len(dua_list)))
         text = f"<b>{title}</b>\n\n" + "\n\n".join([f"• {d} 🤍" for d in selected])
