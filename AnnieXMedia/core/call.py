@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Stable Audio & Fixes)
-# Fixes: NoneType Error, SIGPIPE, v=1 Error
+# System: Call Controller (Seamless Transition Edition)
+# Fixes: "v=True" Bug, Assistant Leaving, SIGPIPE, NoneType
 
 import asyncio
 import os
@@ -83,7 +83,7 @@ async def get_direct_link(videoid: str):
     except:
         return link
 
-# --- [3] Stream Settings (Stable) ---
+# --- [3] Stream Settings ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
     titan_flags = (
         "-threads 2 "
@@ -97,7 +97,6 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         "-fflags +genpts+igndts+nobuffer "
         "-sync ext"
     )
-    
     if ffmpeg_params:
         titan_flags += f" {ffmpeg_params}"
 
@@ -105,10 +104,10 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         media_path=path,
         audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p, 
-        # 🛑 الفيديو IGNORE لو مش مطلوب عشان نخفف الحمل
-        video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
-        # 🛑 الصوت REQUIRED ضروري عشان SIGPIPE ميعملش مشاكل
+        # 🛑 REQUIRED للصوت لمنع SIGPIPE (السكوت)
         audio_flags=MediaStream.Flags.REQUIRED,
+        # IGNORE للفيديو لو مش مطلوب لتخفيف الحمل
+        video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         ffmpeg_parameters=titan_flags,
     )
 
@@ -204,19 +203,19 @@ class Call:
                      if direct: final_link = direct
                  except: pass
 
-        # لو الرابط لسه None (بسبب خطأ ما)، نوقف العملية عشان ما تضربش Error
-        if not final_link:
-            return
+        if not final_link: return
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         
+        # 🛑 منطق التبديل السلس (Seamless Switch)
+        # لو المساعد موجود، غير الاستريم وهو مكانه، متخرجش!
         if chat_id in self.active_calls:
             try:
                 await assistant.change_stream(chat_id, stream)
             except Exception:
-                try: await assistant.leave_call(chat_id)
-                except: pass
-                await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=False))
+                # لو فشل التغيير فقط، جرب Play فوقه
+                try: await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=False))
+                except: pass # لا تخرج
         else:
             await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=False))
 
@@ -288,9 +287,7 @@ class Call:
         lang = await get_lang(chat_id)
         _ = get_string(lang)
         
-        # 1. Strict Link Preparation
         final_link = link
-        # لو الرابط يوتيوب، نحاول نجيب المباشر
         if link and ("youtube" in link or "youtu.be" in link):
             vid_id = extract_video_id(link)
             if vid_id: 
@@ -303,9 +300,13 @@ class Call:
         ksk = GroupCallConfig(auto_start=False)
 
         try:
+            # 🛑 FIX: لو المساعد موجود، غير الاستريم ومتمشيش!
             if chat_id in self.active_calls:
-                await assistant.leave_call(chat_id)
-                await asyncio.sleep(0.5)
+                try:
+                    await assistant.change_stream(chat_id, stream)
+                    return # نجحنا، مع السلامة
+                except:
+                    pass # لو فشل التغيير، كمل وحاول تلعب
         except: pass
 
         retries = 3
@@ -323,22 +324,20 @@ class Call:
                     continue
                 raise AssistantErr(_["call_10"])
             except (asyncio.TimeoutError, asyncio.exceptions.CancelledError, Exception) as e:
-                # تجاهل Already Joined
+                # لو قال "أنا موجود أصلاً"، يبقى تمام، غير الاستريم
                 if "already joined" in str(e).lower() or "active call" in str(e).lower():
+                    try: await assistant.change_stream(chat_id, stream)
+                    except: pass
                     break
                 
-                # التعامل مع التايم أوت
                 if "Timeout" in str(e) or "Cancelled" in str(e) or "yt-dlp timeout" in str(e):
                     if attempt < retries - 1:
-                        try: await assistant.leave_call(chat_id)
-                        except: pass
                         await asyncio.sleep(2)
                         continue
                     else:
-                        LOGGER(__name__).error(f"💣 [JOIN FAILED] Chat: {chat_id} - Timeout/Blocked")
-                        raise AssistantErr("فشل الاتصال بسبب ضغط الشبكة.")
+                        raise AssistantErr("فشل الاتصال.")
                 else:
-                    LOGGER(__name__).error(f"💣 [JOIN ERROR] Chat: {chat_id} | Error: {e}")
+                    LOGGER(__name__).error(f"💣 [JOIN ERROR] {chat_id}: {e}")
                     raise AssistantErr(f"Error: {e}")
                   
         self.active_calls.add(chat_id)
@@ -403,16 +402,19 @@ class Call:
             
             async def _play_stream(stream_obj):
                 try:
+                    # 🛑 FIX: محاولة التبديل أولاً
                     if chat_id in self.active_calls:
                         await client.change_stream(chat_id, stream_obj)
                     else:
                         await client.play(chat_id, stream_obj)
                 except Exception as e:
-                    if "already joined" in str(e).lower():
-                        try:
-                            await client.change_stream(chat_id, stream_obj)
-                            return
-                        except: pass
+                    # لو فشل، حاول تاني Change Stream (ممكن كان فيه خطأ عابر)
+                    try:
+                        await client.change_stream(chat_id, stream_obj)
+                        return
+                    except: pass
+                    
+                    # الخروج والدخول هو الحل الأخير فقط
                     try:
                         await client.leave_call(chat_id)
                         await asyncio.sleep(0.5)
@@ -424,12 +426,19 @@ class Call:
                 final_link = queued
                 if "live_" in queued or "vid_" in queued or "index_" in queued:
                     try:
-                        if len(videoid) == 11:
+                        if videoid and len(videoid) == 11:
                             direct_url = await get_direct_link(videoid)
                             if direct_url: final_link = direct_url
                             else:
                                 try:
-                                    path, is_direct = await YouTube.download(f"https://www.youtube.com/watch?v={videoid}", None, video=video, videoid=True)
+                                    # 🛑🛑🛑 [THE BIG FIX] 🛑🛑🛑
+                                    # تمرير videoid الصحيح بدلاً من True
+                                    path, is_direct = await YouTube.download(
+                                        f"https://www.youtube.com/watch?v={videoid}",
+                                        None,
+                                        video=video,
+                                        videoid=videoid # <-- هنا كان الغلط وتم تصحيحه
+                                    )
                                     if path: final_link = path
                                 except: pass
                     except: pass
