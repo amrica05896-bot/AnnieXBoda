@@ -1,4 +1,7 @@
 # Authored By Certified Coders © 2026
+# System: Call Controller (Stability Edition)
+# Features: 15MB Anti-Lag Buffer, Auto-Retry, Crash Protection
+
 import asyncio
 import os
 import traceback
@@ -47,11 +50,24 @@ from AnnieXMedia.utils.errors import capture_internal_err
 autoend = {}
 counter = {}
 
-# --- Helper Function for Streams ---
+# --- [Secret Sauce] دالة البث الديناميكي مع مانع التقطيع ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
-    titan_flags = "-threads 4 -ac 2" # Reduced threads to prevent CPU choke
-    if str(path).startswith("http"):
-        titan_flags += " -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+    # إعدادات FFMPEG المخصصة للثبات التام:
+    # -threads 2: تقليل الضغط على المعالج (4 كان كتير على الفاضي)
+    # -rtbufsize 15M: حجز 15 ميجا في الرامات كـ "مخزون طوارئ" للصوت
+    # -reconnect 1: إجبار إعادة الاتصال لو المصدر (يوتيوب) فصل
+    titan_flags = (
+        "-threads 2 "
+        "-probesize 10M "
+        "-analyzeduration 10M "
+        "-rtbufsize 15M "
+        "-reconnect 1 "
+        "-reconnect_streamed 1 "
+        "-reconnect_on_network_error 1 "
+        "-reconnect_delay_max 5 "
+        "-fflags +genpts+igndts+nobuffer "
+        "-sync ext"
+    )
     
     if ffmpeg_params:
         titan_flags += f" {ffmpeg_params}"
@@ -61,11 +77,12 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
 
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.STUDIO,
+        # 🛑 هام: غيرناها من STUDIO لـ HIGH عشان الثبات. STUDIO بتقطع مع البث المباشر
+        audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p, 
         audio_flags=audio_flags,
         video_flags=video_flags,
-        ffmpeg_parameters=titan_flags,
+        ffmpeg_parameters=titan_flags, # حقن إعدادات الثبات
     )
 
 async def _clear_(chat_id: int) -> None:
@@ -85,6 +102,7 @@ class Call:
         self.userbot4 = userbot.four
         self.userbot5 = userbot.five
 
+        # cache_duration 100 كويس جداً لتقليل طلبات السيرفر
         self.one = PyTgCalls(self.userbot1, cache_duration=100)
         self.two = PyTgCalls(self.userbot2, cache_duration=100)
         self.three = PyTgCalls(self.userbot3, cache_duration=100)
@@ -154,6 +172,7 @@ class Call:
     @capture_internal_err
     async def skip_stream(self, chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
+        # auto_start=False مهم لمنع التعليق
         ksk = GroupCallConfig(auto_start=False)
         stream = dynamic_media_stream(path=link, video=bool(video))
         await assistant.play(chat_id, stream, config=ksk)
@@ -234,6 +253,7 @@ class Call:
             except:
                 pass
 
+    # --- [Intelligent Join System] نظام الانضمام الذكي ---
     @capture_internal_err
     async def join_call(
         self,
@@ -249,28 +269,36 @@ class Call:
         stream = dynamic_media_stream(path=link, video=bool(video))
         ksk = GroupCallConfig(auto_start=False)
 
-        try:
-            await assistant.play(chat_id, stream, config=ksk)
-        except NoActiveGroupCall:
-            raise AssistantErr(_["call_8"])
-        except (NoAudioSourceFound, NoVideoSourceFound):
-            raise AssistantErr(_["call_11"])
-        except (ConnectionNotFound, TelegramServerError):
-            raise AssistantErr(_["call_10"])
-        # 🛑 FIX: Handling Timeouts and CancelledErrors by retrying safely
-        except (asyncio.TimeoutError, asyncio.exceptions.CancelledError, Exception) as e:
-            # Handle PyTgCalls internal Timeout/Cancellation
-            if "Timeout" in str(e) or "Cancelled" in str(e) or "timeout" in str(e):
-                try:
-                    await assistant.leave_call(chat_id)
+        # 🛑 نظام المحاولات الثلاثية: عشان لو حاجة وقعت تقوم تاني
+        retries = 3
+        for attempt in range(retries):
+            try:
+                await assistant.play(chat_id, stream, config=ksk)
+                break # دخل بنجاح، اخرج من اللوب
+            except NoActiveGroupCall:
+                # لو الكول مش مفتوح أصلاً، مفيش فايدة من المحاولة
+                raise AssistantErr(_["call_8"])
+            except (NoAudioSourceFound, NoVideoSourceFound):
+                raise AssistantErr(_["call_11"])
+            except (ConnectionNotFound, TelegramServerError):
+                if attempt < retries - 1:
                     await asyncio.sleep(2)
-                    await assistant.play(chat_id, stream, config=ksk)
-                except Exception as final_e:
-                    LOGGER(__name__).error(f"💣 [JOIN RETRY FAILED] Chat: {chat_id} - Error: {final_e}")
-                    raise AssistantErr("فشل الاتصال بالكول بسبب ضعف الشبكة، حاول مرة أخرى.")
-            else:
-                LOGGER(__name__).error(f"💣 [JOIN ERROR] Chat: {chat_id}\n{traceback.format_exc()}")
-                raise AssistantErr(f"ᴜɴᴀʙʟᴇ ᴛᴏ ᴊᴏɪɴ ᴛʜᴇ ɢʀᴏᴜᴘ ᴄᴀʟʟ.\nRᴇᴀsᴏɴ: {e}")
+                    continue
+                raise AssistantErr(_["call_10"])
+            except (asyncio.TimeoutError, asyncio.exceptions.CancelledError, Exception) as e:
+                # التعامل مع التايم أوت وأخطاء الشبكة العشوائية
+                if "Timeout" in str(e) or "Cancelled" in str(e) or "timeout" in str(e):
+                    if attempt < retries - 1:
+                        # تنظيف بسيط قبل المحاولة التانية
+                        try: await assistant.leave_call(chat_id)
+                        except: pass
+                        await asyncio.sleep(1.5)
+                        continue
+                    else:
+                        raise AssistantErr("فشل الاتصال بالكول بسبب ضعف الشبكة، حاول مرة أخرى.")
+                else:
+                    LOGGER(__name__).error(f"💣 [JOIN ERROR] Chat: {chat_id}\n{traceback.format_exc()}")
+                    raise AssistantErr(f"ᴜɴᴀʙʟᴇ ᴛᴏ ᴊᴏɪɴ ᴛʜᴇ ɢʀᴏᴜᴘ ᴄᴀʟʟ.\nRᴇᴀsᴏɴ: {e}")
                   
         self.active_calls.add(chat_id)
         await add_active_chat(chat_id)
@@ -337,16 +365,21 @@ class Call:
 
             video = True if str(streamtype) == "video" else False
             
+            # دالة التشغيل الداخلية مع نظام حماية
             async def _play_stream(stream_obj):
-                try:
-                    await client.play(chat_id, stream_obj)
-                except Exception:
+                for i in range(3):
                     try:
-                        await client.leave_call(chat_id)
-                        await asyncio.sleep(0.5)
                         await client.play(chat_id, stream_obj)
-                    except:
-                        return await app.send_message(original_chat_id, text=_["call_6"])
+                        return
+                    except Exception:
+                        try:
+                            await client.leave_call(chat_id)
+                            await asyncio.sleep(0.5)
+                            await client.play(chat_id, stream_obj)
+                            return
+                        except:
+                            if i == 2: # آخر محاولة
+                                return await app.send_message(original_chat_id, text=_["call_6"])
 
             try:
                 if "live_" in queued:
