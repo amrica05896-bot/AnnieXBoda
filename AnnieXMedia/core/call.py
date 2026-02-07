@@ -1,9 +1,10 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Local Lib Fix)
-# Fixes: ImportError (AlreadyJoinedError), Direct Stream Stability
+# System: Call Controller (Bulletproof Edition)
+# Fixes: "v=1" Logic Error, yt-dlp Timeouts, Direct Stream Bypass
 
 import asyncio
 import os
+import re
 import traceback
 import yt_dlp
 from datetime import datetime, timedelta
@@ -14,7 +15,6 @@ from pyrogram import Client
 from pyrogram.errors import FloodWait, ChatAdminRequired
 from pyrogram.types import InlineKeyboardMarkup
 from pytgcalls import PyTgCalls
-# 🛑 تم إزالة AlreadyJoinedError لأنه غير موجود في مكتبتك
 from pytgcalls.exceptions import (
     NoActiveGroupCall, 
     NoAudioSourceFound, 
@@ -56,7 +56,15 @@ from AnnieXMedia.utils.errors import capture_internal_err
 autoend = {}
 counter = {}
 
-# --- [1] Local Link Extractor ---
+# --- [1] Strict ID Extractor (The Fix for v=1) ---
+def extract_video_id(url: str) -> Union[str, None]:
+    """استخراج ID اليوتيوب فقط إذا كان صحيحاً (11 حرف)"""
+    # هذا النمط يبحث عن 11 حرف بالضبط، ويتجاهل الأرقام الفردية مثل v=1
+    pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)'
+    match = re.search(pattern, url)
+    return match.group(1) if match else None
+
+# --- [2] Local Link Extractor ---
 async def get_direct_link(videoid: str):
     link = f"https://www.youtube.com/watch?v={videoid}"
     opts = {
@@ -76,7 +84,7 @@ async def get_direct_link(videoid: str):
     except:
         return link
 
-# --- [2] Stream Settings ---
+# --- [3] Stream Settings (Bypass Mode) ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
     titan_flags = (
         "-threads 2 "
@@ -94,15 +102,14 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
     if ffmpeg_params:
         titan_flags += f" {ffmpeg_params}"
 
-    video_flags = MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE
-    audio_flags = MediaStream.Flags.REQUIRED
-
     return MediaStream(
         media_path=path,
         audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p, 
-        audio_flags=audio_flags,
-        video_flags=video_flags,
+        # 🛑 المفتاح السحري: IGNORE يمنع المكتبة من فحص الرابط بـ yt-dlp
+        # وبالتالي يمنع الـ Timeout ومشاكل الروابط الطويلة
+        video_flags=MediaStream.Flags.IGNORE,
+        audio_flags=MediaStream.Flags.IGNORE,
         ffmpeg_parameters=titan_flags,
     )
 
@@ -189,11 +196,15 @@ class Call:
         assistant = await group_assistant(self, chat_id)
         
         final_link = link
+        # 🛑 FIX: التحقق الصارم من الـ ID (11 حرف)
         if "youtube" in link or "youtu.be" in link:
-             try:
-                 direct = await get_direct_link(link.split("v=")[-1] if "v=" in link else link.split("/")[-1])
-                 if direct: final_link = direct
-             except: pass
+             vid_id = extract_video_id(link)
+             if vid_id: # لو فيه ID حقيقي 11 حرف
+                 try:
+                     direct = await get_direct_link(vid_id)
+                     if direct: final_link = direct
+                 except: pass
+             # لو مفيش ID سليم، بنستخدم الرابط كما هو كرابط مباشر
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         
@@ -274,12 +285,26 @@ class Call:
         assistant = await group_assistant(self, chat_id)
         lang = await get_lang(chat_id)
         _ = get_string(lang)
-        stream = dynamic_media_stream(path=link, video=bool(video))
+        
+        # 1. Strict Link Preparation
+        final_link = link
+        if "youtube" in link or "youtu.be" in link:
+            vid_id = extract_video_id(link) # دالة الفحص الصارم الجديدة
+            if vid_id: 
+                try:
+                    direct = await get_direct_link(vid_id)
+                    if direct: final_link = direct
+                except: pass
+            # لو vid_id بـ None (زي الرابط v=1)، بنستخدم link الأصلي كرابط مباشر للمكتبة
+
+        # 2. Create Stream (No Checks)
+        stream = dynamic_media_stream(path=final_link, video=bool(video))
         ksk = GroupCallConfig(auto_start=False)
 
         try:
-            await assistant.leave_call(chat_id)
-            await asyncio.sleep(0.5) 
+            if chat_id in self.active_calls:
+                await assistant.leave_call(chat_id)
+                await asyncio.sleep(0.5)
         except: pass
 
         retries = 3
@@ -297,20 +322,22 @@ class Call:
                     continue
                 raise AssistantErr(_["call_10"])
             except (asyncio.TimeoutError, asyncio.exceptions.CancelledError, Exception) as e:
-                # 🛑 FIX: بدلاً من except AlreadyJoinedError، نفحص نص الخطأ
+                # تجاهل Already Joined
                 if "already joined" in str(e).lower() or "active call" in str(e).lower():
-                    break # هو جوه الكول بالفعل، تمام
+                    break
                 
-                if "Timeout" in str(e) or "Cancelled" in str(e):
+                # التعامل مع التايم أوت
+                if "Timeout" in str(e) or "Cancelled" in str(e) or "yt-dlp timeout" in str(e):
                     if attempt < retries - 1:
                         try: await assistant.leave_call(chat_id)
                         except: pass
                         await asyncio.sleep(2)
                         continue
                     else:
-                        raise AssistantErr("فشل الاتصال، حاول مرة أخرى.")
+                        LOGGER(__name__).error(f"💣 [JOIN FAILED] Chat: {chat_id} - Timeout/Blocked")
+                        raise AssistantErr("فشل الاتصال بسبب ضغط الشبكة.")
                 else:
-                    LOGGER(__name__).error(f"💣 [JOIN ERROR] {chat_id}: {e}")
+                    LOGGER(__name__).error(f"💣 [JOIN ERROR] Chat: {chat_id} | Error: {e}")
                     raise AssistantErr(f"Error: {e}")
                   
         self.active_calls.add(chat_id)
@@ -373,7 +400,6 @@ class Call:
 
             video = True if str(streamtype) == "video" else False
             
-            # 🛑 [CORE FIX] دالة التشغيل التي تمنع الخروج
             async def _play_stream(stream_obj):
                 try:
                     if chat_id in self.active_calls:
@@ -381,14 +407,11 @@ class Call:
                     else:
                         await client.play(chat_id, stream_obj)
                 except Exception as e:
-                    # لو الخطأ "Already Joined" يبقى نغير الاستريم
                     if "already joined" in str(e).lower():
                         try:
                             await client.change_stream(chat_id, stream_obj)
                             return
                         except: pass
-                    
-                    # لو فشل التبديل، اخرج وادخل (كخيار أخير)
                     try:
                         await client.leave_call(chat_id)
                         await asyncio.sleep(0.5)
@@ -397,22 +420,19 @@ class Call:
                         return await app.send_message(original_chat_id, text=_["call_6"])
 
             try:
-                # 🛑 [LINK RESOLVER] استخراج الرابط المباشر
                 final_link = queued
-                
                 if "live_" in queued or "vid_" in queued or "index_" in queued:
                     try:
-                        direct_url = await get_direct_link(videoid)
-                        if direct_url:
-                            final_link = direct_url
-                        else:
-                            # Fallback to download logic if available, else link
-                            try:
-                                path, is_direct = await YouTube.download(f"https://www.youtube.com/watch?v={videoid}", None, video=video, videoid=True)
-                                if path: final_link = path
-                            except: pass
-                    except Exception as e:
-                        LOGGER(__name__).error(f"Link extraction failed: {e}")
+                        # 🛑 FIX: التحقق الصارم من الـ ID هنا أيضاً
+                        if videoid and len(videoid) == 11:
+                            direct_url = await get_direct_link(videoid)
+                            if direct_url: final_link = direct_url
+                            else:
+                                try:
+                                    path, is_direct = await YouTube.download(f"https://www.youtube.com/watch?v={videoid}", None, video=video, videoid=True)
+                                    if path: final_link = path
+                                except: pass
+                    except: pass
 
                 stream = dynamic_media_stream(path=final_link, video=video)
                 await _play_stream(stream)
