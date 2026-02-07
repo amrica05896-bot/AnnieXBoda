@@ -1,7 +1,7 @@
 # Authored By Certified Coders (c) 2026
 # System: Azan Maestro (Direct Call Engine Mode)
 # Location: AnnieXMedia/plugins/AzanSystem/az_utils.py
-# FIX: Direct StreamController call to bypass stream.py buttons logic.
+# FIX: Force Local Download to prevent pytgcalls Timeout + Updated Text.
 
 import asyncio
 import aiohttp
@@ -9,6 +9,7 @@ import random
 import logging
 import pytz
 import re
+import os
 import functools
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -24,7 +25,7 @@ from pyrogram.errors import (
 
 # --- [ Internal Imports ] ---
 from AnnieXMedia import app, YouTube
-# 🛑 استيراد المتحكم في الكول مباشرة (بدلاً من stream.py)
+# 🛑 استيراد المتحكم في الكول مباشرة
 from AnnieXMedia.core.call import StreamController
 from AnnieXMedia.utils.database import get_client, add_active_video_chat
 from AnnieXMedia.misc import db
@@ -229,7 +230,7 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
                 "by": "System",
                 "user_id": 777,
                 "chat_id": chat_id,
-                "file": final_link, # مهم جداً
+                "file": final_link, 
                 "markup": "adhan",  # 🛑 السر هنا: مفيش مارك أب
                 "mystic": None,     # 🛑 مفيش رسالة يعدل عليها
             })
@@ -237,29 +238,35 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
             # 3. التأكد من المساعد
             await prepare_assistant_membership(chat_id)
 
-            # 4. تحميل الملف (لضمان إنه رابط مباشر أو ملف)
-            file_path = final_link
+            # 4. تحميل الملف (الحل الجذري للـ Timeout)
+            file_path = None
             try:
-                # بنحاول نجيب الرابط المباشر لو هو رابط يوتيوب
-                if "http" in final_link and "youtu" in final_link:
-                     f_path, direct = await YouTube.download(final_link, None, video=False, videoid="adhan")
-                     if f_path: file_path = f_path
-            except:
-                pass
+                # محاولة التحميل المحلي أولاً لتجنب استخدام yt-dlp داخل الكول
+                if "http" in final_link:
+                     downloaded_file, _ = await YouTube.download(final_link, None, video=False, videoid="adhan")
+                     if downloaded_file and os.path.exists(downloaded_file):
+                         file_path = downloaded_file
+            except Exception as e:
+                logger.error(f"Download Error: {e}")
+
+            # لو التحميل فشل، بنستخدم الرابط كما هو (وده اللي بيسبب المشكلة غالباً)
+            if not file_path:
+                file_path = final_link
 
             # 5. الانضمام للكول (تشغيل الصوت)
             success = await _direct_join_call(chat_id, file_path)
-            if not success:
-                # محاولة أخيرة برابط مباشر بدون تحميل
-                await _direct_join_call(chat_id, final_link)
+            
+            # لو فشل الاتصال بالملف المحلي، نجرب الرابط المباشر كحل أخير
+            if not success and file_path != final_link:
+                 await _direct_join_call(chat_id, final_link)
 
             # 6. إرسال الاستيكر
             if res.get("sticker"):
                 try: await app.send_sticker(chat_id, res["sticker"])
                 except: pass
             
-            # 7. إرسال الرسالة النصية (بدون أزرار نهائياً)
-            caption = f"<b>🕌 حان الآن موعد أذان {res.get('name','')}</b>\n<b>حي على الصلاة، حي على الفلاح.</b>"
+            # 7. إرسال الرسالة النصية (النص الجديد المعدل)
+            caption = f"<b>🕌 حان الآن موعد أذان {res.get('name','')}</b>\n<b>بالتوقيت المحلي لمدينه القاهره.</b>"
             try: 
                 await app.send_message(chat_id, caption, reply_markup=None)
             except: pass
