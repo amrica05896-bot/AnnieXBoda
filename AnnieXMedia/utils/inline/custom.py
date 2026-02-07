@@ -1,7 +1,8 @@
 # AnnieXMedia/utils/inline/custom.py
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-def custom_markup(chat_id, vidid):
+# ضفنا الـ (_) هنا عشان يتوافق مع استدعاء ملف stream.py
+def custom_markup(_, chat_id, vidid):
     buttons = [
         [
             InlineKeyboardButton(text="▷", callback_data=f"stream_admin Resume|{chat_id}"),
