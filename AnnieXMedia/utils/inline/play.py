@@ -1,10 +1,12 @@
-# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2026
+# System: Inline Buttons Painter (Smart Logic for Adhan/Song/YouTube)
+
 import time
 from pyrogram.types import InlineKeyboardButton
 from AnnieXMedia.utils.formatters import time_to_seconds
+from AnnieXMedia.misc import db  # 🛑 استيراد الداتابيز عشان نعرف نوع التشغيل
 
 LAST_UPDATE_TIME = {}
-
 
 def track_markup(_, videoid, user_id, channel, fplay):
     return [
@@ -26,7 +28,6 @@ def track_markup(_, videoid, user_id, channel, fplay):
         ],
     ]
 
-
 def should_update_progress(chat_id):
     now = time.time()
     last = LAST_UPDATE_TIME.get(chat_id, 0)
@@ -34,7 +35,6 @@ def should_update_progress(chat_id):
         LAST_UPDATE_TIME[chat_id] = now
         return True
     return False
-
 
 def generate_progress_bar(played_sec, duration_sec):
     if duration_sec == 0:
@@ -46,8 +46,33 @@ def generate_progress_bar(played_sec, duration_sec):
     filled = int(round(bar_length * percentage / 70))
     return "▰" * filled + "▱" * (bar_length - filled)
 
-
+# 🛑 الدالة الذكية للتحكم في الأزرار
 def control_buttons(_, chat_id):
+    # 1. جلب البيانات من الداتابيز لمعرفة نوع التشغيل
+    markup_type = "stream" # الافتراضي (يوتيوب عادي)
+    vidid = None
+    try:
+        if db.get(chat_id):
+            stream_data = db[chat_id][0]
+            markup_type = stream_data.get("markup", "stream")
+            vidid = stream_data.get("vidid")
+    except: pass
+
+    # 2. حالة الأذان (Adhan) -> إخفاء أزرار التحكم تماماً
+    if markup_type == "adhan":
+        return []
+
+    # 3. حالة الأغاني (Custom Song) -> 4 أزرار فقط (بدون تخطي)
+    elif markup_type == "custom":
+        return [[
+            InlineKeyboardButton(text="▷", callback_data=f"stream_admin Resume|{chat_id}"),
+            InlineKeyboardButton(text="II", callback_data=f"stream_admin Pause|{chat_id}"),
+            InlineKeyboardButton(text="↻", callback_data=f"stream_admin Replay|{chat_id}"),
+            # زر الإيقاف المربع الخاص (يرسل vidid لإعادة زر التشغيل)
+            InlineKeyboardButton(text="▢", callback_data=f"song_stop_custom|{chat_id}|{vidid}"),
+        ]]
+
+    # 4. الحالة الافتراضية (YouTube/Playlist) -> 5 أزرار (مع التخطي)
     return [[
         InlineKeyboardButton(text="▷", callback_data=f"stream_admin Resume|{chat_id}"),
         InlineKeyboardButton(text="II", callback_data=f"stream_admin Pause|{chat_id}"),
@@ -56,10 +81,15 @@ def control_buttons(_, chat_id):
         InlineKeyboardButton(text="▢", callback_data=f"stream_admin Stop|{chat_id}"),
     ]]
 
-
 def stream_markup_timer(_, chat_id, played, dur):
     if not should_update_progress(chat_id):
         return None
+
+    # 🛑 فحص الأذان لإخفاء شريط الوقت أيضاً
+    try:
+        if db.get(chat_id) and db[chat_id][0].get("markup") == "adhan":
+            return [[InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")]]
+    except: pass
 
     played_sec = time_to_seconds(played)
     duration_sec = time_to_seconds(dur)
@@ -71,10 +101,8 @@ def stream_markup_timer(_, chat_id, played, dur):
         [[InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")]]
     )
 
-
 def stream_markup(_, chat_id):
     return control_buttons(_, chat_id) + [[InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")]]
-
 
 def playlist_markup(_, videoid, user_id, ptype, channel, fplay):
     buttons = [
@@ -95,7 +123,6 @@ def playlist_markup(_, videoid, user_id, ptype, channel, fplay):
             ),
         ],
     ]
-
     return buttons
 
 def livestream_markup(_, videoid, user_id, mode, channel, fplay):
@@ -113,7 +140,6 @@ def livestream_markup(_, videoid, user_id, mode, channel, fplay):
             )
         ],
     ]
-
 
 def slider_markup(_, videoid, user_id, query, query_type, channel, fplay):
     short_query = query[:20]
