@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Bulletproof Edition)
-# Fixes: "v=1" Logic Error, yt-dlp Timeouts, Direct Stream Bypass
+# System: Call Controller (Audio Pipe Fixed)
+# Fixes: SIGPIPE (Silent Join), v=1 Error, Timeouts
 
 import asyncio
 import os
@@ -56,15 +56,14 @@ from AnnieXMedia.utils.errors import capture_internal_err
 autoend = {}
 counter = {}
 
-# --- [1] Strict ID Extractor (The Fix for v=1) ---
+# --- [1] Strict ID Extractor ---
 def extract_video_id(url: str) -> Union[str, None]:
     """استخراج ID اليوتيوب فقط إذا كان صحيحاً (11 حرف)"""
-    # هذا النمط يبحث عن 11 حرف بالضبط، ويتجاهل الأرقام الفردية مثل v=1
     pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)'
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
-# --- [2] Local Link Extractor ---
+# --- [2] Local Link Extractor (The Saver) ---
 async def get_direct_link(videoid: str):
     link = f"https://www.youtube.com/watch?v={videoid}"
     opts = {
@@ -84,8 +83,9 @@ async def get_direct_link(videoid: str):
     except:
         return link
 
-# --- [3] Stream Settings (Bypass Mode) ---
+# --- [3] Stream Settings (Fixed Audio Flags) ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
+    # إعدادات FFmpeg قوية لضمان عدم انقطاع الـ Pipe
     titan_flags = (
         "-threads 2 "
         "-probesize 10M "
@@ -106,10 +106,10 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         media_path=path,
         audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p, 
-        # 🛑 المفتاح السحري: IGNORE يمنع المكتبة من فحص الرابط بـ yt-dlp
-        # وبالتالي يمنع الـ Timeout ومشاكل الروابط الطويلة
-        video_flags=MediaStream.Flags.IGNORE,
-        audio_flags=MediaStream.Flags.IGNORE,
+        # 🛑 الفيديو IGNORE عشان مايتقلش
+        video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
+        # 🛑 الصوت REQUIRED ضروري عشان FFmpeg يشتغل وميضربش SIGPIPE
+        audio_flags=MediaStream.Flags.REQUIRED,
         ffmpeg_parameters=titan_flags,
     )
 
@@ -196,15 +196,14 @@ class Call:
         assistant = await group_assistant(self, chat_id)
         
         final_link = link
-        # 🛑 FIX: التحقق الصارم من الـ ID (11 حرف)
+        # استخراج الرابط المباشر لتفادي فحص المكتبة الثقيل
         if "youtube" in link or "youtu.be" in link:
              vid_id = extract_video_id(link)
-             if vid_id: # لو فيه ID حقيقي 11 حرف
+             if vid_id: 
                  try:
                      direct = await get_direct_link(vid_id)
                      if direct: final_link = direct
                  except: pass
-             # لو مفيش ID سليم، بنستخدم الرابط كما هو كرابط مباشر
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         
@@ -289,15 +288,13 @@ class Call:
         # 1. Strict Link Preparation
         final_link = link
         if "youtube" in link or "youtu.be" in link:
-            vid_id = extract_video_id(link) # دالة الفحص الصارم الجديدة
+            vid_id = extract_video_id(link)
             if vid_id: 
                 try:
                     direct = await get_direct_link(vid_id)
                     if direct: final_link = direct
                 except: pass
-            # لو vid_id بـ None (زي الرابط v=1)، بنستخدم link الأصلي كرابط مباشر للمكتبة
 
-        # 2. Create Stream (No Checks)
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         ksk = GroupCallConfig(auto_start=False)
 
@@ -322,11 +319,9 @@ class Call:
                     continue
                 raise AssistantErr(_["call_10"])
             except (asyncio.TimeoutError, asyncio.exceptions.CancelledError, Exception) as e:
-                # تجاهل Already Joined
                 if "already joined" in str(e).lower() or "active call" in str(e).lower():
                     break
                 
-                # التعامل مع التايم أوت
                 if "Timeout" in str(e) or "Cancelled" in str(e) or "yt-dlp timeout" in str(e):
                     if attempt < retries - 1:
                         try: await assistant.leave_call(chat_id)
@@ -334,7 +329,6 @@ class Call:
                         await asyncio.sleep(2)
                         continue
                     else:
-                        LOGGER(__name__).error(f"💣 [JOIN FAILED] Chat: {chat_id} - Timeout/Blocked")
                         raise AssistantErr("فشل الاتصال بسبب ضغط الشبكة.")
                 else:
                     LOGGER(__name__).error(f"💣 [JOIN ERROR] Chat: {chat_id} | Error: {e}")
@@ -423,8 +417,7 @@ class Call:
                 final_link = queued
                 if "live_" in queued or "vid_" in queued or "index_" in queued:
                     try:
-                        # 🛑 FIX: التحقق الصارم من الـ ID هنا أيضاً
-                        if videoid and len(videoid) == 11:
+                        if len(videoid) == 11:
                             direct_url = await get_direct_link(videoid)
                             if direct_url: final_link = direct_url
                             else:
