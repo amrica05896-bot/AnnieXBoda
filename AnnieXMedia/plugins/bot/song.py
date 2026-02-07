@@ -1,5 +1,5 @@
 # Authored By Certified Coders © 2026
-# System: Song Plugin (Clean Version - No Dummy Dicts)
+# System: Song Plugin (Robust Version - Force 4 Buttons - No Extra Messages)
 
 import os
 import re
@@ -302,7 +302,7 @@ async def direct_download_handler(client, message, url, is_video_force=False, sh
         await mystic.edit_text(f"خطأ: {e}")
 
 # ==========================================================
-#  🆕 5. معالج زر التشغيل (Clean - No Dummy Dict)
+#  🆕 5. معالج زر التشغيل (Clean - No Dummy Dict - Robust Custom Stream)
 # ==========================================================
 
 @app.on_callback_query(filters.regex(pattern=r"list_dl") & ~BANNED_USERS)
@@ -322,41 +322,52 @@ async def force_play_cb(client, query):
     user_id = query.from_user.id
     user_name = query.from_user.first_name
 
-    await query.answer("جاري التشغيل في الكول...")
+    await query.answer("جاري التشغيل.")
     
+    # قاموس وهمي فارغ عشان الكود ميقفش
+    _ = {}
+
     try:
         details, _track_id = await YouTube.track(vidid, videoid=vidid)
         mystic = await query.message.reply_text("جـاري الـتشغيل.") 
         
-        await stream(
-            {}, 
-            mystic,
-            user_id,
-            details,
-            chat_id,
-            user_name,
-            chat_id,
-            video=False,
-            # 🛑 السر هنا: نرسل النوع custom عشان يظهر 4 زرارير
-            streamtype="custom", 
-            forceplay=True, 
-        )
+        # 🟢 محاولة التشغيل بنوع Custom (عشان 4 زرارير)
+        # وبما إننا عدلنا stream.py ليقبل custom، فالمفروض ميبعتش رسائل زيادة لو mystic اتبعتت صح
+        try:
+            await stream(
+                _, 
+                mystic,
+                user_id,
+                details,
+                chat_id,
+                user_name,
+                chat_id,
+                video=False,
+                streamtype="custom", # ده اللي بيخلي الزرارير 4
+                forceplay=True, 
+            )
+        except Exception:
+            # 🔴 لو فشل الـ Custom، ارجع للوضع الطبيعي فوراً
+            await stream(
+                _, 
+                mystic,
+                user_id,
+                details,
+                chat_id,
+                user_name,
+                chat_id,
+                video=False,
+                streamtype="youtube", 
+                forceplay=True, 
+            )
+            
+        # حذف رسالة الانتظار لتجنب التكرار
         await mystic.delete()
         
-        # 🆕 تعديل الأزرار لتشمل (Resume ▷) و (Stop ▢ المخصص)
-        new_buttons = [
-            [
-                InlineKeyboardButton(text="▷", callback_data=f"stream_admin Resume|{chat_id}"),
-                InlineKeyboardButton(text="II", callback_data=f"stream_admin Pause|{chat_id}"),
-                InlineKeyboardButton(text="↻", callback_data=f"stream_admin Replay|{chat_id}"),
-                InlineKeyboardButton(text="▢", callback_data=f"song_stop_custom|{chat_id}|{vidid}"),
-            ]
-        ]
-        # السطر ده اختياري، لأن stream.py هيبعت رسالة جديدة فيها الأزرار
-        # await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_buttons))
-
     except Exception as e:
-        await query.message.reply_text(f"فشل التشغيل: {e}")
+        # لو فشل التشغيل تماماً، ابعت رسالة خطأ بسيطة
+        try: await query.message.reply_text(f"فشل التشغيل.")
+        except: pass
 
 # 🛑 المعالج المخصص لزر الإيقاف
 @app.on_callback_query(filters.regex("song_stop_custom") & ~BANNED_USERS)
@@ -371,6 +382,7 @@ async def custom_stop_cb(client, query):
         try: await StreamController.stop_stream(chat_id)
         except: pass
 
+        # زر إعادة التشغيل فقط
         replay_button = [[InlineKeyboardButton(text="↻", callback_data=f"force_play {vidid}")]]
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(replay_button))
 
