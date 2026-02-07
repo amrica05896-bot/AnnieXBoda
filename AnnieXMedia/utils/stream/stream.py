@@ -1,6 +1,7 @@
 # Authored By Certified Coders © 2026
-# System: Stream Controller (Full Version)
-# Integrated with: custom_markup (inline/custom.py)
+# System: Stream Controller (Full Version - Direct Button Edit)
+# Updated 2026 - Compatibility layer for pytgcalls / ntgcalls newer versions
+# - preserves original logic while enabling direct inline button switching
 
 import asyncio
 import os
@@ -17,7 +18,7 @@ from AnnieXMedia.misc import db
 from AnnieXMedia.utils.database import add_active_video_chat, is_active_chat
 from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.inline import aq_markup, close_markup, stream_markup
-# 🛑 [NEW] Import the custom markup file
+# 🛑 استيراد ملف الكوستوم
 from AnnieXMedia.utils.inline.custom import custom_markup
 from AnnieXMedia.utils.pastebin import ANNIEBIN
 from AnnieXMedia.utils.stream.queue import put_queue, put_queue_index
@@ -124,16 +125,16 @@ async def stream(
                 pass
 
     # -----------------------------
-    # 🛑 0) CUSTOM SONG MODE (INTEGRATED)
+    # 🛑 0) CUSTOM SONG MODE (Switching Buttons on Current Message)
     # -----------------------------
     if streamtype == "custom":
-        link = result.get("link")
         vidid = result.get("vidid")
         title = (result.get("title")).title()
         duration_min = result.get("duration_min")
         thumbnail = result.get("thumb")
 
         try:
+            # mystic هنا هي الرسالة اللي فيها زر "تشغيل الآن"
             file_path, direct = await YouTube.download(vidid, mystic, video=is_video, videoid=vidid)
         except Exception:
             raise AssistantErr(_["play_14"])
@@ -159,20 +160,15 @@ async def stream(
             forceplay=forceplay,
         )
 
-        # Use the NEW custom_markup from inline/custom.py
+        # 🛑 تعديل الأزرار تحت الملف نفسه بدلاً من إرسال رسالة جديدة
         button = custom_markup(_, chat_id, vidid)
-        
-        await safe_delete(mystic)
         try:
-            run = await safe_send_photo(
-                original_chat_id,
-                photo=await get_thumb(vidid),
-                caption=f"🧚 بدأ التشغيل: <b>{title}</b>\nالمدة: {duration_min}\nبواسطة: {user_name}",
-                reply_markup=button
-            )
-            if run:
-                db[chat_id][0]["mystic"] = run
-                db[chat_id][0]["markup"] = "custom" # Save as custom so timer doesn't override
+            # تبديل زرار "تشغيل الآن" بالـ 4 زرارير الكوستوم
+            await mystic.edit_reply_markup(reply_markup=button)
+            
+            # حفظ الرسالة في الداتابيز عشان التايمر يكمل تحديث عليها
+            db[chat_id][0]["mystic"] = mystic
+            db[chat_id][0]["markup"] = "custom"
         except Exception:
             pass
         return
