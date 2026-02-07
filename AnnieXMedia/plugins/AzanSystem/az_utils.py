@@ -1,13 +1,14 @@
 # Authored By Certified Coders (c) 2026
 # System: Azan Maestro (Enterprise V14 - Fixed & Compatible)
 # Location: AnnieXMedia/plugins/AzanSystem/az_utils.py
-# FIX: Restored 'check_rights' and DB functions to fix ImportError
+# FIX: Added 'extract_vidid' to resolve ImportError
 
 import asyncio
 import aiohttp
 import random
 import logging
 import pytz
+import re
 import functools
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -55,7 +56,7 @@ MAX_CONCURRENT_STREAMS = 15
 stream_semaphore = asyncio.Semaphore(MAX_CONCURRENT_STREAMS)
 
 # ==================================================================
-# [SECTION 1] Database & Rights Helpers (تمت إعادتها لإصلاح الخطأ)
+# [SECTION 1] Database & Rights Helpers
 # ==================================================================
 
 def retry_operation(max_retries=3, delay=2):
@@ -75,7 +76,11 @@ def retry_operation(max_retries=3, delay=2):
         return wrapper
     return decorator
 
-# 🛑 الدالة التي تسببت في الخطأ (تمت إعادتها)
+# 🛑 الدالة المفقودة (تمت إضافتها)
+def extract_vidid(url: str) -> Optional[str]:
+    match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
+    return match.group(1) if match else None
+
 async def check_rights(user_id: int, chat_id: int) -> bool:
     if user_id in DEVS: return True
     try:
@@ -102,7 +107,6 @@ async def get_chat_doc(chat_id: int) -> Dict[str, Any]:
     except Exception:
         return {}
 
-# 🛑 دالة التحديث (مهمة لملف az_admin)
 async def update_doc(chat_id: int, key: str, value, sub_key: str = None):
     try:
         if sub_key:
