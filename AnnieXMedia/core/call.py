@@ -1,10 +1,10 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Regex Validated Edition)
-# Fixes: "v=1" Error, Unsupported URL, Direct Stream Stability
+# System: Call Controller (Bypass Mode - No Checks)
+# Fixes: "rr3---sn-5h" Error, yt-dlp checks, Timeout
 
 import asyncio
 import os
-import re  # 🛑 إضافة Regex
+import re
 import traceback
 import yt_dlp
 from datetime import datetime, timedelta
@@ -58,7 +58,6 @@ counter = {}
 
 # --- [1] Strict ID Extractor ---
 def extract_video_id(url: str) -> Union[str, None]:
-    """استخراج ID اليوتيوب فقط إذا كان صحيحاً (11 حرف)"""
     pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11}).*'
     match = re.search(pattern, url)
     return match.group(1) if match else None
@@ -66,6 +65,7 @@ def extract_video_id(url: str) -> Union[str, None]:
 # --- [2] Local Link Extractor ---
 async def get_direct_link(videoid: str):
     link = f"https://www.youtube.com/watch?v={videoid}"
+    # نستخدم options بسيطة جداً للسرعة
     opts = {
         "format": "bestaudio/best",
         "quiet": True,
@@ -83,7 +83,7 @@ async def get_direct_link(videoid: str):
     except:
         return link
 
-# --- [3] Stream Settings ---
+# --- [3] Stream Settings (THE FIX IS HERE) ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
     titan_flags = (
         "-threads 2 "
@@ -105,8 +105,10 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         media_path=path,
         audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p, 
-        video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
-        audio_flags=MediaStream.Flags.REQUIRED,
+        # 🛑 المفتاح السحري: IGNORE
+        # ده بيخلي المكتبة متفحصش الرابط وتفتكره ID غلط، وتبعه لـ FFMPEG علطول
+        video_flags=MediaStream.Flags.IGNORE,
+        audio_flags=MediaStream.Flags.IGNORE,
         ffmpeg_parameters=titan_flags,
     )
 
@@ -193,15 +195,13 @@ class Call:
         assistant = await group_assistant(self, chat_id)
         
         final_link = link
-        # 🛑 FIX: التحقق الصارم من الـ ID قبل محاولة الاستخراج
         if "youtube" in link or "youtu.be" in link:
              vid_id = extract_video_id(link)
-             if vid_id: # لو فيه ID حقيقي 11 حرف
+             if vid_id: 
                  try:
                      direct = await get_direct_link(vid_id)
                      if direct: final_link = direct
                  except: pass
-             # لو مفيش ID، سيب الرابط زي ما هو (ممكن يكون رابط مباشر أصلاً)
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         
@@ -283,16 +283,18 @@ class Call:
         lang = await get_lang(chat_id)
         _ = get_string(lang)
         
-        # 🛑 FIX: استخراج الرابط المباشر فقط لو الـ ID سليم
+        # 1. Prepare Link
         final_link = link
+        # لو الرابط يوتيوب، نحاول نجيب المباشر (لو ID سليم)
         if "youtube" in link or "youtu.be" in link:
             vid_id = extract_video_id(link)
-            if vid_id: 
+            if vid_id:
                 try:
                     direct = await get_direct_link(vid_id)
                     if direct: final_link = direct
                 except: pass
-
+        
+        # 2. Create Stream (With IGNORE flags)
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         ksk = GroupCallConfig(auto_start=False)
 
@@ -317,6 +319,7 @@ class Call:
                     continue
                 raise AssistantErr(_["call_10"])
             except (asyncio.TimeoutError, asyncio.exceptions.CancelledError, Exception) as e:
+                # تجاهل Already Joined
                 if "already joined" in str(e).lower() or "active call" in str(e).lower():
                     break
                 
@@ -327,7 +330,6 @@ class Call:
                         await asyncio.sleep(2)
                         continue
                     else:
-                        LOGGER(__name__).error(f"💣 [JOIN FAILED] Chat: {chat_id} - Timeout/Blocked")
                         raise AssistantErr("فشل الاتصال بسبب ضغط الشبكة.")
                 else:
                     LOGGER(__name__).error(f"💣 [JOIN ERROR] {chat_id}: {e}")
@@ -414,22 +416,17 @@ class Call:
 
             try:
                 final_link = queued
-                # 🛑 FIX: استخدام نفس دالة التحقق هنا
+                # Resolve link if valid ID
                 if "live_" in queued or "vid_" in queued or "index_" in queued:
                     try:
-                        # التأكد أن videoid هو 11 حرف
                         if len(videoid) == 11:
                             direct_url = await get_direct_link(videoid)
-                            if direct_url:
-                                final_link = direct_url
+                            if direct_url: final_link = direct_url
                             else:
                                 try:
                                     path, is_direct = await YouTube.download(f"https://www.youtube.com/watch?v={videoid}", None, video=video, videoid=True)
                                     if path: final_link = path
                                 except: pass
-                        else:
-                            # لو الـ ID مضروب (زي "adhan"), استخدم الرابط/الملف الأصلي في queued
-                            pass
                     except: pass
 
                 stream = dynamic_media_stream(path=final_link, video=video)
