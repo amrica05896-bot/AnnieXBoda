@@ -1,8 +1,9 @@
 # Authored By Certified Coders (c) 2026
-# System: Azan Admin Panel (Clean & Professional Edition)
+# System: Azan Admin Panel (Timezone Fixed)
 # Location: AnnieXMedia/plugins/AzanSystem/az_admin.py
 
 import asyncio
+import pytz # 🛑 إضافة مكتبة التوقيت
 from datetime import datetime
 from pyrogram import filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -22,6 +23,9 @@ from .az_utils import (
     check_rights, get_chat_doc, update_doc, start_azan_stream, 
     get_azan_times, extract_vidid, scheduler, init_azan_scheduler
 )
+
+# --- [ الثوابت ] ---
+CAIRO_TZ = pytz.timezone('Africa/Cairo') # 🛑 تعريف توقيت القاهرة
 
 # --- [ 0. نظام التشغيل الآمن ] ---
 is_azan_system_started = False
@@ -52,7 +56,8 @@ async def next_prayer_info(client, message):
     if not times:
         return await message.reply_text("تعذر الحصول على المواقيت حالياً.")
 
-    now = datetime.now()
+    # 🛑 التصحيح هنا: نأخذ وقت القاهرة ونزيل معلومات المنطقة الزمنية ليطابق صيغة المواقيت
+    now = datetime.now(CAIRO_TZ).replace(tzinfo=None)
     
     text = "مواقيت الصلاة بتوقيت القاهرة:\n\n"
     next_prayer = None
@@ -60,7 +65,9 @@ async def next_prayer_info(client, message):
 
     for key, name in PRAYER_NAMES_AR.items():
         t = times[key]
+        # المواقيت تأتي بصيغة HH:MM بدون تاريخ، نضيف لها تاريخ اليوم
         prayer_time = datetime.strptime(t, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
+        
         display_time = prayer_time.strftime("%I:%M %p")
         
         diff = (prayer_time - now).total_seconds()
@@ -75,9 +82,14 @@ async def next_prayer_info(client, message):
         name, seconds = next_prayer
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
-        text += f"الصلاة القادمة: {name} (بعد {hours} ساعة و {minutes} دقيقة)."
+        
+        remaining = ""
+        if hours > 0: remaining += f"{hours} ساعة و "
+        remaining += f"{minutes} دقيقة"
+        
+        text += f"الصلاة القادمة: {name} (بعد {remaining})."
     else:
-        text += "انتهت صلوات اليوم."
+        text += "انتهت صلوات اليوم، موعدنا الفجر بإذن الله."
 
     await message.reply_text(text)
 
