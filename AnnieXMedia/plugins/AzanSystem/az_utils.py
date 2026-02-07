@@ -1,7 +1,7 @@
 # Authored By Certified Coders (c) 2026
 # System: Azan Maestro (Enterprise V14 - Fixed & Compatible)
 # Location: AnnieXMedia/plugins/AzanSystem/az_utils.py
-# FIX: Added 'extract_vidid' to resolve ImportError
+# FIX: Added 'extract_vidid' to resolve ImportError & Streamlined Stream Call
 
 import asyncio
 import aiohttp
@@ -76,7 +76,7 @@ def retry_operation(max_retries=3, delay=2):
         return wrapper
     return decorator
 
-# 🛑 الدالة المفقودة (تمت إضافتها)
+# 🛑 الدالة المفقودة (تمت إضافتها لمنع الأخطاء)
 def extract_vidid(url: str) -> Optional[str]:
     match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
     return match.group(1) if match else None
@@ -208,6 +208,7 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
             }
 
             # التشغيل عبر Stream.py (Force Play + Adhan Type)
+            # 🛑 لاحظ: streamtype="adhan" هي كلمة السر لإخفاء الأزرار
             await stream(
                 {}, 
                 mystic, 
@@ -217,8 +218,8 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
                 "Azan System", 
                 chat_id,
                 video=False,
-                streamtype="adhan", # لإخفاء الأزرار
-                forceplay=True # لفرض التشغيل
+                streamtype="adhan", 
+                forceplay=True 
             )
 
             if not force_test:
