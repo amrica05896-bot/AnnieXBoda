@@ -1,7 +1,7 @@
 # Authored By Certified Coders (c) 2026
-# System: Azan Maestro (Enterprise V14 - Fixed & Compatible)
+# System: Azan Maestro (Direct Call Engine Mode)
 # Location: AnnieXMedia/plugins/AzanSystem/az_utils.py
-# FIX: Force Assistant Join & Correct Client Passing
+# FIX: Direct StreamController call to bypass stream.py buttons logic.
 
 import asyncio
 import aiohttp
@@ -23,12 +23,12 @@ from pyrogram.errors import (
 )
 
 # --- [ Internal Imports ] ---
-from AnnieXMedia import app
-# 🛑 استيراد دالة التشغيل المركزية
-from AnnieXMedia.utils.stream.stream import stream
-# استيراد المساعدين لتجهيزهم
+from AnnieXMedia import app, YouTube
+# 🛑 استيراد المتحكم في الكول مباشرة (بدلاً من stream.py)
+from AnnieXMedia.core.call import StreamController
+from AnnieXMedia.utils.database import get_client, add_active_video_chat
+from AnnieXMedia.misc import db
 from AnnieXMedia.core.userbot import assistants
-from AnnieXMedia.utils.database import get_client
 
 # --- [ Configuration & Local DB ] ---
 from .az_conf import (
@@ -48,7 +48,7 @@ logging.basicConfig(
     format='%(asctime)s - [AzanEngine] - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-logger = logging.getLogger("Azan_Maestro_Pro")
+logger = logging.getLogger("Azan_Maestro_Direct")
 
 # --- [ Constants ] ---
 CAIRO_TZ = pytz.timezone('Africa/Cairo')
@@ -135,20 +135,12 @@ async def load_resources():
         logger.error(f"Resource Load Error: {e}")
 
 # ==================================================================
-# [SECTION 2] Smart Assistant Prep (The Glue)
+# [SECTION 2] Smart Assistant Prep
 # ==================================================================
 
 async def prepare_assistant_membership(chat_id: int):
-    """
-    يحاول التأكد من وجود المساعد في الجروب.
-    1. يحاول إضافة المساعد مباشرة عبر البوت.
-    2. لو فشل، بيحاول يخلي المساعد يدخل بنفسه.
-    """
     try:
-        # اختيار مساعد عشوائي
         userbot = await get_client(random.choice(assistants))
-        
-        # المحاولة 1: البوت يضيف المساعد
         try:
             await app.add_chat_members(chat_id, userbot.me.username)
             return True
@@ -157,17 +149,14 @@ async def prepare_assistant_membership(chat_id: int):
         except Exception:
             pass
 
-        # المحاولة 2: المساعد يدخل بنفسه
         try:
             await userbot.get_chat_member(chat_id, "me")
             return True 
         except UserNotParticipant:
             try:
-                # محاولة الحصول على رابط دعوة
                 try:
                     invite_link = await app.export_chat_invite_link(chat_id)
                 except:
-                    # لو البوت مش ادمن، يجرب يستخدم اليوزر نيم
                     chat = await app.get_chat(chat_id)
                     invite_link = chat.username
 
@@ -188,16 +177,29 @@ async def prepare_assistant_membership(chat_id: int):
         return False
 
 # ==================================================================
-# [SECTION 3] The Execution Engine (Simplified via Stream.py)
+# [SECTION 3] The Direct Execution Engine (StreamController Direct)
 # ==================================================================
+
+# Helper to join call safely across versions
+async def _direct_join_call(chat_id, file_path):
+    candidates = ["join_call", "join_stream", "join", "start_stream", "start_call"]
+    for name in candidates:
+        fn = getattr(StreamController, name, None)
+        if callable(fn):
+            try:
+                # محاولة الاتصال بالكول مباشرة
+                res = fn(chat_id, chat_id, file_path, video=False)
+                if asyncio.iscoroutine(res): await res
+                return True
+            except Exception:
+                continue
+    return False
 
 async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = None, force_test: bool = False):
     if not force_test:
         doc = await get_chat_doc(chat_id)
-        if not doc.get("azan_active", True):
-            return
-        if not doc.get("prayers", {}).get(prayer_key, True):
-            return
+        if not doc.get("azan_active", True): return
+        if not doc.get("prayers", {}).get(prayer_key, True): return
 
     async with stream_semaphore:
         try:
@@ -207,50 +209,62 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
             final_link = play_target if play_target else res.get("link")
             if not final_link: return
 
-            # إرسال الإشعار (الرسالة والاستيكر)
+            # 1. إيقاف أي بث حالي (Force Stop)
+            try:
+                stop_fn = getattr(StreamController, "force_stop_stream", None) or getattr(StreamController, "stop_stream", None)
+                if stop_fn: await stop_fn(chat_id)
+            except: pass
+
+            # 2. تنظيف الداتابيز وتجهيزها لوضع الأذان
+            db[chat_id] = []
+            await add_active_video_chat(chat_id)
+            
+            # إضافة بيانات وهمية عشان البوت ميفصلش الكول
+            # Markup = adhan (عشان التايمر ميبصش عليه)
+            db[chat_id].append({
+                "vidid": "adhan",
+                "title": f"أذان {res.get('name')}",
+                "duration": "04:00",
+                "streamtype": "adhan",
+                "by": "System",
+                "user_id": 777,
+                "chat_id": chat_id,
+                "file": final_link, # مهم جداً
+                "markup": "adhan",  # 🛑 السر هنا: مفيش مارك أب
+                "mystic": None,     # 🛑 مفيش رسالة يعدل عليها
+            })
+
+            # 3. التأكد من المساعد
+            await prepare_assistant_membership(chat_id)
+
+            # 4. تحميل الملف (لضمان إنه رابط مباشر أو ملف)
+            file_path = final_link
+            try:
+                # بنحاول نجيب الرابط المباشر لو هو رابط يوتيوب
+                if "http" in final_link and "youtu" in final_link:
+                     f_path, direct = await YouTube.download(final_link, None, video=False, videoid="adhan")
+                     if f_path: file_path = f_path
+            except:
+                pass
+
+            # 5. الانضمام للكول (تشغيل الصوت)
+            success = await _direct_join_call(chat_id, file_path)
+            if not success:
+                # محاولة أخيرة برابط مباشر بدون تحميل
+                await _direct_join_call(chat_id, final_link)
+
+            # 6. إرسال الاستيكر
             if res.get("sticker"):
                 try: await app.send_sticker(chat_id, res["sticker"])
                 except: pass
             
-            caption = f"<b>حان الآن موعد أذان {res.get('name','')}</b>\n<b>بالتوقيت المحلي لمدينة القاهرة 🕌</b>"
+            # 7. إرسال الرسالة النصية (بدون أزرار نهائياً)
+            caption = f"<b>🕌 حان الآن موعد أذان {res.get('name','')}</b>\n<b>حي على الصلاة، حي على الفلاح.</b>"
             try: 
-                mystic = await app.send_message(chat_id, caption)
-            except: 
-                return 
+                await app.send_message(chat_id, caption, reply_markup=None)
+            except: pass
 
-            # 🛑 خطوة مهمة: التأكد من وجود المساعد
-            is_in_chat = await prepare_assistant_membership(chat_id)
-            if not is_in_chat:
-                # لو فشل الدخول، نحاول مرة أخيرة بالدعوة المباشرة
-                try: 
-                    ub = await get_client(random.choice(assistants))
-                    await app.invite_chat_members(chat_id, ub.me.id)
-                except: pass
-
-            # تجهيز البيانات لملف Stream.py
-            stream_data = {
-                "link": final_link,
-                "vidid": f"azan_{prayer_key}",
-                "title": f"أذان {res.get('name', 'الصلاة')}",
-                "duration_min": "04:00",
-                "thumb": res.get("sticker") or None
-            }
-
-            # التشغيل عبر Stream.py
-            # 🛑 التصحيح: نمرر 'app' كـ client بدلاً من {}
-            await stream(
-                app, 
-                mystic, 
-                0, 
-                stream_data,
-                chat_id,
-                "Azan System", 
-                chat_id,
-                video=False,
-                streamtype="adhan", # لإخفاء الأزرار
-                forceplay=True # لفرض التشغيل (يوقف أي أغنية شغالة)
-            )
-
+            # 8. تسجيل في السجل
             if not force_test:
                 try:
                     now = datetime.now(CAIRO_TZ)
@@ -265,7 +279,7 @@ async def start_azan_stream(chat_id: int, prayer_key: str, play_target: str = No
 
         except Exception as e:
             logger.error(f"Azan Stream Failed {chat_id}: {e}")
-            if force_test: await app.send_message(chat_id, f"خطأ في البث: {e}\nتأكد من فتح المكالمة الصوتية.")
+            if force_test: await app.send_message(chat_id, f"خطأ في البث: {e}")
 
 # ==================================================================
 # [SECTION 4] Broadcaster & Scheduler
@@ -292,7 +306,18 @@ async def broadcast_azan(prayer_key: str):
         await asyncio.gather(*tasks, return_exceptions=True)
     logger.info("Azan Broadcast Finished.")
 
-async def send_duas_batch(dua_list, setting_key, title):
+async def send_duas_batch(dua_list, setting_key, title, target_chat_id=None):
+    # دعم الـ target_chat_id للتست الفردي
+    if target_chat_id:
+        selected = random.sample(dua_list, min(4, len(dua_list)))
+        text = f"<b>{title}</b>\n\n" + "\n\n".join([f"• {d} 🤍" for d in selected])
+        text += "\n\n<b>تقبل الله منا ومنكم</b>"
+        if CURRENT_DUA_STICKER:
+             try: await app.send_sticker(target_chat_id, CURRENT_DUA_STICKER)
+             except: pass
+        await app.send_message(target_chat_id, text)
+        return
+
     selected = random.sample(dua_list, min(4, len(dua_list)))
     text = f"<b>{title}</b>\n\n" + "\n\n".join([f"• {d} 🤍" for d in selected])
     text += "\n\n<b>تقبل الله منا ومنكم</b>"
