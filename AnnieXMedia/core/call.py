@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Seamless Transition Edition)
-# Fixes: "v=True" Bug, Assistant Leaving, SIGPIPE, NoneType
+# System: Call Controller (Local/Remote Flags Split)
+# Fixes: Assistant Leaving on Replay, RAM Cache Crash
 
 import asyncio
 import os
@@ -83,20 +83,36 @@ async def get_direct_link(videoid: str):
     except:
         return link
 
-# --- [3] Stream Settings ---
+# --- [3] Smart Stream Settings (The Fix) ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
-    titan_flags = (
-        "-threads 2 "
-        "-probesize 10M "
-        "-analyzeduration 10M "
-        "-rtbufsize 15M "
-        "-reconnect 1 "
-        "-reconnect_streamed 1 "
-        "-reconnect_on_network_error 1 "
-        "-reconnect_delay_max 5 "
-        "-fflags +genpts+igndts+nobuffer "
-        "-sync ext"
-    )
+    # 🛑 تحديد نوع المصدر (رابط ولا ملف)
+    is_url = path.startswith("http")
+    
+    if is_url:
+        # إعدادات قوية للروابط (عشان الشبكة)
+        titan_flags = (
+            "-threads 2 "
+            "-probesize 10M "
+            "-analyzeduration 10M "
+            "-rtbufsize 15M "
+            "-reconnect 1 "
+            "-reconnect_streamed 1 "
+            "-reconnect_on_network_error 1 "
+            "-reconnect_delay_max 5 "
+            "-fflags +genpts+igndts+nobuffer "
+            "-sync ext"
+        )
+    else:
+        # 🛑 إعدادات خفيفة للملفات المحلية (RAM/Disk)
+        # إزالة flags الـ reconnect لأنها بتسبب Crash مع الملفات المحلية
+        titan_flags = (
+            "-threads 2 "
+            "-probesize 10M "
+            "-analyzeduration 10M "
+            "-fflags +genpts+igndts+nobuffer "
+            "-sync ext"
+        )
+
     if ffmpeg_params:
         titan_flags += f" {ffmpeg_params}"
 
@@ -104,10 +120,8 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         media_path=path,
         audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p, 
-        # 🛑 REQUIRED للصوت لمنع SIGPIPE (السكوت)
-        audio_flags=MediaStream.Flags.REQUIRED,
-        # IGNORE للفيديو لو مش مطلوب لتخفيف الحمل
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
+        audio_flags=MediaStream.Flags.REQUIRED,
         ffmpeg_parameters=titan_flags,
     )
 
@@ -194,7 +208,6 @@ class Call:
         assistant = await group_assistant(self, chat_id)
         
         final_link = link
-        # 🛑 FIX: الحماية من NoneType Error
         if link and ("youtube" in link or "youtu.be" in link):
              vid_id = extract_video_id(link)
              if vid_id: 
@@ -207,15 +220,12 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         
-        # 🛑 منطق التبديل السلس (Seamless Switch)
-        # لو المساعد موجود، غير الاستريم وهو مكانه، متخرجش!
         if chat_id in self.active_calls:
             try:
                 await assistant.change_stream(chat_id, stream)
             except Exception:
-                # لو فشل التغيير فقط، جرب Play فوقه
                 try: await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=False))
-                except: pass # لا تخرج
+                except: pass 
         else:
             await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=False))
 
@@ -300,13 +310,12 @@ class Call:
         ksk = GroupCallConfig(auto_start=False)
 
         try:
-            # 🛑 FIX: لو المساعد موجود، غير الاستريم ومتمشيش!
             if chat_id in self.active_calls:
                 try:
                     await assistant.change_stream(chat_id, stream)
-                    return # نجحنا، مع السلامة
+                    return 
                 except:
-                    pass # لو فشل التغيير، كمل وحاول تلعب
+                    pass 
         except: pass
 
         retries = 3
@@ -324,7 +333,6 @@ class Call:
                     continue
                 raise AssistantErr(_["call_10"])
             except (asyncio.TimeoutError, asyncio.exceptions.CancelledError, Exception) as e:
-                # لو قال "أنا موجود أصلاً"، يبقى تمام، غير الاستريم
                 if "already joined" in str(e).lower() or "active call" in str(e).lower():
                     try: await assistant.change_stream(chat_id, stream)
                     except: pass
@@ -402,19 +410,15 @@ class Call:
             
             async def _play_stream(stream_obj):
                 try:
-                    # 🛑 FIX: محاولة التبديل أولاً
                     if chat_id in self.active_calls:
                         await client.change_stream(chat_id, stream_obj)
                     else:
                         await client.play(chat_id, stream_obj)
                 except Exception as e:
-                    # لو فشل، حاول تاني Change Stream (ممكن كان فيه خطأ عابر)
                     try:
                         await client.change_stream(chat_id, stream_obj)
                         return
                     except: pass
-                    
-                    # الخروج والدخول هو الحل الأخير فقط
                     try:
                         await client.leave_call(chat_id)
                         await asyncio.sleep(0.5)
@@ -431,13 +435,11 @@ class Call:
                             if direct_url: final_link = direct_url
                             else:
                                 try:
-                                    # 🛑🛑🛑 [THE BIG FIX] 🛑🛑🛑
-                                    # تمرير videoid الصحيح بدلاً من True
                                     path, is_direct = await YouTube.download(
                                         f"https://www.youtube.com/watch?v={videoid}",
                                         None,
                                         video=video,
-                                        videoid=videoid # <-- هنا كان الغلط وتم تصحيحه
+                                        videoid=videoid 
                                     )
                                     if path: final_link = path
                                 except: pass
