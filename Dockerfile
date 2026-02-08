@@ -18,8 +18,8 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         git ffmpeg curl unzip build-essential python3-dev \
-        libffi-dev libxml2-dev libxslt-dev zlib1g-dev gcc \
-        aria2 ca-certificates && \
+        libffi-dev libxml2-dev libxslt-dev zlib1g-dev gcc g++ \
+        aria2 ca-certificates findutils && \
     \
     # Node.js (YouTube Cipher Engine 1)
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
@@ -67,6 +67,18 @@ RUN mkdir -p /etc/yt-dlp && \
 # Copy Bot Source
 # ===============================
 COPY . .
+
+# ===============================
+# ⚙️ Auto-Compile ALL C++ Files
+# ===============================
+# هذا الكود سيبحث عن أي ملف ينتهي بـ .cpp في المشروع ويحوله لمكتبة .so
+RUN find . -name "*.cpp" -type f | while read file; do \
+        filename=$(basename "$file" .cpp); \
+        dirname=$(dirname "$file"); \
+        echo "🔨 Compiling C++ File: $file ..."; \
+        g++ -shared -o "$dirname/$filename.so" -fPIC "$file"; \
+    done && \
+    echo "✅ All C++ modules compiled successfully."
 
 # ===============================
 # Launch 🚀
