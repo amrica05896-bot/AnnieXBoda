@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Local/Remote Flags Split)
-# Fixes: Assistant Leaving on Replay, RAM Cache Crash
+# System: Call Controller (Force Video Fetch Edition)
+# Fixes: Re-fetching Video if Cache is Audio, Assistant Stability
 
 import asyncio
 import os
@@ -83,13 +83,12 @@ async def get_direct_link(videoid: str):
     except:
         return link
 
-# --- [3] Smart Stream Settings (The Fix) ---
+# --- [3] Stream Settings ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
-    # 🛑 تحديد نوع المصدر (رابط ولا ملف)
     is_url = path.startswith("http")
     
     if is_url:
-        # إعدادات قوية للروابط (عشان الشبكة)
+        # إعدادات الروابط (Network)
         titan_flags = (
             "-threads 2 "
             "-probesize 10M "
@@ -103,8 +102,7 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
             "-sync ext"
         )
     else:
-        # 🛑 إعدادات خفيفة للملفات المحلية (RAM/Disk)
-        # إزالة flags الـ reconnect لأنها بتسبب Crash مع الملفات المحلية
+        # إعدادات الملفات المحلية (Local) - بدون reconnect لمنع الكراش
         titan_flags = (
             "-threads 2 "
             "-probesize 10M "
@@ -120,6 +118,7 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         media_path=path,
         audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p, 
+        # هنا بنجبر الفيديو يكون مطلوب لو المستخدم طلبه
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
         ffmpeg_parameters=titan_flags,
@@ -208,6 +207,7 @@ class Call:
         assistant = await group_assistant(self, chat_id)
         
         final_link = link
+        # 🛑 FIX: التحقق من الرابط وإصلاحه
         if link and ("youtube" in link or "youtu.be" in link):
              vid_id = extract_video_id(link)
              if vid_id: 
@@ -217,6 +217,16 @@ class Call:
                  except: pass
 
         if not final_link: return
+
+        # 🛑 [Video Enforcement] لو طلبنا فيديو والرابط محلي صوتي، هات رابط مباشر جديد
+        if video and final_link.endswith((".mp3", ".m4a", ".flac", ".opus")):
+             vid_id = extract_video_id(link)
+             if vid_id:
+                 try:
+                     # هنا بنجيب رابط مباشر (بيكون فيه فيديو وصوت) بدل الملف الصوتي المخزن
+                     new_link = await get_direct_link(vid_id)
+                     if new_link: final_link = new_link
+                 except: pass
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         
@@ -306,6 +316,15 @@ class Call:
                     if direct: final_link = direct
                 except: pass
 
+        # 🛑 [Video Enforcement] في دالة join_call أيضاً
+        if video and final_link and final_link.endswith((".mp3", ".m4a", ".flac", ".opus")):
+             vid_id = extract_video_id(link)
+             if vid_id:
+                 try:
+                     new_link = await get_direct_link(vid_id)
+                     if new_link: final_link = new_link
+                 except: pass
+
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         ksk = GroupCallConfig(auto_start=False)
 
@@ -326,6 +345,17 @@ class Call:
             except NoActiveGroupCall:
                 raise AssistantErr(_["call_8"])
             except (NoAudioSourceFound, NoVideoSourceFound):
+                # لو فشل الفيديو، ده معناه إن المصدر نفسه بايظ، مش هنحول صوت
+                # لكن ممكن نعمل محاولة أخيرة برابط مباشر جديد لو فشل الأول
+                if video and attempt < 1:
+                     vid_id = extract_video_id(link)
+                     if vid_id:
+                         try:
+                             direct = await get_direct_link(vid_id)
+                             stream = dynamic_media_stream(path=direct, video=True)
+                             await assistant.play(chat_id, stream, config=ksk)
+                             break
+                         except: pass
                 raise AssistantErr(_["call_11"])
             except (ConnectionNotFound, TelegramServerError):
                 if attempt < retries - 1:
@@ -376,12 +406,14 @@ class Call:
                 await set_loop(chat_id, loop)
             await auto_clean(popped)
             
+            # 🛑 [FIX] تأكيد الخروج إذا انتهت القائمة
             if not check:
                 await _clear_(chat_id)
-                if chat_id in self.active_calls:
-                    try: await client.leave_call(chat_id)
-                    except: pass
-                    finally: self.active_calls.discard(chat_id)
+                try: 
+                    await client.leave_call(chat_id)
+                except: pass
+                finally: 
+                    self.active_calls.discard(chat_id)
                 return
         except:
             try:
@@ -444,6 +476,15 @@ class Call:
                                     if path: final_link = path
                                 except: pass
                     except: pass
+
+                # 🛑 [Video Enforcement] في دالة Play أيضاً
+                # لو الملف محلي وصوتي، بس مطلوب فيديو، نتجاهل المحلي ونجيب رابط مباشر جديد
+                if video and final_link and final_link.endswith((".mp3", ".m4a", ".flac", ".opus")):
+                     if videoid and len(videoid) == 11:
+                         try:
+                             new_link = await get_direct_link(videoid)
+                             if new_link: final_link = new_link
+                         except: pass
 
                 stream = dynamic_media_stream(path=final_link, video=video)
                 await _play_stream(stream)
