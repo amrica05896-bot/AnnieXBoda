@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Force Video Fetch Edition)
-# Fixes: Re-fetching Video if Cache is Audio, Assistant Stability
+# System: Call Controller (Stable & Strict Edition)
+# Fixes: Auto-Leave, Force Video, ID Sanitization, Local Crash
 
 import asyncio
 import os
@@ -56,15 +56,20 @@ from AnnieXMedia.utils.errors import capture_internal_err
 autoend = {}
 counter = {}
 
-# --- [1] Strict ID Extractor ---
+# --- [1] Helpers ---
+def clean_vidid(vid):
+    if vid is True or vid is False: return None
+    if not vid: return None
+    return str(vid)
+
 def extract_video_id(url: str) -> Union[str, None]:
     if not url: return None
     pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)'
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
-# --- [2] Local Link Extractor ---
 async def get_direct_link(videoid: str):
+    if not videoid or len(videoid) != 11: return None
     link = f"https://www.youtube.com/watch?v={videoid}"
     opts = {
         "format": "bestaudio/best",
@@ -83,12 +88,15 @@ async def get_direct_link(videoid: str):
     except:
         return link
 
-# --- [3] Stream Settings ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
+    if not path: path = ""
     is_url = path.startswith("http")
     
+    # 🛑 Anti-Crash: Last line of defense against MP3s treated as Video
+    if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")):
+        video = False
+
     if is_url:
-        # إعدادات الروابط (Network)
         titan_flags = (
             "-threads 2 "
             "-probesize 10M "
@@ -102,7 +110,6 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
             "-sync ext"
         )
     else:
-        # إعدادات الملفات المحلية (Local) - بدون reconnect لمنع الكراش
         titan_flags = (
             "-threads 2 "
             "-probesize 10M "
@@ -118,7 +125,6 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         media_path=path,
         audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p, 
-        # هنا بنجبر الفيديو يكون مطلوب لو المستخدم طلبه
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
         ffmpeg_parameters=titan_flags,
@@ -207,7 +213,6 @@ class Call:
         assistant = await group_assistant(self, chat_id)
         
         final_link = link
-        # 🛑 FIX: التحقق من الرابط وإصلاحه
         if link and ("youtube" in link or "youtu.be" in link):
              vid_id = extract_video_id(link)
              if vid_id: 
@@ -218,14 +223,14 @@ class Call:
 
         if not final_link: return
 
-        # 🛑 [Video Enforcement] لو طلبنا فيديو والرابط محلي صوتي، هات رابط مباشر جديد
+        # 🛑 Force Video Fetch Logic
         if video and final_link.endswith((".mp3", ".m4a", ".flac", ".opus")):
              vid_id = extract_video_id(link)
              if vid_id:
                  try:
-                     # هنا بنجيب رابط مباشر (بيكون فيه فيديو وصوت) بدل الملف الصوتي المخزن
                      new_link = await get_direct_link(vid_id)
-                     if new_link: final_link = new_link
+                     if new_link and not new_link.endswith(".mp3"): 
+                         final_link = new_link
                  except: pass
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
@@ -316,13 +321,13 @@ class Call:
                     if direct: final_link = direct
                 except: pass
 
-        # 🛑 [Video Enforcement] في دالة join_call أيضاً
         if video and final_link and final_link.endswith((".mp3", ".m4a", ".flac", ".opus")):
              vid_id = extract_video_id(link)
              if vid_id:
                  try:
                      new_link = await get_direct_link(vid_id)
-                     if new_link: final_link = new_link
+                     if new_link and not new_link.endswith(".mp3"): 
+                         final_link = new_link
                  except: pass
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
@@ -333,8 +338,7 @@ class Call:
                 try:
                     await assistant.change_stream(chat_id, stream)
                     return 
-                except:
-                    pass 
+                except: pass 
         except: pass
 
         retries = 3
@@ -345,16 +349,15 @@ class Call:
             except NoActiveGroupCall:
                 raise AssistantErr(_["call_8"])
             except (NoAudioSourceFound, NoVideoSourceFound):
-                # لو فشل الفيديو، ده معناه إن المصدر نفسه بايظ، مش هنحول صوت
-                # لكن ممكن نعمل محاولة أخيرة برابط مباشر جديد لو فشل الأول
                 if video and attempt < 1:
                      vid_id = extract_video_id(link)
                      if vid_id:
                          try:
                              direct = await get_direct_link(vid_id)
-                             stream = dynamic_media_stream(path=direct, video=True)
-                             await assistant.play(chat_id, stream, config=ksk)
-                             break
+                             if direct and not direct.endswith(".mp3"):
+                                 stream = dynamic_media_stream(path=direct, video=True)
+                                 await assistant.play(chat_id, stream, config=ksk)
+                                 break
                          except: pass
                 raise AssistantErr(_["call_11"])
             except (ConnectionNotFound, TelegramServerError):
@@ -406,7 +409,7 @@ class Call:
                 await set_loop(chat_id, loop)
             await auto_clean(popped)
             
-            # 🛑 [FIX] تأكيد الخروج إذا انتهت القائمة
+            # 🛑 [STRICT LEAVE] خروج فوري إذا القائمة فارغة
             if not check:
                 await _clear_(chat_id)
                 try: 
@@ -428,7 +431,8 @@ class Call:
             user = check[0]["by"]
             original_chat_id = check[0]["chat_id"]
             streamtype = check[0]["streamtype"]
-            videoid = check[0]["vidid"]
+            # 🛑 Clean ID
+            videoid = clean_vidid(check[0]["vidid"])
             db[chat_id][0]["played"] = 0
 
             exis = (check[0]).get("old_dur")
@@ -456,6 +460,9 @@ class Call:
                         await asyncio.sleep(0.5)
                         await client.play(chat_id, stream_obj)
                     except:
+                        await _clear_(chat_id)
+                        try: await client.leave_call(chat_id)
+                        except: pass
                         return await app.send_message(original_chat_id, text=_["call_6"])
 
             try:
@@ -467,23 +474,24 @@ class Call:
                             if direct_url: final_link = direct_url
                             else:
                                 try:
+                                    # 🛑 Pass None as videoid to prevent 'True' bug
                                     path, is_direct = await YouTube.download(
                                         f"https://www.youtube.com/watch?v={videoid}",
                                         None,
                                         video=video,
-                                        videoid=videoid 
+                                        videoid=None 
                                     )
                                     if path: final_link = path
                                 except: pass
                     except: pass
 
-                # 🛑 [Video Enforcement] في دالة Play أيضاً
-                # لو الملف محلي وصوتي، بس مطلوب فيديو، نتجاهل المحلي ونجيب رابط مباشر جديد
+                # 🛑 Force Video Fetch in Queue
                 if video and final_link and final_link.endswith((".mp3", ".m4a", ".flac", ".opus")):
                      if videoid and len(videoid) == 11:
                          try:
                              new_link = await get_direct_link(videoid)
-                             if new_link: final_link = new_link
+                             if new_link and not new_link.endswith(".mp3"): 
+                                 final_link = new_link
                          except: pass
 
                 stream = dynamic_media_stream(path=final_link, video=video)
@@ -513,6 +521,9 @@ class Call:
 
             except Exception:
                 LOGGER(__name__).error(f"💣 [PLAY ERROR] Chat: {chat_id}\n{traceback.format_exc()}")
+                await _clear_(chat_id)
+                try: await client.leave_call(chat_id)
+                except: pass
                 return await app.send_message(original_chat_id, text=_["call_6"])
 
     async def start(self) -> None:
