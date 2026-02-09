@@ -1,6 +1,7 @@
+
 # Authored By Certified Coders © 2026
-# System: Call Controller (Classic Mode + Modern Fixes)
-# Uses 'get_thumb' to match legacy files.
+# System: Call Controller (Crash Fixes & Strict Type Safety)
+# Fixes: NoneType in os.path, Boolean in VideoID, Audio/Video Switching
 
 import asyncio
 import os
@@ -50,14 +51,13 @@ from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.formatters import check_duration, seconds_to_min, speed_converter
 from AnnieXMedia.utils.inline.play import stream_markup
 from AnnieXMedia.utils.stream.autoclear import auto_clean
-# ✅ رجعنا get_thumb
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
 autoend = {}
 counter = {}
 
-# --- [1] Helpers ---
+# --- [1] Robust Helpers ---
 
 def clean_vidid(vid):
     """Sanitizes Video ID to ensure it's a valid string."""
@@ -101,7 +101,7 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
     path = str(path) # Ensure string
     is_url = path.startswith("http")
     
-    # 🛑 CRASH FIX: If local file is Audio, force Video=False
+    # 🛑 CRASH FIX: If local file is Audio, force Video=False to prevent NoVideoSource error
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")):
         video = False
 
@@ -224,20 +224,24 @@ class Call:
     async def skip_stream(self, chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
         
+        # 🛑 FIX: Handle NoneType link to prevent crash
         if not link:
+            # Try getting from DB or Queue if link is missing
             try:
                 check = db.get(chat_id)
                 if check: link = check[0]["file"]
             except: pass
-            if not link: return
+            if not link: return # If still None, abort safely
 
         final_link = link
         vid_id = extract_video_id(str(link))
 
+        # 🔥 SMART SWITCH: If Audio file exists but Video requested -> Fetch Direct Link
         if os.path.exists(str(link)) and video:
             if str(link).endswith((".mp3", ".m4a", ".flac", ".opus")):
                 if vid_id:
                     try:
+                        # Bypass RAM, fetch Direct Video
                         direct = await get_direct_link(vid_id, video=True)
                         if direct: final_link = direct
                     except: pass
@@ -331,6 +335,7 @@ class Call:
         final_link = link
         vid_id = extract_video_id(str(link))
 
+        # 🔥 SMART JOIN: If local audio exists but video requested -> Re-Fetch
         if os.path.exists(str(link)) and video and str(link).endswith((".mp3", ".m4a", ".flac", ".opus")):
              if vid_id:
                  try:
@@ -362,6 +367,7 @@ class Call:
             except NoActiveGroupCall:
                 raise AssistantErr(_["call_8"])
             except (NoAudioSourceFound, NoVideoSourceFound):
+                # Fallback: Video failed? Try Audio only (Last Resort)
                 if video and attempt == retries - 1:
                     try:
                         stream = dynamic_media_stream(path=final_link, video=False)
@@ -459,10 +465,13 @@ class Call:
                         await _clear_(chat_id)
                         return await app.send_message(original_chat_id, text=_["call_6"])
 
+            # Logic starts here
             try:
                 final_link = queued
                 vid_id = extract_video_id(str(queued)) or videoid 
 
+                # 🔥 QUEUE SMART CHECK:
+                # If cached file is Audio but Video is demanded, bypass cache.
                 if os.path.exists(str(queued)) and video:
                     if str(queued).endswith((".mp3", ".m4a", ".flac", ".opus")):
                         if vid_id:
@@ -471,13 +480,15 @@ class Call:
                                 if direct_url: final_link = direct_url
                             except: pass
                 
+                # Check 2: Live/Vid prefix
                 elif "live_" in queued or "vid_" in queued or "index_" in queued:
                     try:
                         if vid_id:
                             direct_url = await get_direct_link(vid_id, video=video)
-                            if direct: final_link = direct
+                            if direct_url: final_link = direct_url
                             else:
                                 try:
+                                    # Fix: Don't pass boolean as ID
                                     path, is_direct = await YouTube.download(
                                         f"https://www.youtube.com/watch?v={vid_id}",
                                         None,
@@ -491,7 +502,6 @@ class Call:
                 stream = dynamic_media_stream(path=final_link, video=video)
                 await _play_stream(stream)
 
-                # ✅ استخدام get_thumb الصحيح
                 img = await get_thumb(videoid)
                 button = stream_markup(_, chat_id)
                 
