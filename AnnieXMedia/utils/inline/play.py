@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# Module: Inline Keyboard Markups (Full & Fixed)
-# Features: Dynamic Progress Bar, Custom Boda Buttons, Fixed Missing Functions
+# Module: Inline Keyboard Markups (Universal Anti-Crash Edition)
+# Fixes: Accepts both (videoid, chat_id) AND (chat_id) signatures.
 
 import math
 import time
@@ -52,7 +52,7 @@ def control_buttons(chat_id):
 
 def stream_markup_timer(_, chat_id, played, dur):
     """
-    The Main Player UI with Timer and Progress Bar.
+    The Main Player UI with Timer.
     """
     if not should_update_progress(chat_id):
         return None
@@ -75,25 +75,33 @@ def stream_markup_timer(_, chat_id, played, dur):
             )
         ]
     ]
-    # 1. أزرار التحكم
+    # 1. Controls
     buttons.extend(control_buttons(chat_id))
     
-    # 2. ✅ الأزرار المزخرفة
+    # 2. Boda Buttons
     buttons.append([
         InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
         InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
     ])
     
-    # 3. زر الإغلاق
+    # 3. Close
     buttons.append([
         InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
     ])
     return buttons
 
-def stream_markup(_, chat_id):
+# ✅ الجوكر: بيستقبل المتغير الأول كـ videoid أو chat_id حسب اللي بيبعته الملف
+def stream_markup(_, arg1, arg2=None):
     """
-    Fallback markup for live streams.
+    Universal Stream Markup.
+    arg1: Can be chat_id OR videoid
+    arg2: If present, it's chat_id
     """
+    if arg2 is not None:
+        chat_id = arg2
+    else:
+        chat_id = arg1
+
     buttons = control_buttons(chat_id)
     
     buttons.append([
@@ -106,10 +114,16 @@ def stream_markup(_, chat_id):
     ])
     return buttons
 
-def telegram_markup(_, chat_id):
+# ✅ الجوكر أيضاً لملفات التيليجرام
+def telegram_markup(_, arg1, arg2=None):
     """
-    Markup for Telegram Audio Files.
+    Universal Telegram Markup.
     """
+    if arg2 is not None:
+        chat_id = arg2
+    else:
+        chat_id = arg1
+
     buttons = control_buttons(chat_id)
     
     buttons.append([
@@ -122,12 +136,9 @@ def telegram_markup(_, chat_id):
     ])
     return buttons
 
-# --- ✅ Missing Functions Added Below (aq_markup, close_markup) ---
+# --- Helper Markups (Added to prevent Import Errors) ---
 
 def aq_markup(_, chat_id):
-    """
-    Markup for 'Added to Queue' messages.
-    """
     buttons = [
         [
             InlineKeyboardButton(text="▷", callback_data=f"ADMIN Resume|{chat_id}"),
@@ -146,9 +157,6 @@ def aq_markup(_, chat_id):
     return buttons
 
 def close_markup(_):
-    """
-    Simple Close Button.
-    """
     return [
         [
             InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
