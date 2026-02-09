@@ -1,97 +1,56 @@
-# استخدام أحدث وأخف نسخة مستقرة
-FROM python:3.12-slim
+# ==========================================
+# 🚀 AnnieXBoda 2026 - Streamlined Version
+# Optimized for Speed & Light Deployment
+# ==========================================
 
-# ===============================
-# Performance & Runtime Tweaks
-# ===============================
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV PIP_NO_CACHE_DIR=1
-ENV DENO_INSTALL="/root/.deno"
-# إضافة مسار Deno ومسار Rust (Cargo) للمتغيرات العامة
-ENV PATH="${DENO_INSTALL}/bin:/root/.cargo/bin:${PATH}"
+FROM python:3.13-slim
+
+# التحسينات الأساسية للمحرك (بايثون 3.13 الخام)
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHON_JIT=on \
+    PIP_NO_CACHE_DIR=1 \
+    DENO_INSTALL="/root/.deno" \
+    PATH="/root/.deno/bin:${PATH}"
 
 WORKDIR /app
 
-# ===============================
-# System Engines (Speed Core)
-# ===============================
+# تثبيت الأدوات الأساسية فقط (FFmpeg هو العمود الفقري)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        git ffmpeg curl unzip build-essential python3-dev \
-        libffi-dev libxml2-dev libxslt-dev zlib1g-dev gcc g++ \
-        aria2 ca-certificates findutils && \
+        git ffmpeg curl unzip ca-certificates findutils \
+        # بنحتاج دول لبعض مكتبات بايثون اللي بتجمع نفسها
+        build-essential libffi-dev libssl-dev && \
     \
-    # Node.js (YouTube Cipher Engine 1)
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    # 🟢 Node.js (عشان محرك تشفير يوتيوب)
+    curl -fsSL https://deb.nodesource.com/setup_21.x | bash - && \
     apt-get install -y nodejs && \
     \
-    # Deno (YouTube Cipher Engine 2 – مهم جدًا 2026)
+    # 🦕 Deno (أسرع حل لفك شفرات يوتيوب في 2026)
     curl -fsSL https://deno.land/install.sh | sh && \
-    \
-    # 🦀 Rust Installer (The Speed King)
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# ===============================
-# Python Core Upgrade
-# ===============================
-RUN pip install --upgrade pip setuptools wheel
+# تحديث أدوات بايثون
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# ===============================
-# Local pytgcalls (Custom Build)
-# ===============================
+# التعامل مع المكتبات المحلية
 COPY pytgcalls /app/pytgcalls
-
-# ===============================
-# Python Libraries
-# ===============================
 COPY requirements.txt .
 
-# استبعاد pytgcalls / py-tgcalls لمنع التعارض
+# تثبيت المكتبات (باستثناء المحلي)
 RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
     pip install --no-cache-dir -r filtered.txt
 
-# ===============================
-# 🔥 UVLOOP + Network Boost
-# ===============================
-RUN pip install --no-cache-dir \
-    uvloop \
-    g4f \
-    curl_cffi
+# تثبيت المحركات المساعدة
+RUN pip install --no-cache-dir uvloop g4f curl_cffi
 
-# ===============================
-# yt-dlp Global Forced Config
-# ===============================
-RUN mkdir -p /etc/yt-dlp && \
-    echo "--remote-components ejs:github" > /etc/yt-dlp.conf
-
-# ===============================
-# Copy Bot Source
-# ===============================
+# نسخ الكود بالكامل
 COPY . .
 
-# ===============================
-# ⚙️ Auto-Compile Engines (C++ & Rust)
-# ===============================
-# 1. تجميع ملفات C++ (.cpp -> .so)
-RUN find . -name "*.cpp" -type f | while read file; do \
-        filename=$(basename "$file" .cpp); \
-        dirname=$(dirname "$file"); \
-        echo "🔨 Compiling C++: $file ..."; \
-        g++ -shared -o "$dirname/$filename.so" -fPIC "$file"; \
-    done && \
-# 2. تجميع ملفات Rust (.rs -> .so) بأقصى سرعة
-    find . -name "*.rs" -type f | while read file; do \
-        filename=$(basename "$file" .rs); \
-        dirname=$(dirname "$file"); \
-        echo "🦀 Compiling Rust: $file ..."; \
-        rustc --crate-type cdylib -C opt-level=3 -C target-cpu=native -o "$dirname/$filename.so" "$file"; \
-    done && \
-    echo "✅ All Native Engines compiled successfully."
+# زيادة حدود الملفات المفتوحة (عشان الـ 30 ألف مستخدم)
+RUN echo "* soft nofile 1048576" >> /etc/security/limits.conf && \
+    echo "* hard nofile 1048576" >> /etc/security/limits.conf
 
-# ===============================
-# Launch 🚀
-# ===============================
+# تشغيل البوت
 CMD ["python3", "run.py"]
