@@ -8,7 +8,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 ENV DENO_INSTALL="/root/.deno"
-ENV PATH="${DENO_INSTALL}/bin:${PATH}"
+# إضافة مسار Deno ومسار Rust (Cargo) للمتغيرات العامة
+ENV PATH="${DENO_INSTALL}/bin:/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
@@ -27,6 +28,9 @@ RUN apt-get update && \
     \
     # Deno (YouTube Cipher Engine 2 – مهم جدًا 2026)
     curl -fsSL https://deno.land/install.sh | sh && \
+    \
+    # 🦀 Rust Installer (The Speed King)
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -69,16 +73,23 @@ RUN mkdir -p /etc/yt-dlp && \
 COPY . .
 
 # ===============================
-# ⚙️ Auto-Compile ALL C++ Files
+# ⚙️ Auto-Compile Engines (C++ & Rust)
 # ===============================
-# هذا الكود سيبحث عن أي ملف ينتهي بـ .cpp في المشروع ويحوله لمكتبة .so
+# 1. تجميع ملفات C++ (.cpp -> .so)
 RUN find . -name "*.cpp" -type f | while read file; do \
         filename=$(basename "$file" .cpp); \
         dirname=$(dirname "$file"); \
-        echo "🔨 Compiling C++ File: $file ..."; \
+        echo "🔨 Compiling C++: $file ..."; \
         g++ -shared -o "$dirname/$filename.so" -fPIC "$file"; \
     done && \
-    echo "✅ All C++ modules compiled successfully."
+# 2. تجميع ملفات Rust (.rs -> .so) بأقصى سرعة
+    find . -name "*.rs" -type f | while read file; do \
+        filename=$(basename "$file" .rs); \
+        dirname=$(dirname "$file"); \
+        echo "🦀 Compiling Rust: $file ..."; \
+        rustc --crate-type cdylib -C opt-level=3 -C target-cpu=native -o "$dirname/$filename.so" "$file"; \
+    done && \
+    echo "✅ All Native Engines compiled successfully."
 
 # ===============================
 # Launch 🚀
