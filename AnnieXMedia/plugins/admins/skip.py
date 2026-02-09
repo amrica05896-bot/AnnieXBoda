@@ -1,6 +1,6 @@
-
 # Authored By Certified Coders 2026
 # Module: Skip Stream - Arabic Commands + Language Support
+# Fixed: Removed the 'videoid=True' boolean trap to restore 2-second speed.
 
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, Message
@@ -116,7 +116,8 @@ async def skip(cli, message: Message, _, chat_id):
         db[chat_id][0]["speed"] = 1.0
         
     if "live_" in queued:
-        n, link = await YouTube.video(videoid, True)
+        # ✅ تعديل 1: تمرير المتغير videoid بدل القيمة المنطقية
+        n, link = await YouTube.video(videoid, videoid)
         if n == 0:
             return await message.reply_text(_["admin_7"].format(title))
         try:
@@ -145,10 +146,11 @@ async def skip(cli, message: Message, _, chat_id):
     elif "vid_" in queued:
         mystic = await message.reply_text(_["call_7"], disable_web_page_preview=True)
         try:
+            # ✅ تعديل 2 (القاتل): تمرير videoid=videoid لضمان جلب الرابط المباشر فوراً
             file_path, direct = await YouTube.download(
                 videoid,
                 mystic,
-                videoid=True,
+                videoid=videoid, # كان مكتوب videoid=True وهذا هو سبب العطل
                 video=status,
             )
         except:
