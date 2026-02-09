@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Smart RAM Bypass)
-# Logic: If Video Requested & RAM has MP3 -> Ignore RAM & Force Fetch Video
+# System: Call Controller (Crash Fixes & Strict Type Safety)
+# Fixes: NoneType in os.path, Boolean in VideoID, Audio/Video Switching
 
 import asyncio
 import os
@@ -8,7 +8,7 @@ import re
 import traceback
 import yt_dlp
 from datetime import datetime, timedelta
-from typing import Union
+from typing import Union, Optional
 
 from ntgcalls import TelegramServerError, ConnectionNotFound
 from pyrogram import Client
@@ -56,24 +56,26 @@ from AnnieXMedia.utils.errors import capture_internal_err
 autoend = {}
 counter = {}
 
-# --- [1] Helpers & Titan Config ---
+# --- [1] Robust Helpers ---
 
 def clean_vidid(vid):
-    if vid is True or vid is False: return None
-    if not vid: return None
+    """Sanitizes Video ID to ensure it's a valid string."""
+    if vid is None or vid is True or vid is False: 
+        return None
     return str(vid)
 
 def extract_video_id(url: str) -> Union[str, None]:
-    if not url: return None
+    if not url or not isinstance(url, str): return None
     pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)'
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
 async def get_direct_link(videoid: str, video: bool = False):
-    if not videoid or len(videoid) != 11: return None
-    link = f"https://www.youtube.com/watch?v={videoid}"
+    """Fetches direct URL with strict format selection."""
+    clean_id = clean_vidid(videoid)
+    if not clean_id or len(clean_id) != 11: return None
     
-    # تفضيل صيغة الفيديو لو الطلب فيديو
+    link = f"https://www.youtube.com/watch?v={clean_id}"
     fmt = "best[ext=mp4]/best" if video else "bestaudio/best"
     
     opts = {
@@ -95,12 +97,14 @@ async def get_direct_link(videoid: str, video: bool = False):
 
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
     if not path: path = ""
+    path = str(path) # Ensure string
     is_url = path.startswith("http")
     
-    # 🛑 حماية نهائية: لو الملف وصل هنا وهو صوتي، لازم نقفل الفيديو عشان الكراش
-    if path and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")):
+    # 🛑 CRASH FIX: If local file is Audio, force Video=False to prevent NoVideoSource error
+    if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")):
         video = False
 
+    # Titan Flags
     if is_url:
         titan_flags = (
             "-threads 4 "
@@ -219,21 +223,29 @@ class Call:
     async def skip_stream(self, chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
         
-        final_link = link
-        vid_id = extract_video_id(link)
+        # 🛑 FIX: Handle NoneType link to prevent crash
+        if not link:
+            # Try getting from DB or Queue if link is missing
+            try:
+                check = db.get(chat_id)
+                if check: link = check[0]["file"]
+            except: pass
+            if not link: return # If still None, abort safely
 
-        # 🔥 المنطق الذكي 1: لو الرابط ملف محلي (RAM) بس نوعه غلط، تجاهله وهات رابط جديد
-        if os.path.exists(link):
-            if video and link.endswith((".mp3", ".m4a", ".flac", ".opus")):
-                # الملف في الرام صوت، بس إحنا عاوزين فيديو.. تجاهل الرام
+        final_link = link
+        vid_id = extract_video_id(str(link))
+
+        # 🔥 SMART SWITCH: If Audio file exists but Video requested -> Fetch Direct Link
+        if os.path.exists(str(link)) and video:
+            if str(link).endswith((".mp3", ".m4a", ".flac", ".opus")):
                 if vid_id:
                     try:
-                        # Force Video Fetch
-                        new_link = await get_direct_link(vid_id, video=True)
-                        if new_link: final_link = new_link
+                        # Bypass RAM, fetch Direct Video
+                        direct = await get_direct_link(vid_id, video=True)
+                        if direct: final_link = direct
                     except: pass
         
-        elif link and ("youtube" in link or "youtu.be" in link):
+        elif link and ("youtube" in str(link) or "youtu.be" in str(link)):
              if vid_id: 
                  try:
                      direct = await get_direct_link(vid_id, video=bool(video))
@@ -320,18 +332,17 @@ class Call:
         _ = get_string(lang)
         
         final_link = link
-        vid_id = extract_video_id(link)
+        vid_id = extract_video_id(str(link))
 
-        # 🔥 المنطق الذكي 2: عند الانضمام، لو الرابط ملف محلي وصيغته غلط، هات رابط مباشر جديد
-        if os.path.exists(link) and video and link.endswith((".mp3", ".m4a", ".flac", ".opus")):
+        # 🔥 SMART JOIN: If local audio exists but video requested -> Re-Fetch
+        if os.path.exists(str(link)) and video and str(link).endswith((".mp3", ".m4a", ".flac", ".opus")):
              if vid_id:
                  try:
-                     # Bypass RAM, fetch Direct Video Link
                      direct = await get_direct_link(vid_id, video=True)
                      if direct: final_link = direct
                  except: pass
         
-        elif link and ("youtube" in link or "youtu.be" in link):
+        elif link and ("youtube" in str(link) or "youtu.be" in str(link)):
             if vid_id: 
                 try:
                     direct = await get_direct_link(vid_id, video=bool(video))
@@ -355,8 +366,8 @@ class Call:
             except NoActiveGroupCall:
                 raise AssistantErr(_["call_8"])
             except (NoAudioSourceFound, NoVideoSourceFound):
-                # Fallback Logic
-                if video:
+                # Fallback: Video failed? Try Audio only (Last Resort)
+                if video and attempt == retries - 1:
                     try:
                         stream = dynamic_media_stream(path=final_link, video=False)
                         await assistant.play(chat_id, stream, config=ksk)
@@ -456,35 +467,32 @@ class Call:
             # Logic starts here
             try:
                 final_link = queued
-                vid_id = extract_video_id(queued) or videoid 
+                vid_id = extract_video_id(str(queued)) or videoid 
 
-                # 🔥 المنطق الذكي 3: (QUEUE CHECK)
-                # لو الملف موجود في الرام (مسار محلي) بس إحنا طالبين فيديو والملف صوتي
-                if os.path.exists(queued) and video:
-                    if queued.endswith((".mp3", ".m4a", ".flac", ".opus")):
-                        # تجاهل الرام وهات رابط فيديو جديد
-                        if vid_id and len(vid_id) == 11:
+                # 🔥 QUEUE SMART CHECK:
+                # If cached file is Audio but Video is demanded, bypass cache.
+                if os.path.exists(str(queued)) and video:
+                    if str(queued).endswith((".mp3", ".m4a", ".flac", ".opus")):
+                        if vid_id:
                             try:
                                 direct_url = await get_direct_link(vid_id, video=True)
-                                if direct_url: 
-                                    final_link = direct_url
-                                    # تحديث القائمة عشان مايقرأش الملف القديم تاني
-                                    # db[chat_id][0]["file"] = direct_url 
+                                if direct_url: final_link = direct_url
                             except: pass
                 
                 # Check 2: Live/Vid prefix
                 elif "live_" in queued or "vid_" in queued or "index_" in queued:
                     try:
-                        if vid_id and len(vid_id) == 11:
+                        if vid_id:
                             direct_url = await get_direct_link(vid_id, video=video)
                             if direct_url: final_link = direct_url
                             else:
                                 try:
+                                    # Fix: Don't pass boolean as ID
                                     path, is_direct = await YouTube.download(
                                         f"https://www.youtube.com/watch?v={vid_id}",
                                         None,
                                         video=video,
-                                        videoid=None 
+                                        videoid=vid_id 
                                     )
                                     if path: final_link = path
                                 except: pass
