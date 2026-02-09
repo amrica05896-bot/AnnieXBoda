@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# Module: Inline Keyboard Markups (Custom Boda Decoration)
-# Features: Dynamic Progress Bar, Smart Caching, Decorated Owner/Channel Buttons
+# Module: Inline Keyboard Markups (Fixed for Stream.py Compatibility)
+# Features: Dynamic Progress Bar, Custom Boda Buttons Only (No Support)
 
 import math
 import time
@@ -78,7 +78,7 @@ def stream_markup_timer(_, chat_id, played, dur):
     # 1. أزرار التحكم
     buttons.extend(control_buttons(chat_id))
     
-    # 2. ✅ الأزرار المزخرفة (تحت التحكم مباشرة)
+    # 2. ✅ الأزرار المزخرفة فقط (بدون support)
     buttons.append([
         InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
         InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
@@ -90,13 +90,14 @@ def stream_markup_timer(_, chat_id, played, dur):
     ])
     return buttons
 
-def stream_markup(_, videoid, chat_id):
+# ✅ هام جداً: حذفنا videoid من هنا عشان التوافق مع stream.py
+def stream_markup(_, chat_id):
     """
-    Fallback markup for live streams or when timer isn't ready.
+    Fallback markup for live streams.
     """
     buttons = control_buttons(chat_id)
     
-    # ✅ الأزرار المزخرفة
+    # ✅ الأزرار المزخرفة فقط
     buttons.append([
         InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
         InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
@@ -113,7 +114,7 @@ def telegram_markup(_, chat_id):
     """
     buttons = control_buttons(chat_id)
     
-    # ✅ الأزرار المزخرفة
+    # ✅ الأزرار المزخرفة فقط
     buttons.append([
         InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
         InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
