@@ -1,57 +1,74 @@
-
-# ==========================================
-# 🚀 AnnieXBoda 2026 - Streamlined Version
-# Optimized for Speed & Light Deployment
-# ==========================================
-
+# استخدام أحدث وأخف نسخة مستقرة
 FROM python:3.13-slim
 
-# التحسينات الأساسية للمحرك (بايثون 3.13 الخام)
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHON_JIT=on \
-    PIP_NO_CACHE_DIR=1 \
-    DENO_INSTALL="/root/.deno" \
-    PATH="/root/.deno/bin:${PATH}"
+# ===============================
+# Performance & Runtime Tweaks
+# ===============================
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+ENV DENO_INSTALL="/root/.deno"
+ENV PATH="${DENO_INSTALL}/bin:${PATH}"
 
 WORKDIR /app
 
-# تثبيت الأدوات الأساسية فقط (FFmpeg هو العمود الفقري)
+# ===============================
+# System Engines (Speed Core)
+# ===============================
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        git ffmpeg curl unzip ca-certificates findutils \
-        # بنحتاج دول لبعض مكتبات بايثون اللي بتجمع نفسها
-        build-essential libffi-dev libssl-dev && \
+        git ffmpeg curl unzip build-essential python3-dev \
+        libffi-dev libxml2-dev libxslt-dev zlib1g-dev gcc \
+        aria2 ca-certificates && \
     \
-    # 🟢 Node.js (عشان محرك تشفير يوتيوب)
-    curl -fsSL https://deb.nodesource.com/setup_21.x | bash - && \
+    # Node.js (YouTube Cipher Engine 1)
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
     \
-    # 🦕 Deno (أسرع حل لفك شفرات يوتيوب في 2026)
+    # Deno (YouTube Cipher Engine 2 – مهم جدًا 2026)
     curl -fsSL https://deno.land/install.sh | sh && \
     \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# تحديث أدوات بايثون
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+# ===============================
+# Python Core Upgrade
+# ===============================
+RUN pip install --upgrade pip setuptools wheel
 
-# التعامل مع المكتبات المحلية
+# ===============================
+# Local pytgcalls (Custom Build)
+# ===============================
 COPY pytgcalls /app/pytgcalls
+
+# ===============================
+# Python Libraries
+# ===============================
 COPY requirements.txt .
 
-# تثبيت المكتبات (باستثناء المحلي)
+# استبعاد pytgcalls / py-tgcalls لمنع التعارض
 RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
     pip install --no-cache-dir -r filtered.txt
 
-# تثبيت المحركات المساعدة
-RUN pip install --no-cache-dir uvloop g4f curl_cffi
+# ===============================
+# 🔥 UVLOOP + Network Boost
+# ===============================
+RUN pip install --no-cache-dir \
+    uvloop \
+    g4f \
+    curl_cffi
 
-# نسخ الكود بالكامل
+# ===============================
+# yt-dlp Global Forced Config
+# ===============================
+RUN mkdir -p /etc/yt-dlp && \
+    echo "--remote-components ejs:github" > /etc/yt-dlp.conf
+
+# ===============================
+# Copy Bot Source
+# ===============================
 COPY . .
 
-# زيادة حدود الملفات المفتوحة (عشان الـ 30 ألف مستخدم)
-RUN echo "* soft nofile 1048576" >> /etc/security/limits.conf && \
-    echo "* hard nofile 1048576" >> /etc/security/limits.conf
-
-# تشغيل البوت
+# ===============================
+# Launch 🚀
+# ===============================
 CMD ["python3", "run.py"]
