@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # Module: Youtube Resolver (Native Speed Edition ⚡)
-# Optimized: No Aria2, Multi-threaded Native DL, Fast API Search
+# Optimized: Node.js JS-Runtime, EJS Solver, Hybrid Client Selection, No-Fail Formats
 
 import asyncio
 import contextlib
@@ -16,7 +16,7 @@ import aiohttp
 import yt_dlp
 from youtubesearchpython.aio import VideosSearch
 
-# Optional faster JSON parser
+# ✅ أسرع معالج بيانات JSON متاح
 try:
     import orjson as _orjson
     def _loads_bytes(b: bytes):
@@ -31,7 +31,7 @@ if not log.handlers:
     logging.basicConfig(level=logging.INFO)
 log.setLevel(logging.INFO)
 
-# Tunables (Native Speed Optimization)
+# --- [ ⚙️ إعدادات الأداء العالي ] ---
 MAX_YTDLP_THREADS = 16 
 MAX_CONCURRENT_EXTRACTS = 10
 YTDLP_SOCKET_TIMEOUT = 5
@@ -57,19 +57,22 @@ _direct_cache_lock = asyncio.Lock()
 _meta_cache: Dict[str, Tuple[float, Dict[str, Any], str]] = {}
 _meta_cache_lock = asyncio.Lock()
 
-# ✅ القالب الموحد للإعدادات السريعة (EJS Solver)
+# ✅ القالب الموحد للإعدادات السريعة (تجاوز PO Token و Signature)
 YTDL_TURBO_OPTS = {
     "quiet": True,
     "no_warnings": True,
-    "remote_components": "ejs:github", # 🔥 حل Signature & n-parameter
+    "remote_components": ["ejs:github"], # 🔥 مصفوفة لمنع خطأ تجزئة الحروف
     "socket_timeout": YTDLP_SOCKET_TIMEOUT,
     "extractor_args": {
         "youtube": {
-            "player_client": ["android", "web"],
+            # استخدام الويب والـ iOS لتجنب قيود الأندرويد الصارمة
+            "player_client": ["web", "ios"],
             "player_skip": ["webpage", "configs"]
         }
     },
+    "js_runtimes": {"node": {"path": "/usr/bin/node"}}, # 🔥 إجبار استخدام المحرك المثبت
     "force_ipv4": True,
+    "cachedir": os.path.join(os.getcwd(), ".cache"), # تحسين الأداء في بيئات الحاويات
 }
 
 COOKIE_PATHS = [
@@ -316,7 +319,8 @@ class YouTubeAPI:
 
     async def formats(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[List[Dict[str, Any]], str]:
         prepared = _normalize_link(link, videoid)
-        ytdl_opts = {"quiet": True, "cookiefile": self.cookie}
+        # استخدام إعدادات توربو حتى في استخراج الجودات لضمان عدم الفشل
+        ytdl_opts = {**YTDL_TURBO_OPTS, "cookiefile": self.cookie}
         out: List[Dict[str, Any]] = []
         try:
             with yt_dlp.YoutubeDL(ytdl_opts) as ydl:
@@ -351,9 +355,11 @@ class YouTubeAPI:
         async with self.sema:
             loop = asyncio.get_running_loop()
             def _extract_info_blocking():
-                # ✅ حقن إعدادات الـ EJS والـ Player Client
+                # استخدام المنطق المرن لمنع خطأ Requested format not available
+                fmt = "bestaudio/best" if prefer_audio else "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
                 ydl_opts = {
                     **YTDL_TURBO_OPTS,
+                    "format": fmt,
                     "noplaylist": True,
                     "skip_download": True,
                 }
@@ -368,7 +374,7 @@ class YouTubeAPI:
             info = await loop.run_in_executor(self.pool, _extract_info_blocking)
 
         if not info or (isinstance(info, dict) and info.get("_err")):
-            # Fallback 1: Subprocess with ejs:github
+            # Fallback 1: Subprocess with ejs:github (Native CLI)
             try:
                 cmd = ["yt-dlp", "-g", "--remote-components", "ejs:github", "--no-warnings", "--force-ipv4", prepared]
                 if self.cookie:
@@ -452,16 +458,20 @@ class YouTubeAPI:
 
         loop = asyncio.get_running_loop()
 
-        # 2) Specific Format Download
+        # 2) Specific Format Download (مع Fallback للأفضل في حال تعذر الـ ID)
         if format_id:
             def _specific():
                 try:
+                    # إضافة /best لضمان عدم توقف العملية عند خطأ Format Not Available
+                    fid = str(format_id)
+                    final_f = f"{fid}+140/best" if songvideo else f"{fid}/best"
+                    
                     opts = {
                         **YTDL_TURBO_OPTS,
-                        "format": (f"{format_id}+140" if songvideo else format_id),
+                        "format": final_f,
                         "outtmpl": f"{ram_base}.%(ext)s",
                         "cookiefile": get_cookie_file(),
-                        "concurrent_fragment_downloads": 10, # 🔥 استغلال الكورات
+                        "concurrent_fragment_downloads": 10,
                         "buffersize": 1024 * 1024,
                     }
                     if songaudio:
@@ -477,7 +487,7 @@ class YouTubeAPI:
                         return path
                 except: return None
             res = await loop.run_in_executor(self.pool, _specific)
-            return (res, False) if res else (None, False)
+            if res: return res, False
 
         # 3) Direct Link (Native Background DL)
         direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
@@ -485,17 +495,17 @@ class YouTubeAPI:
             loop.run_in_executor(self.pool, lambda: self._background_download(prepared, f"{ram_base}.%(ext)s", is_video))
             return direct, True
 
-        # 4) Fallback Download (Native Speed)
+        # 4) Fallback Download (Native Speed - المرونة القصوى)
         def _fallback():
             try:
-                fmt = "bestvideo[height<=720]+bestaudio/best[height<=720]/best" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
+                fmt = "bestvideo[height<=720]+bestaudio/best" if is_video else "bestaudio/best"
                 ydl_opts = {
                     **YTDL_TURBO_OPTS,
                     "format": fmt,
                     "outtmpl": f"{ram_base}.%(ext)s",
                     "cookiefile": get_cookie_file(),
                     "prefer_ffmpeg": True,
-                    "concurrent_fragment_downloads": 10, # 🔥 استغلال الكورات
+                    "concurrent_fragment_downloads": 10,
                     "buffersize": 1024 * 1024,
                 }
                 if not is_video:
@@ -516,31 +526,4 @@ class YouTubeAPI:
 
     def _background_download(self, link: str, out_template: str, is_video: bool):
         try:
-            fmt = "bestvideo[height<=720]+bestaudio/best" if is_video else "bestaudio/best"
-            ydl_opts = {
-                **YTDL_TURBO_OPTS,
-                "format": fmt,
-                "outtmpl": out_template,
-                "cookiefile": get_cookie_file(),
-                "concurrent_fragment_downloads": 10, # 🔥 Native Speed
-                "buffersize": 1024 * 1024,
-            }
-            if is_video: ydl_opts["merge_output_format"] = "mp4"
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([link])
-        except: pass
-
-    async def playlist(self, link, limit, user_id=None, videoid=None):
-        if videoid: link = self.listbase + link
-        if "&" in link: link = link.split("&")[0]
-        # ✅ إضافة remote-components لفك تشفير القوائم
-        cmd = (
-            f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
-            f"--remote-components ejs:github --get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
-            f" 2>/dev/null"
-        )
-        proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        out, _ = await proc.communicate()
-        return [key for key in out.decode().split("\n") if key]
-
-YouTube = YouTubeAPI()
+            fmt = "bestvideo[height<=720]+bestaudio/best" if
