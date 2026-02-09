@@ -1,5 +1,5 @@
 # Authored By Certified Coders © 2026
-# Optimized for Pillow 12.1.0 & Arabic Text Support
+# Optimized for Pillow 10.x & Arabic Text Support (Real Fix)
 
 import os
 import re
@@ -12,59 +12,67 @@ from config import YOUTUBE_IMG_URL
 from AnnieXMedia.core.dir import CACHE_DIR 
 
 # ✅ استيراد مكتبات تصحيح العربي
-import arabic_reshaper
-from bidi.algorithm import get_display
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+except ImportError:
+    print("⚠️ Arabic libraries not installed. Install 'arabic-reshaper' and 'python-bidi'")
+    arabic_reshaper = None
+    get_display = None
 
-# ================= CONSTANTS =================
-PANEL_W, PANEL_H = 763, 545
+# ================= CONSTANTS (Glassmorphism Layout) =================
+PANEL_W, PANEL_H = 1100, 600  # Wider Panel
 PANEL_X = (1280 - PANEL_W) // 2
-PANEL_Y = 88
-TRANSPARENCY = 7 
-INNER_OFFSET = 36
-THUMB_W, THUMB_H = 542, 273
-THUMB_X = PANEL_X + (PANEL_W - THUMB_W) // 2
-THUMB_Y = PANEL_Y + INNER_OFFSET
-TITLE_X = 377
-META_X = 377
-TITLE_Y = THUMB_Y + THUMB_H + 10
-META_Y = TITLE_Y + 45
-BAR_X, BAR_Y = 388, META_Y + 45
-BAR_RED_LEN = 280
-BAR_TOTAL_LEN = 480
-ICONS_W, ICONS_H = 415, 45
-ICONS_X = PANEL_X + (PANEL_W - ICONS_W) // 2
-ICONS_Y = BAR_Y + 48
-MAX_TITLE_WIDTH = 580
+PANEL_Y = (720 - PANEL_H) // 2
+TRANSPARENCY = 180  # More opaque for readability
+INNER_OFFSET = 40
+
+THUMB_W, THUMB_H = 450, 450 # Square Art Style
+THUMB_X = PANEL_X + INNER_OFFSET
+THUMB_Y = PANEL_Y + (PANEL_H - THUMB_H) // 2
+
+# Text Area Calculation
+TEXT_AREA_X = THUMB_X + THUMB_W + 40
+TEXT_AREA_W = (PANEL_X + PANEL_W) - TEXT_AREA_X - INNER_OFFSET
+
+TITLE_Y = THUMB_Y + 40
+META_Y = TITLE_Y + 120
+BAR_Y = META_Y + 100
+
+BAR_TOTAL_LEN = TEXT_AREA_W - 20
+BAR_RED_LEN = int(BAR_TOTAL_LEN * 0.6) # 60% Played simulation
+ICONS_Y = BAR_Y + 60
+
 # =============================================
 
 def fix_ar(text):
     """دالة سحرية لإصلاح الحروف العربية المقطعة والمشقلبة"""
-    if not text:
-        return ""
-    try:
-        # 1. إعادة تشكيل الحروف (عشان تشبك في بعض)
-        reshaped_text = arabic_reshaper.reshape(text)
-        # 2. قلب الاتجاه (عشان تبقى من اليمين للشمال)
-        bidi_text = get_display(reshaped_text)
-        return bidi_text
-    except:
-        return text
+    if not text: return ""
+    if arabic_reshaper and get_display:
+        try:
+            # 1. إعادة تشكيل الحروف (عشان تشبك في بعض)
+            reshaped_text = arabic_reshaper.reshape(text)
+            # 2. قلب الاتجاه (عشان تبقى من اليمين للشمال)
+            bidi_text = get_display(reshaped_text)
+            return bidi_text
+        except:
+            return text
+    return text
 
-def trim_to_width(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> str:
-    """قص النص بذكاء"""
-    ellipsis = "…"
-    if font.getlength(text) <= max_w:
+def truncate(text, font, max_width):
+    """قص النص بذكاء ليتناسب مع العرض"""
+    if font.getlength(text) <= max_width:
         return text
-    for i in range(len(text) - 1, 0, -1):
-        if font.getlength(text[:i] + ellipsis) <= max_w:
-            return text[:i] + ellipsis
-    return ellipsis
+    for i in range(len(text), 0, -1):
+        if font.getlength(text[:i] + "...") <= max_width:
+            return text[:i] + "..."
+    return ""
 
 async def get_thumb(videoid: str) -> str:
     if not os.path.isdir(CACHE_DIR):
         os.makedirs(CACHE_DIR)
 
-    cache_path = os.path.join(CACHE_DIR, f"{videoid}_v7_arabic.png")
+    cache_path = os.path.join(CACHE_DIR, f"{videoid}_v2026.png")
     if os.path.exists(cache_path):
         return cache_path
 
@@ -74,6 +82,7 @@ async def get_thumb(videoid: str) -> str:
         result_items = results_data.get("result", [])
         
         if not result_items:
+            # Try searching by URL if ID fails
             search = VideosSearch(f"https://www.youtube.com/watch?v={videoid}", limit=1)
             results_data = await search.next()
             result_items = results_data.get("result", [])
@@ -82,20 +91,18 @@ async def get_thumb(videoid: str) -> str:
             raise ValueError("No results found.")
             
         data = result_items[0]
-        # تنظيف العنوان
-        title = re.sub(r"\W+", " ", data.get("title", "Unsupported Title")).title()
-        thumbnail = data.get("thumbnails", [{}])[0].get("url", YOUTUBE_IMG_URL)
-        duration = data.get("duration")
-        views = data.get("viewCount", {}).get("short", "Unknown Views")
+        title = data.get("title", "Unknown Track")
+        thumbnail = data.get("thumbnails", [{}])[0].get("url", YOUTUBE_IMG_URL).split("?")[0]
+        duration = data.get("duration") or "Live"
+        views = data.get("viewCount", {}).get("short", "N/A Views")
+        channel = data.get("channel", {}).get("name", "Unknown Artist")
 
     except Exception as e:
-        print(f"Thumbnail Error: {e}")
-        title, thumbnail, duration, views = "Unknown Track", YOUTUBE_IMG_URL, "00:00", "N/A"
+        print(f"Thumbnail Metadata Error: {e}")
+        title, thumbnail, duration, views, channel = "Unknown Track", YOUTUBE_IMG_URL, "00:00", "N/A", "Unknown"
 
-    is_live = not duration or str(duration).strip().lower() in {"", "live", "live now"}
-    duration_text = "Live" if is_live else duration or "00:00"
-
-    thumb_path = os.path.join(CACHE_DIR, f"temp_thumb_{videoid}.png")
+    # Download Thumbnail
+    thumb_path = os.path.join(CACHE_DIR, f"temp_{videoid}.png")
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(thumbnail) as resp:
@@ -104,86 +111,122 @@ async def get_thumb(videoid: str) -> str:
                         await f.write(await resp.read())
                 else:
                     return YOUTUBE_IMG_URL
-    except Exception:
+    except:
         return YOUTUBE_IMG_URL
 
     try:
+        # 1. Background (Blurry & Dark)
         base = Image.open(thumb_path).convert("RGBA")
         base = base.resize((1280, 720), Image.Resampling.LANCZOS)
         
-        bg = base.filter(ImageFilter.BoxBlur(5))
-        bg = ImageEnhance.Brightness(bg).enhance(0.6)
+        # Darken Background
+        enhancer = ImageEnhance.Brightness(base)
+        base = enhancer.enhance(0.4) # Darker
+        base = base.filter(ImageFilter.GaussianBlur(20)) # Blurry
 
-        crop = bg.crop((PANEL_X, PANEL_Y, PANEL_X + PANEL_W, PANEL_Y + PANEL_H))
-        crop = crop.filter(ImageFilter.GaussianBlur(30))
-        crop = ImageEnhance.Color(crop).enhance(1.5)
-        crop = ImageEnhance.Brightness(crop).enhance(1.1)
+        # 2. Glass Panel
+        # Create a new image for the glass panel
+        glass = Image.new("RGBA", (PANEL_W, PANEL_H), (20, 20, 20, 180)) # Semi-transparent Dark Grey
         
-        tint = Image.new("RGBA", crop.size, (255, 255, 255, TRANSPARENCY))
-        glass_panel = Image.alpha_composite(crop, tint)
-        
+        # Draw Panel with Rounded Corners
         mask = Image.new("L", (PANEL_W, PANEL_H), 0)
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, PANEL_W, PANEL_H), radius=40, fill=255)
         
-        bg.paste(glass_panel, (PANEL_X, PANEL_Y), mask)
-
-        draw = ImageDraw.Draw(bg)
+        # Composite Glass on Base
+        base.paste(glass, (PANEL_X, PANEL_Y), mask)
         
+        # Add Border to Glass
+        draw = ImageDraw.Draw(base)
         draw.rounded_rectangle(
             (PANEL_X, PANEL_Y, PANEL_X + PANEL_W, PANEL_Y + PANEL_H),
             radius=40,
-            outline=(255, 255, 255, 90),
+            outline=(255, 255, 255, 50), # Subtle white border
             width=2
         )
 
+        # 3. Album Art (Square)
+        art = Image.open(thumb_path).convert("RGBA")
+        art = art.resize((THUMB_W, THUMB_H), Image.Resampling.LANCZOS)
+        
+        # Rounded Corners for Art
+        art_mask = Image.new("L", (THUMB_W, THUMB_H), 0)
+        ImageDraw.Draw(art_mask).rounded_rectangle((0, 0, THUMB_W, THUMB_H), radius=30, fill=255)
+        
+        base.paste(art, (THUMB_X, THUMB_Y), art_mask)
+
+        # 4. Text & Details
+        # Load Fonts (Fallback to default if not found)
         try:
-            # يفضل استخدام خط يدعم العربي زي Cairo أو Arial
-            title_font = ImageFont.truetype("AnnieXMedia/assets/thumb/font2.ttf", 32)
-            regular_font = ImageFont.truetype("AnnieXMedia/assets/thumb/font.ttf", 18)
-        except OSError:
-            title_font = regular_font = ImageFont.load_default()
+            # Bold for Title
+            font_title = ImageFont.truetype("AnnieXMedia/assets/font.ttf", 55)
+            # Regular for Metadata
+            font_meta = ImageFont.truetype("AnnieXMedia/assets/font2.ttf", 35)
+            # Small for Durations
+            font_small = ImageFont.truetype("AnnieXMedia/assets/font2.ttf", 25)
+        except:
+            font_title = font_meta = font_small = ImageFont.load_default()
 
-        thumb_inner = base.resize((THUMB_W, THUMB_H), Image.Resampling.LANCZOS)
-        tmask = Image.new("L", thumb_inner.size, 0)
-        ImageDraw.Draw(tmask).rounded_rectangle((0, 0, THUMB_W, THUMB_H), radius=20, fill=255)
-        bg.paste(thumb_inner, (THUMB_X, THUMB_Y), tmask)
+        # Fix Arabic
+        safe_title = fix_ar(truncate(title, font_title, TEXT_AREA_W))
+        safe_channel = fix_ar(truncate(f"By: {channel}", font_meta, TEXT_AREA_W))
+        safe_views = fix_ar(f"Views: {views}")
 
-        # ✅ تطبيق إصلاح العربي هنا
-        final_title = trim_to_width(title, title_font, MAX_TITLE_WIDTH)
-        final_title = fix_ar(final_title)  # <--- السر هنا
+        # Draw Title
+        draw.text((TEXT_AREA_X, TITLE_Y), safe_title, fill="white", font=font_title, anchor="lm")
         
-        final_views = fix_ar(f"YouTube | {views}")
+        # Draw Channel & Views
+        draw.text((TEXT_AREA_X, META_Y), safe_channel, fill="#AAAAAA", font=font_meta, anchor="lm")
+        draw.text((TEXT_AREA_X, META_Y + 50), safe_views, fill="#AAAAAA", font=font_meta, anchor="lm")
 
-        draw.text((TITLE_X, TITLE_Y), final_title, fill="black", font=title_font)
-        draw.text((META_X, META_Y), final_views, fill="black", font=regular_font)
+        # 5. Progress Bar
+        bar_start_x = TEXT_AREA_X
+        bar_end_x = TEXT_AREA_X + BAR_TOTAL_LEN
+        bar_y = BAR_Y
 
-        draw.line([(BAR_X, BAR_Y), (BAR_X + BAR_RED_LEN, BAR_Y)], fill="#FF0000", width=6)
-        draw.line([(BAR_X + BAR_RED_LEN, BAR_Y), (BAR_X + BAR_TOTAL_LEN, BAR_Y)], fill="#AAAAAA", width=5)
-        draw.ellipse([(BAR_X + BAR_RED_LEN - 7, BAR_Y - 7), (BAR_X + BAR_RED_LEN + 7, BAR_Y + 7)], fill="#FF0000")
+        # Grey Background Line
+        draw.line([(bar_start_x, bar_y), (bar_end_x, bar_y)], fill="#444444", width=8, joint="curve")
+        # Red Progress Line
+        draw.line([(bar_start_x, bar_y), (bar_start_x + BAR_RED_LEN, bar_y)], fill="#FF0000", width=8, joint="curve")
+        # Dot at end of red line
+        draw.ellipse(
+            (bar_start_x + BAR_RED_LEN - 10, bar_y - 10, bar_start_x + BAR_RED_LEN + 10, bar_y + 10),
+            fill="white"
+        )
 
-        draw.text((BAR_X, BAR_Y + 15), "00:00", fill="black", font=regular_font)
+        # Timestamps
+        draw.text((bar_start_x, bar_y + 25), "00:00", fill="white", font=font_small)
+        draw.text((bar_end_x, bar_y + 25), duration, fill="white", font=font_small, anchor="ra")
+
+        # 6. Icons (Play/Pause/Skip) - Simulated with Text or Circles if image missing
+        # Centralizing icons under the bar
+        center_icons_x = TEXT_AREA_X + (TEXT_AREA_W // 2)
         
-        end_color = "#FF0000" if is_live else "black"
-        draw.text((BAR_X + BAR_TOTAL_LEN - (80 if is_live else 60), BAR_Y + 15), duration_text, fill=end_color, font=regular_font)
+        # Play Button (Circle)
+        draw.ellipse((center_icons_x - 35, ICONS_Y - 35, center_icons_x + 35, ICONS_Y + 35), fill="white")
+        # Play Triangle (Black)
+        draw.polygon([
+            (center_icons_x - 10, ICONS_Y - 15),
+            (center_icons_x - 10, ICONS_Y + 15),
+            (center_icons_x + 15, ICONS_Y)
+        ], fill="black")
 
-        icons_path = "AnnieXMedia/assets/thumb/play_icons.png"
-        if os.path.isfile(icons_path):
-            ic = Image.open(icons_path).convert("RGBA")
-            ic = ic.resize((ICONS_W, ICONS_H), Image.Resampling.LANCZOS)
-            r, g, b, a = ic.split()
-            black_ic = Image.merge("RGBA", (r.point(lambda _: 0), g.point(lambda _: 0), b.point(lambda _: 0), a))
-            bg.paste(black_ic, (ICONS_X, ICONS_Y), black_ic)
-
-        bg.save(cache_path)
+        # Previous/Next (Lines)
+        # Prev
+        draw.polygon([(center_icons_x - 80, ICONS_Y), (center_icons_x - 60, ICONS_Y - 15), (center_icons_x - 60, ICONS_Y + 15)], fill="white")
+        draw.rectangle((center_icons_x - 85, ICONS_Y - 15, center_icons_x - 80, ICONS_Y + 15), fill="white")
         
+        # Next
+        draw.polygon([(center_icons_x + 80, ICONS_Y), (center_icons_x + 60, ICONS_Y - 15), (center_icons_x + 60, ICONS_Y + 15)], fill="white")
+        draw.rectangle((center_icons_x + 80, ICONS_Y - 15, center_icons_x + 85, ICONS_Y + 15), fill="white")
+
+        # 7. Final Polish & Save
+        base.save(cache_path)
+        return cache_path
+
     except Exception as e:
-        print(f"Image Processing Error: {e}")
+        print(f"Thumbnail Generation Failed: {e}")
         return YOUTUBE_IMG_URL
     finally:
-        try:
-            if os.path.exists(thumb_path):
-                os.remove(thumb_path)
-        except:
-            pass
-
-    return cache_path
+        if os.path.exists(thumb_path):
+            try: os.remove(thumb_path)
+            except: pass
