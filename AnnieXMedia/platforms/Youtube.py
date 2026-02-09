@@ -1,10 +1,4 @@
-# file: AnnieXMedia/platforms/Youtube.py
-# Robust YouTube resolver for AnnieXMedia (2026)
-# - Uses yt-dlp Python API first, then subprocess fallback
-# - Subprocess fallbacks include --remote-components ejs:github
-# - Probes returned URLs to avoid NoVideoSourceFound
-# - Caches metadata and direct URLs with expiry handling
-# Requirements: python3.8+, yt-dlp, aiohttp recommended. Optional: orjson, curl_cffi
+
 
 import asyncio
 import contextlib
@@ -47,7 +41,8 @@ META_CACHE_TTL = 3600
 _thread_pool = ThreadPoolExecutor(max_workers=MAX_YTDLP_THREADS)
 _extract_sema = asyncio.Semaphore(MAX_CONCURRENT_EXTRACTS)
 
-_aio_connector = aiohttp.TCPConnector(limit=AIO_CONN_LIMIT, ssl=False)
+# 🛑 تعديل الجسر (Keep-Alive): زيادة وقت البقاء حياً لمنع الخمول
+_aio_connector = aiohttp.TCPConnector(limit=AIO_CONN_LIMIT, ssl=False, keepalive_timeout=300)
 _aio_session: Optional[aiohttp.ClientSession] = None
 
 _direct_cache: Dict[str, Tuple[int, str]] = {}   # key -> (expiry_epoch, url)
@@ -191,6 +186,36 @@ class YouTubeAPI:
                     continue
         return None
 
+    # 🛑 الدالة الجديدة: بحث القائمة (Search 10)
+    async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
+        """Returns a list of videos [{title, vidid}] for the list command."""
+        cmd = [
+            "yt-dlp",
+            "--dump-json",
+            f"ytsearch{limit}:{query}",
+            "--flat-playlist",
+            "--no-warnings",
+            "--skip-download",
+        ]
+        if self.cookie:
+            cmd.insert(1, "--cookies")
+            cmd.insert(2, self.cookie)
+
+        out, _ = await _exec_proc(*cmd, timeout=10)
+        results = []
+        if out:
+            for line in out.decode().splitlines():
+                try:
+                    data = _loads_bytes(line.encode())
+                    results.append({
+                        "title": data.get("title", "Unknown"),
+                        "vidid": data.get("id", ""),
+                        "duration": data.get("duration_string", "")
+                    })
+                except Exception:
+                    pass
+        return results
+
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
         """Return basic metadata (cached) and vid id."""
         prepared = _normalize_link(link, videoid)
@@ -298,6 +323,32 @@ class YouTubeAPI:
     async def thumbnail(self, link: str, videoid: Union[bool, str, None] = None) -> str:
         d, _ = await self.track(link, videoid)
         return d.get("thumb", "")
+    
+    # -------------------------------------------------------------
+    # ✅ FIX: Added download_thumb method for song.py compatibility
+    # -------------------------------------------------------------
+    async def download_thumb(self, url: str) -> Optional[str]:
+        """Downloads the thumbnail to a temp path and returns the path."""
+        if not url:
+            return None
+        try:
+            # Ensure downloads dir exists
+            base_dir = "downloads"
+            if not os.path.exists(base_dir):
+                os.makedirs(base_dir, exist_ok=True)
+            
+            path = os.path.join(base_dir, f"thumb_{int(time.time())}.jpg")
+            
+            session = await _ensure_aio_session()
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.read()
+                    with open(path, "wb") as f:
+                        f.write(data)
+                    return path
+        except Exception as e:
+            log.warning(f"Failed to download thumbnail: {e}")
+        return None
 
     def _to_seconds(self, t: Optional[Union[str,int]]) -> int:
         if not t:
