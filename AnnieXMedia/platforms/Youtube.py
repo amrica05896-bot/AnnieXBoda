@@ -1,5 +1,3 @@
-
-
 import asyncio
 import contextlib
 import json
@@ -186,7 +184,6 @@ class YouTubeAPI:
                     continue
         return None
 
-    # 🛑 الدالة الجديدة: بحث القائمة (Search 10)
     async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
         """Returns a list of videos [{title, vidid}] for the list command."""
         cmd = [
@@ -323,32 +320,6 @@ class YouTubeAPI:
     async def thumbnail(self, link: str, videoid: Union[bool, str, None] = None) -> str:
         d, _ = await self.track(link, videoid)
         return d.get("thumb", "")
-    
-    # -------------------------------------------------------------
-    # ✅ FIX: Added download_thumb method for song.py compatibility
-    # -------------------------------------------------------------
-    async def download_thumb(self, url: str) -> Optional[str]:
-        """Downloads the thumbnail to a temp path and returns the path."""
-        if not url:
-            return None
-        try:
-            # Ensure downloads dir exists
-            base_dir = "downloads"
-            if not os.path.exists(base_dir):
-                os.makedirs(base_dir, exist_ok=True)
-            
-            path = os.path.join(base_dir, f"thumb_{int(time.time())}.jpg")
-            
-            session = await _ensure_aio_session()
-            async with session.get(url) as resp:
-                if resp.status == 200:
-                    data = await resp.read()
-                    with open(path, "wb") as f:
-                        f.write(data)
-                    return path
-        except Exception as e:
-            log.warning(f"Failed to download thumbnail: {e}")
-        return None
 
     def _to_seconds(self, t: Optional[Union[str,int]]) -> int:
         if not t:
@@ -389,6 +360,19 @@ class YouTubeAPI:
         except Exception as e:
             log.debug("formats() extract failed: %s", e)
         return out, prepared
+
+    # --------------------------------------------------------
+    # 🔥🔥🔥 الدالة المضافة لربط ملف الكول 🔥🔥🔥
+    # --------------------------------------------------------
+    async def video(self, videoid: str, ignore_kwargs: bool = True) -> Tuple[int, str]:
+        """
+        Compatibility method for stream.py calls.
+        """
+        link = _normalize_link("", videoid=videoid)
+        url = await self.get_direct_link(link, prefer_audio=True)
+        if url:
+            return 1, url
+        return 0, ""
 
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
         """
