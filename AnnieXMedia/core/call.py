@@ -1,7 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Hybrid Edition)
-# Logic: Legacy ID Detection (Stable)
-# Performance: HEIGHT/Titan Engine (Fast)
+# System: Call Controller (Smart RAM Bypass)
+# Logic: If Video Requested & RAM has MP3 -> Ignore RAM & Force Fetch Video
 
 import asyncio
 import os
@@ -57,17 +56,51 @@ from AnnieXMedia.utils.errors import capture_internal_err
 autoend = {}
 counter = {}
 
-# --- [1] Settings (HEIGHT/Titan Edition) ---
-# هذه هي الإعدادات الجديدة والقوية التي طلبتها
+# --- [1] Helpers & Titan Config ---
+
+def clean_vidid(vid):
+    if vid is True or vid is False: return None
+    if not vid: return None
+    return str(vid)
+
+def extract_video_id(url: str) -> Union[str, None]:
+    if not url: return None
+    pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)'
+    match = re.search(pattern, url)
+    return match.group(1) if match else None
+
+async def get_direct_link(videoid: str, video: bool = False):
+    if not videoid or len(videoid) != 11: return None
+    link = f"https://www.youtube.com/watch?v={videoid}"
+    
+    # تفضيل صيغة الفيديو لو الطلب فيديو
+    fmt = "best[ext=mp4]/best" if video else "bestaudio/best"
+    
+    opts = {
+        "format": fmt,
+        "quiet": True,
+        "no_warnings": True,
+        "geo_bypass": True,
+        "nocheckcertificate": True,
+    }
+    try:
+        loop = asyncio.get_running_loop()
+        def _extract():
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(link, download=False)
+                return info.get("url")
+        return await loop.run_in_executor(None, _extract)
+    except:
+        return link
 
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
-    """
-    HEIGHT Engine: Uses Titan Flags for maximum buffer and stability.
-    """
     if not path: path = ""
     is_url = path.startswith("http")
     
-    # Titan Flags (The Speed & Stability Secret)
+    # 🛑 حماية نهائية: لو الملف وصل هنا وهو صوتي، لازم نقفل الفيديو عشان الكراش
+    if path and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")):
+        video = False
+
     if is_url:
         titan_flags = (
             "-threads 4 "
@@ -102,39 +135,6 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         ffmpeg_parameters=titan_flags,
     )
 
-# --- [2] Helpers (Legacy Compatible) ---
-
-def clean_vidid(vid):
-    if vid is True or vid is False: return None
-    if not vid: return None
-    return str(vid)
-
-def extract_video_id(url: str) -> Union[str, None]:
-    if not url: return None
-    pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)'
-    match = re.search(pattern, url)
-    return match.group(1) if match else None
-
-async def get_direct_link(videoid: str):
-    if not videoid or len(videoid) != 11: return None
-    link = f"https://www.youtube.com/watch?v={videoid}"
-    opts = {
-        "format": "bestaudio/best",
-        "quiet": True,
-        "no_warnings": True,
-        "geo_bypass": True,
-        "nocheckcertificate": True,
-    }
-    try:
-        loop = asyncio.get_running_loop()
-        def _extract():
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(link, download=False)
-                return info.get("url")
-        return await loop.run_in_executor(None, _extract)
-    except:
-        return link
-
 async def _clear_(chat_id: int) -> None:
     popped = db.pop(chat_id, None)
     if popped:
@@ -144,7 +144,7 @@ async def _clear_(chat_id: int) -> None:
     await remove_active_chat(chat_id)
     await set_loop(chat_id, 0)
 
-# --- [3] Call Controller ---
+# --- [2] Call Controller ---
 
 class Call:
     def __init__(self):
@@ -219,13 +219,24 @@ class Call:
     async def skip_stream(self, chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
         
-        # New Logic: Direct Link Check
         final_link = link
-        if link and ("youtube" in link or "youtu.be" in link):
-             vid_id = extract_video_id(link)
+        vid_id = extract_video_id(link)
+
+        # 🔥 المنطق الذكي 1: لو الرابط ملف محلي (RAM) بس نوعه غلط، تجاهله وهات رابط جديد
+        if os.path.exists(link):
+            if video and link.endswith((".mp3", ".m4a", ".flac", ".opus")):
+                # الملف في الرام صوت، بس إحنا عاوزين فيديو.. تجاهل الرام
+                if vid_id:
+                    try:
+                        # Force Video Fetch
+                        new_link = await get_direct_link(vid_id, video=True)
+                        if new_link: final_link = new_link
+                    except: pass
+        
+        elif link and ("youtube" in link or "youtu.be" in link):
              if vid_id: 
                  try:
-                     direct = await get_direct_link(vid_id)
+                     direct = await get_direct_link(vid_id, video=bool(video))
                      if direct: final_link = direct
                  except: pass
 
@@ -308,26 +319,33 @@ class Call:
         lang = await get_lang(chat_id)
         _ = get_string(lang)
         
-        # Legacy: Direct Link Support
         final_link = link
-        if link and ("youtube" in link or "youtu.be" in link):
-            vid_id = extract_video_id(link)
+        vid_id = extract_video_id(link)
+
+        # 🔥 المنطق الذكي 2: عند الانضمام، لو الرابط ملف محلي وصيغته غلط، هات رابط مباشر جديد
+        if os.path.exists(link) and video and link.endswith((".mp3", ".m4a", ".flac", ".opus")):
+             if vid_id:
+                 try:
+                     # Bypass RAM, fetch Direct Video Link
+                     direct = await get_direct_link(vid_id, video=True)
+                     if direct: final_link = direct
+                 except: pass
+        
+        elif link and ("youtube" in link or "youtu.be" in link):
             if vid_id: 
                 try:
-                    direct = await get_direct_link(vid_id)
+                    direct = await get_direct_link(vid_id, video=bool(video))
                     if direct: final_link = direct
                 except: pass
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         ksk = GroupCallConfig(auto_start=False)
 
-        try:
-            if chat_id in self.active_calls:
-                try:
-                    await assistant.change_stream(chat_id, stream)
-                    return 
-                except: pass 
-        except: pass
+        if chat_id in self.active_calls:
+            try:
+                await assistant.change_stream(chat_id, stream)
+                return 
+            except: pass 
 
         retries = 3
         for attempt in range(retries):
@@ -337,6 +355,13 @@ class Call:
             except NoActiveGroupCall:
                 raise AssistantErr(_["call_8"])
             except (NoAudioSourceFound, NoVideoSourceFound):
+                # Fallback Logic
+                if video:
+                    try:
+                        stream = dynamic_media_stream(path=final_link, video=False)
+                        await assistant.play(chat_id, stream, config=ksk)
+                        break
+                    except: pass
                 raise AssistantErr(_["call_11"])
             except (ConnectionNotFound, TelegramServerError):
                 if attempt < retries - 1:
@@ -344,6 +369,11 @@ class Call:
                     continue
                 raise AssistantErr(_["call_10"])
             except Exception as e:
+                if "already joined" in str(e).lower() or "active call" in str(e).lower():
+                    try: 
+                        await assistant.change_stream(chat_id, stream)
+                        break
+                    except: pass
                 if attempt < retries - 1:
                     await asyncio.sleep(2)
                     continue
@@ -366,8 +396,6 @@ class Call:
 
     @capture_internal_err
     async def play(self, client, chat_id: int) -> None:
-        # --- [OLD LOGIC START] ---
-        # هنا المنطق القديم للتعرف على الملفات (live_, vid_, telegram, soundcloud)
         check = db.get(chat_id)
         popped = None
         loop = await get_loop(chat_id)
@@ -398,7 +426,7 @@ class Call:
             user = check[0]["by"]
             original_chat_id = check[0]["chat_id"]
             streamtype = check[0]["streamtype"]
-            videoid = check[0]["vidid"] # Keep Raw ID for checks
+            videoid = clean_vidid(check[0]["vidid"])
             db[chat_id][0]["played"] = 0
 
             exis = (check[0]).get("old_dur")
@@ -425,140 +453,73 @@ class Call:
                         await _clear_(chat_id)
                         return await app.send_message(original_chat_id, text=_["call_6"])
 
-            # --- [OLD ID DETECTION + NEW ENGINE] ---
+            # Logic starts here
             try:
-                if "live_" in queued:
-                    n, link = await YouTube.video(videoid, True)
-                    if n == 0:
-                        return await app.send_message(original_chat_id, text=_["call_6"])
-                    
-                    # HEIGHT ENGINE USAGE
-                    stream = dynamic_media_stream(path=link, video=video)
-                    await _play_stream(stream)
-                    
-                    img = await get_thumb(videoid)
-                    button = stream_markup(_, chat_id)
-                    run = await app.send_photo(
-                        chat_id=original_chat_id,
-                        photo=img,
-                        caption=_["stream_1"].format(
-                            f"https://t.me/{app.username}?start=info_{videoid}",
-                            title[:23],
-                            check[0]["dur"],
-                            user,
-                        ),
-                        reply_markup=InlineKeyboardMarkup(button),
-                    )
-                    db[chat_id][0]["mystic"] = run
-                    db[chat_id][0]["markup"] = "tg"
+                final_link = queued
+                vid_id = extract_video_id(queued) or videoid 
 
-                elif "vid_" in queued:
-                    mystic = await app.send_message(original_chat_id, _["call_7"])
+                # 🔥 المنطق الذكي 3: (QUEUE CHECK)
+                # لو الملف موجود في الرام (مسار محلي) بس إحنا طالبين فيديو والملف صوتي
+                if os.path.exists(queued) and video:
+                    if queued.endswith((".mp3", ".m4a", ".flac", ".opus")):
+                        # تجاهل الرام وهات رابط فيديو جديد
+                        if vid_id and len(vid_id) == 11:
+                            try:
+                                direct_url = await get_direct_link(vid_id, video=True)
+                                if direct_url: 
+                                    final_link = direct_url
+                                    # تحديث القائمة عشان مايقرأش الملف القديم تاني
+                                    # db[chat_id][0]["file"] = direct_url 
+                            except: pass
+                
+                # Check 2: Live/Vid prefix
+                elif "live_" in queued or "vid_" in queued or "index_" in queued:
                     try:
-                        file_path, direct = await YouTube.download(
-                            videoid,
-                            mystic,
-                            videoid=True,
-                            video=video,
-                        )
-                    except:
-                        return await mystic.edit_text(_["call_6"], disable_web_page_preview=True)
+                        if vid_id and len(vid_id) == 11:
+                            direct_url = await get_direct_link(vid_id, video=video)
+                            if direct_url: final_link = direct_url
+                            else:
+                                try:
+                                    path, is_direct = await YouTube.download(
+                                        f"https://www.youtube.com/watch?v={vid_id}",
+                                        None,
+                                        video=video,
+                                        videoid=None 
+                                    )
+                                    if path: final_link = path
+                                except: pass
+                    except: pass
 
-                    # HEIGHT ENGINE USAGE
-                    stream = dynamic_media_stream(path=file_path, video=video)
-                    await _play_stream(stream)
+                stream = dynamic_media_stream(path=final_link, video=video)
+                await _play_stream(stream)
 
-                    img = await get_thumb(videoid)
-                    button = stream_markup(_, chat_id)
-                    await mystic.delete()
-                    run = await app.send_photo(
-                        chat_id=original_chat_id,
-                        photo=img,
-                        caption=_["stream_1"].format(
-                            f"https://t.me/{app.username}?start=info_{videoid}",
-                            title[:23],
-                            check[0]["dur"],
-                            user,
-                        ),
-                        reply_markup=InlineKeyboardMarkup(button),
-                    )
-                    db[chat_id][0]["mystic"] = run
-                    db[chat_id][0]["markup"] = "stream"
+                img = await get_thumb(videoid)
+                button = stream_markup(_, chat_id)
+                
+                try:
+                    if db[chat_id][0].get("mystic"):
+                        await db[chat_id][0].get("mystic").delete()
+                except: pass
 
-                elif "index_" in queued:
-                    # HEIGHT ENGINE USAGE
-                    stream = dynamic_media_stream(path=videoid, video=video)
-                    await _play_stream(stream)
+                run = await app.send_photo(
+                    chat_id=original_chat_id,
+                    photo=img,
+                    caption=_["stream_1"].format(
+                        f"https://t.me/{app.username}?start=info_{videoid}",
+                        title[:23],
+                        check[0]["dur"],
+                        user,
+                    ),
+                    reply_markup=InlineKeyboardMarkup(button),
+                )
+                db[chat_id][0]["mystic"] = run
+                db[chat_id][0]["markup"] = "stream"
 
-                    button = stream_markup(_, chat_id)
-                    run = await app.send_photo(
-                        chat_id=original_chat_id,
-                        photo=config.STREAM_IMG_URL,
-                        caption=_["stream_2"].format(user),
-                        reply_markup=InlineKeyboardMarkup(button),
-                    )
-                    db[chat_id][0]["mystic"] = run
-                    db[chat_id][0]["markup"] = "tg"
-
-                else:
-                    # Standard Link Handling (YouTube/Soundcloud/Telegram)
-                    stream = dynamic_media_stream(path=queued, video=video)
-                    await _play_stream(stream)
-
-                    if videoid == "telegram":
-                        button = stream_markup(_, chat_id)
-                        run = await app.send_photo(
-                            chat_id=original_chat_id,
-                            photo=(config.TELEGRAM_AUDIO_URL if str(streamtype) == "audio" else config.TELEGRAM_VIDEO_URL),
-                            caption=_["stream_1"].format(config.SUPPORT_CHAT, title[:23], check[0]["dur"], user),
-                            reply_markup=InlineKeyboardMarkup(button),
-                        )
-                        db[chat_id][0]["mystic"] = run
-                        db[chat_id][0]["markup"] = "tg"
-
-                    elif videoid == "soundcloud":
-                        button = stream_markup(_, chat_id)
-                        run = await app.send_photo(
-                            chat_id=original_chat_id,
-                            photo=config.SOUNCLOUD_IMG_URL,
-                            caption=_["stream_1"].format(config.SUPPORT_CHAT, title[:23], check[0]["dur"], user),
-                            reply_markup=InlineKeyboardMarkup(button),
-                        )
-                        db[chat_id][0]["mystic"] = run
-                        db[chat_id][0]["markup"] = "tg"
-
-                    else:
-                        img = await get_thumb(videoid)
-                        button = stream_markup(_, chat_id)
-                        try:
-                            run = await app.send_photo(
-                                chat_id=original_chat_id,
-                                photo=img,
-                                caption=_["stream_1"].format(
-                                    f"https://t.me/{app.username}?start=info_{videoid}",
-                                    title[:23],
-                                    check[0]["dur"],
-                                    user,
-                                ),
-                                reply_markup=InlineKeyboardMarkup(button),
-                            )
-                        except FloodWait as e:
-                            await asyncio.sleep(e.value)
-                            run = await app.send_photo(
-                                chat_id=original_chat_id,
-                                photo=img,
-                                caption=_["stream_1"].format(
-                                    f"https://t.me/{app.username}?start=info_{videoid}",
-                                    title[:23],
-                                    check[0]["dur"],
-                                    user,
-                                ),
-                                reply_markup=InlineKeyboardMarkup(button),
-                            )
-                        db[chat_id][0]["mystic"] = run
-                        db[chat_id][0]["markup"] = "stream"
             except Exception:
                 LOGGER(__name__).error(f"💣 [PLAY ERROR] Chat: {chat_id}\n{traceback.format_exc()}")
+                await _clear_(chat_id)
+                try: await client.leave_call(chat_id)
+                except: pass
                 return await app.send_message(original_chat_id, text=_["call_6"])
 
     async def start(self) -> None:
