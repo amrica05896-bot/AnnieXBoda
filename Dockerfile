@@ -1,15 +1,13 @@
 # ============================================================
-# 🚀 AnnieXBoda 2026 - Python 3.14.3 (System-Ready)
-# Fixed: UV System Python & Virtual Environment Error
+# 🚀 AnnieXBoda 2026 - Python 3.14.3 (Compatibility Fix)
+# Fixed: Removed Legacy AI Dependencies (llvmlite/numba)
 # ============================================================
 
 FROM python:3.14-slim
 
-# إعدادات المحرك لسرعة البرق وتجنب أخطاء UV
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHON_JIT=on \
-    # الضربة القاضية لمشكلة الـ Virtual Environment
     UV_SYSTEM_PYTHON=1 \
     DENO_INSTALL="/root/.deno" \
     PATH="/usr/local/bin:/root/.deno/bin:${PATH}"
@@ -28,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # 🦕 Deno
     curl -fsSL https://deno.land/install.sh | sh && \
     \
-    # ⚡ تثبيت UV في المسار العالمي مباشرة
+    # ⚡ تثبيت UV
     curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh && \
     \
     apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -37,15 +35,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 COPY pytgcalls /app/pytgcalls
 
-# 🛠️ تثبيت المكتبات (باضافة --system للأمان الزائد)
-RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
+# 🛠️ الفلترة الذكية: شلنا المكتبات اللي بتسبب مشاكل مع بايثون 14
+RUN grep -v -i '^py-tgcalls\|pytgcalls\|deepai\|numba\|llvmlite\|quimb' requirements.txt > filtered.txt && \
     uv pip install --no-cache -r filtered.txt && \
     uv pip install --no-cache uvloop g4f curl_cffi
 
-# نقل الكود بالكامل
+# نقل الكود
 COPY . .
 
-# 🛡️ إعدادات الضغط العالي لـ 30 ألف مستخدم
+# 🛡️ إعدادات الضغط العالي
 RUN echo "* soft nofile 1048576" >> /etc/security/limits.conf && \
     echo "* hard nofile 1048576" >> /etc/security/limits.conf
 
