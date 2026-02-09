@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# Module: Inline Keyboard Markups (Universal Anti-Crash Edition)
-# Fixes: Accepts both (videoid, chat_id) AND (chat_id) signatures.
+# Module: Inline Keyboard Markups (Stream.py Compatible)
+# Fixes: Matches argument count in stream.py, includes aq_markup & close_markup
 
 import math
 import time
@@ -52,7 +52,7 @@ def control_buttons(chat_id):
 
 def stream_markup_timer(_, chat_id, played, dur):
     """
-    The Main Player UI with Timer.
+    The Main Player UI with Timer and Progress Bar.
     """
     if not should_update_progress(chat_id):
         return None
@@ -90,20 +90,14 @@ def stream_markup_timer(_, chat_id, played, dur):
     ])
     return buttons
 
-# ✅ الجوكر: بيستقبل المتغير الأول كـ videoid أو chat_id حسب اللي بيبعته الملف
-def stream_markup(_, arg1, arg2=None):
+# ✅ Fixed: Accepts only (_, chat_id) to match stream.py line 200, 277, etc.
+def stream_markup(_, chat_id):
     """
-    Universal Stream Markup.
-    arg1: Can be chat_id OR videoid
-    arg2: If present, it's chat_id
+    Default markup for streams (YouTube, etc).
     """
-    if arg2 is not None:
-        chat_id = arg2
-    else:
-        chat_id = arg1
-
     buttons = control_buttons(chat_id)
     
+    # Boda Buttons
     buttons.append([
         InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
         InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
@@ -114,18 +108,13 @@ def stream_markup(_, arg1, arg2=None):
     ])
     return buttons
 
-# ✅ الجوكر أيضاً لملفات التيليجرام
-def telegram_markup(_, arg1, arg2=None):
+def telegram_markup(_, chat_id):
     """
-    Universal Telegram Markup.
+    Markup for Telegram Audio Files.
     """
-    if arg2 is not None:
-        chat_id = arg2
-    else:
-        chat_id = arg1
-
     buttons = control_buttons(chat_id)
     
+    # Boda Buttons
     buttons.append([
         InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
         InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
@@ -136,27 +125,29 @@ def telegram_markup(_, arg1, arg2=None):
     ])
     return buttons
 
-# --- Helper Markups (Added to prevent Import Errors) ---
-
+# ✅ Added: Required by stream.py line 247
 def aq_markup(_, chat_id):
-    buttons = [
-        [
-            InlineKeyboardButton(text="▷", callback_data=f"ADMIN Resume|{chat_id}"),
-            InlineKeyboardButton(text="II", callback_data=f"ADMIN Pause|{chat_id}"),
-            InlineKeyboardButton(text="‣‣I", callback_data=f"ADMIN Skip|{chat_id}"),
-            InlineKeyboardButton(text="▢", callback_data=f"ADMIN Stop|{chat_id}"),
-        ],
-        [
-            InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
-            InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
-        ],
-        [
-            InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
-        ]
-    ]
+    """
+    Markup for 'Added to Queue' messages.
+    """
+    buttons = control_buttons(chat_id) # Reuse controls for consistency
+    
+    # Boda Buttons
+    buttons.append([
+        InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
+        InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
+    ])
+    
+    buttons.append([
+        InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
+    ])
     return buttons
 
+# ✅ Added: Required by stream.py line 217
 def close_markup(_):
+    """
+    Simple Close Button for playlists.
+    """
     return [
         [
             InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
