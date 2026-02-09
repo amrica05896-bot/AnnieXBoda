@@ -4,7 +4,7 @@
 # Optimized for Speed & Light Deployment
 # ==========================================
 
-FROM python:3.13-slim
+FROM python:3.12-slim
 
 # التحسينات الأساسية للمحرك (بايثون 3.13 الخام)
 ENV PYTHONDONTWRITEBYTECODE=1 \
