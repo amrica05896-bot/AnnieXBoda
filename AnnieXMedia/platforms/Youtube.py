@@ -61,18 +61,17 @@ _meta_cache_lock = asyncio.Lock()
 YTDL_TURBO_OPTS = {
     "quiet": True,
     "no_warnings": True,
-    "remote_components": ["ejs:github"], # 🔥 مصفوفة لمنع خطأ تجزئة الحروف
+    "remote_components": ["ejs:github"], 
     "socket_timeout": YTDLP_SOCKET_TIMEOUT,
     "extractor_args": {
         "youtube": {
-            # استخدام الويب والـ iOS لتجنب قيود الأندرويد الصارمة
             "player_client": ["web", "ios"],
             "player_skip": ["webpage", "configs"]
         }
     },
-    "js_runtimes": {"node": {"path": "/usr/bin/node"}}, # 🔥 إجبار استخدام المحرك المثبت
+    "js_runtimes": {"node": {"path": "/usr/bin/node"}}, 
     "force_ipv4": True,
-    "cachedir": os.path.join(os.getcwd(), ".cache"), # تحسين الأداء في بيئات الحاويات
+    "cachedir": os.path.join(os.getcwd(), ".cache"), 
 }
 
 COOKIE_PATHS = [
@@ -203,7 +202,6 @@ class YouTubeAPI:
                     continue
         return None
 
-    # 🚀 Turbo Search (using Library)
     async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
         try:
             search = VideosSearch(query, limit=limit)
@@ -303,7 +301,6 @@ class YouTubeAPI:
             return 0
 
     async def slider(self, link: str, query_type: int, videoid: Union[bool, str] = None):
-        """Ultra-Fast Slider using Library"""
         if videoid: link = self.base + link
         if "&" in link: link = link.split("&")[0]
 
@@ -319,7 +316,6 @@ class YouTubeAPI:
 
     async def formats(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[List[Dict[str, Any]], str]:
         prepared = _normalize_link(link, videoid)
-        # استخدام إعدادات توربو حتى في استخراج الجودات لضمان عدم الفشل
         ytdl_opts = {**YTDL_TURBO_OPTS, "cookiefile": self.cookie}
         out: List[Dict[str, Any]] = []
         try:
@@ -355,7 +351,6 @@ class YouTubeAPI:
         async with self.sema:
             loop = asyncio.get_running_loop()
             def _extract_info_blocking():
-                # استخدام المنطق المرن لمنع خطأ Requested format not available
                 fmt = "bestaudio/best" if prefer_audio else "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
                 ydl_opts = {
                     **YTDL_TURBO_OPTS,
@@ -374,7 +369,6 @@ class YouTubeAPI:
             info = await loop.run_in_executor(self.pool, _extract_info_blocking)
 
         if not info or (isinstance(info, dict) and info.get("_err")):
-            # Fallback 1: Subprocess with ejs:github (Native CLI)
             try:
                 cmd = ["yt-dlp", "-g", "--remote-components", "ejs:github", "--no-warnings", "--force-ipv4", prepared]
                 if self.cookie:
@@ -390,7 +384,6 @@ class YouTubeAPI:
             except Exception: pass
             return None
 
-        # Process info
         top_url = info.get("url")
         if top_url and (await _probe_url(top_url))[0]:
             expiry = _parse_expire(top_url) or (now + CACHE_DEFAULT_TTL)
@@ -434,10 +427,6 @@ class YouTubeAPI:
         format_id: Union[bool, str] = None,
         title: Union[bool, str] = None,
     ) -> Tuple[Optional[str], bool]:
-        """
-        Stream Downloader (Native Speed)
-        Return (path_or_direct_url_or_None, is_direct_flag)
-        """
         is_video = bool(video or songvideo)
         prepared = _normalize_link(link, videoid)
 
@@ -458,14 +447,11 @@ class YouTubeAPI:
 
         loop = asyncio.get_running_loop()
 
-        # 2) Specific Format Download (مع Fallback للأفضل في حال تعذر الـ ID)
         if format_id:
             def _specific():
                 try:
-                    # إضافة /best لضمان عدم توقف العملية عند خطأ Format Not Available
                     fid = str(format_id)
                     final_f = f"{fid}+140/best" if songvideo else f"{fid}/best"
-                    
                     opts = {
                         **YTDL_TURBO_OPTS,
                         "format": final_f,
@@ -489,13 +475,11 @@ class YouTubeAPI:
             res = await loop.run_in_executor(self.pool, _specific)
             if res: return res, False
 
-        # 3) Direct Link (Native Background DL)
         direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
         if direct:
             loop.run_in_executor(self.pool, lambda: self._background_download(prepared, f"{ram_base}.%(ext)s", is_video))
             return direct, True
 
-        # 4) Fallback Download (Native Speed - المرونة القصوى)
         def _fallback():
             try:
                 fmt = "bestvideo[height<=720]+bestaudio/best" if is_video else "bestaudio/best"
@@ -512,7 +496,6 @@ class YouTubeAPI:
                     ydl_opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
                 else:
                     ydl_opts["merge_output_format"] = "mp4"
-                    
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(prepared, download=True)
                     return ydl.prepare_filename(info)
@@ -526,4 +509,31 @@ class YouTubeAPI:
 
     def _background_download(self, link: str, out_template: str, is_video: bool):
         try:
-            fmt = "bestvideo[height<=720]+bestaudio/best" if
+            # ✅ تم تصحيح الخطأ هنا بإضافة تكملة جملة الـ if
+            fmt = "bestvideo[height<=720]+bestaudio/best" if is_video else "bestaudio/best"
+            ydl_opts = {
+                **YTDL_TURBO_OPTS,
+                "format": fmt,
+                "outtmpl": out_template,
+                "cookiefile": get_cookie_file(),
+                "concurrent_fragment_downloads": 10,
+                "buffersize": 1024 * 1024,
+            }
+            if is_video: ydl_opts["merge_output_format"] = "mp4"
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([link])
+        except: pass
+
+    async def playlist(self, link, limit, user_id=None, videoid=None):
+        if videoid: link = self.listbase + link
+        if "&" in link: link = link.split("&")[0]
+        cmd = (
+            f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
+            f"--remote-components ejs:github --get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
+            f" 2>/dev/null"
+        )
+        proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        out, _ = await proc.communicate()
+        return [key for key in out.decode().split("\n") if key]
+
+YouTube = YouTubeAPI()
