@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# Module: Inline Keyboard Markups (Fixed for Stream.py Compatibility)
-# Features: Dynamic Progress Bar, Custom Boda Buttons Only (No Support)
+# Module: Inline Keyboard Markups (Full & Fixed)
+# Features: Dynamic Progress Bar, Custom Boda Buttons, Fixed Missing Functions
 
 import math
 import time
@@ -78,7 +78,7 @@ def stream_markup_timer(_, chat_id, played, dur):
     # 1. أزرار التحكم
     buttons.extend(control_buttons(chat_id))
     
-    # 2. ✅ الأزرار المزخرفة فقط (بدون support)
+    # 2. ✅ الأزرار المزخرفة
     buttons.append([
         InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
         InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
@@ -90,14 +90,12 @@ def stream_markup_timer(_, chat_id, played, dur):
     ])
     return buttons
 
-# ✅ هام جداً: حذفنا videoid من هنا عشان التوافق مع stream.py
 def stream_markup(_, chat_id):
     """
     Fallback markup for live streams.
     """
     buttons = control_buttons(chat_id)
     
-    # ✅ الأزرار المزخرفة فقط
     buttons.append([
         InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
         InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
@@ -114,7 +112,6 @@ def telegram_markup(_, chat_id):
     """
     buttons = control_buttons(chat_id)
     
-    # ✅ الأزرار المزخرفة فقط
     buttons.append([
         InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
         InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
@@ -124,6 +121,39 @@ def telegram_markup(_, chat_id):
         InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
     ])
     return buttons
+
+# --- ✅ Missing Functions Added Below (aq_markup, close_markup) ---
+
+def aq_markup(_, chat_id):
+    """
+    Markup for 'Added to Queue' messages.
+    """
+    buttons = [
+        [
+            InlineKeyboardButton(text="▷", callback_data=f"ADMIN Resume|{chat_id}"),
+            InlineKeyboardButton(text="II", callback_data=f"ADMIN Pause|{chat_id}"),
+            InlineKeyboardButton(text="‣‣I", callback_data=f"ADMIN Skip|{chat_id}"),
+            InlineKeyboardButton(text="▢", callback_data=f"ADMIN Stop|{chat_id}"),
+        ],
+        [
+            InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
+            InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
+        ],
+        [
+            InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
+        ]
+    ]
+    return buttons
+
+def close_markup(_):
+    """
+    Simple Close Button.
+    """
+    return [
+        [
+            InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
+        ]
+    ]
 
 # --- Selection & Menu Markups ---
 
