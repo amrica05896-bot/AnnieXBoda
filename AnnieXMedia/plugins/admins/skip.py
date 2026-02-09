@@ -1,5 +1,6 @@
-# Authored By Certified Coders © 2026
-# Module: Skip Stream (Fixed Thumbnails & CallController)
+
+# Authored By Certified Coders 2026
+# Module: Skip Stream - Arabic Commands + Language Support
 
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, Message
@@ -12,8 +13,7 @@ from AnnieXMedia.utils.database import get_loop
 from AnnieXMedia.utils.decorators import AdminRightsCheck
 from AnnieXMedia.utils.inline import close_markup, stream_markup
 from AnnieXMedia.utils.stream.autoclear import auto_clean
-# ✅ التصحيح: استدعاء gen_thumb بدلاً من get_thumb
-from AnnieXMedia.utils.thumbnails import gen_thumb
+from AnnieXMedia.utils.thumbnails import get_thumb
 from config import BANNED_USERS
 
 
@@ -127,10 +127,8 @@ async def skip(cli, message: Message, _, chat_id):
             await StreamController.skip_stream(chat_id, link, video=status, image=image)
         except:
             return await message.reply_text(_["call_6"])
-        
         button = stream_markup(_, chat_id)
-        # ✅ استخدام gen_thumb
-        img = await gen_thumb(videoid)
+        img = await get_thumb(videoid)
         run = await message.reply_photo(
             photo=img,
             caption=_["stream_1"].format(
@@ -163,10 +161,8 @@ async def skip(cli, message: Message, _, chat_id):
             await StreamController.skip_stream(chat_id, file_path, video=status, image=image)
         except:
             return await mystic.edit_text(_["call_6"])
-        
         button = stream_markup(_, chat_id)
-        # ✅ استخدام gen_thumb
-        img = await gen_thumb(videoid)
+        img = await get_thumb(videoid)
         run = await message.reply_photo(
             photo=img,
             caption=_["stream_1"].format(
@@ -186,7 +182,6 @@ async def skip(cli, message: Message, _, chat_id):
             await StreamController.skip_stream(chat_id, videoid, video=status)
         except:
             return await message.reply_text(_["call_6"])
-        
         button = stream_markup(_, chat_id)
         run = await message.reply_photo(
             photo=config.STREAM_IMG_URL,
@@ -210,7 +205,6 @@ async def skip(cli, message: Message, _, chat_id):
             await StreamController.skip_stream(chat_id, queued, video=status, image=image)
         except:
             return await message.reply_text(_["call_6"])
-        
         if videoid == "telegram":
             button = stream_markup(_, chat_id)
             run = await message.reply_photo(
@@ -239,8 +233,7 @@ async def skip(cli, message: Message, _, chat_id):
             db[chat_id][0]["markup"] = "tg"
         else:
             button = stream_markup(_, chat_id)
-            # ✅ استخدام gen_thumb
-            img = await gen_thumb(videoid)
+            img = await get_thumb(videoid)
             run = await message.reply_photo(
                 photo=img,
                 caption=_["stream_1"].format(
