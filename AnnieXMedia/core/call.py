@@ -1,6 +1,7 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Stable & Strict Edition)
-# Fixes: Auto-Leave, Force Video, ID Sanitization, Local Crash
+# System: Call Controller (Hybrid Edition)
+# Logic: Legacy ID Detection (Stable)
+# Performance: HEIGHT/Titan Engine (Fast)
 
 import asyncio
 import os
@@ -56,7 +57,53 @@ from AnnieXMedia.utils.errors import capture_internal_err
 autoend = {}
 counter = {}
 
-# --- [1] Helpers ---
+# --- [1] Settings (HEIGHT/Titan Edition) ---
+# هذه هي الإعدادات الجديدة والقوية التي طلبتها
+
+def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
+    """
+    HEIGHT Engine: Uses Titan Flags for maximum buffer and stability.
+    """
+    if not path: path = ""
+    is_url = path.startswith("http")
+    
+    # Titan Flags (The Speed & Stability Secret)
+    if is_url:
+        titan_flags = (
+            "-threads 4 "
+            "-probesize 10M "
+            "-analyzeduration 10M "
+            "-rtbufsize 15M "
+            "-reconnect 1 "
+            "-reconnect_streamed 1 "
+            "-reconnect_on_network_error 1 "
+            "-reconnect_delay_max 5 "
+            "-fflags +genpts+igndts+nobuffer "
+            "-sync ext"
+        )
+    else:
+        titan_flags = (
+            "-threads 4 "
+            "-probesize 10M "
+            "-analyzeduration 10M "
+            "-fflags +genpts+igndts+nobuffer "
+            "-sync ext"
+        )
+
+    if ffmpeg_params:
+        titan_flags += f" {ffmpeg_params}"
+
+    return MediaStream(
+        media_path=path,
+        audio_parameters=AudioQuality.HIGH, 
+        video_parameters=VideoQuality.HD_720p, 
+        video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
+        audio_flags=MediaStream.Flags.REQUIRED,
+        ffmpeg_parameters=titan_flags,
+    )
+
+# --- [2] Helpers (Legacy Compatible) ---
+
 def clean_vidid(vid):
     if vid is True or vid is False: return None
     if not vid: return None
@@ -88,48 +135,6 @@ async def get_direct_link(videoid: str):
     except:
         return link
 
-def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
-    if not path: path = ""
-    is_url = path.startswith("http")
-    
-    # 🛑 Anti-Crash: Last line of defense against MP3s treated as Video
-    if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")):
-        video = False
-
-    if is_url:
-        titan_flags = (
-            "-threads 2 "
-            "-probesize 10M "
-            "-analyzeduration 10M "
-            "-rtbufsize 15M "
-            "-reconnect 1 "
-            "-reconnect_streamed 1 "
-            "-reconnect_on_network_error 1 "
-            "-reconnect_delay_max 5 "
-            "-fflags +genpts+igndts+nobuffer "
-            "-sync ext"
-        )
-    else:
-        titan_flags = (
-            "-threads 2 "
-            "-probesize 10M "
-            "-analyzeduration 10M "
-            "-fflags +genpts+igndts+nobuffer "
-            "-sync ext"
-        )
-
-    if ffmpeg_params:
-        titan_flags += f" {ffmpeg_params}"
-
-    return MediaStream(
-        media_path=path,
-        audio_parameters=AudioQuality.HIGH, 
-        video_parameters=VideoQuality.HD_720p, 
-        video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
-        audio_flags=MediaStream.Flags.REQUIRED,
-        ffmpeg_parameters=titan_flags,
-    )
-
 async def _clear_(chat_id: int) -> None:
     popped = db.pop(chat_id, None)
     if popped:
@@ -138,6 +143,8 @@ async def _clear_(chat_id: int) -> None:
     await remove_active_video_chat(chat_id)
     await remove_active_chat(chat_id)
     await set_loop(chat_id, 0)
+
+# --- [3] Call Controller ---
 
 class Call:
     def __init__(self):
@@ -212,6 +219,7 @@ class Call:
     async def skip_stream(self, chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
         
+        # New Logic: Direct Link Check
         final_link = link
         if link and ("youtube" in link or "youtu.be" in link):
              vid_id = extract_video_id(link)
@@ -219,18 +227,6 @@ class Call:
                  try:
                      direct = await get_direct_link(vid_id)
                      if direct: final_link = direct
-                 except: pass
-
-        if not final_link: return
-
-        # 🛑 Force Video Fetch Logic
-        if video and final_link.endswith((".mp3", ".m4a", ".flac", ".opus")):
-             vid_id = extract_video_id(link)
-             if vid_id:
-                 try:
-                     new_link = await get_direct_link(vid_id)
-                     if new_link and not new_link.endswith(".mp3"): 
-                         final_link = new_link
                  except: pass
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
@@ -312,6 +308,7 @@ class Call:
         lang = await get_lang(chat_id)
         _ = get_string(lang)
         
+        # Legacy: Direct Link Support
         final_link = link
         if link and ("youtube" in link or "youtu.be" in link):
             vid_id = extract_video_id(link)
@@ -320,15 +317,6 @@ class Call:
                     direct = await get_direct_link(vid_id)
                     if direct: final_link = direct
                 except: pass
-
-        if video and final_link and final_link.endswith((".mp3", ".m4a", ".flac", ".opus")):
-             vid_id = extract_video_id(link)
-             if vid_id:
-                 try:
-                     new_link = await get_direct_link(vid_id)
-                     if new_link and not new_link.endswith(".mp3"): 
-                         final_link = new_link
-                 except: pass
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         ksk = GroupCallConfig(auto_start=False)
@@ -349,37 +337,17 @@ class Call:
             except NoActiveGroupCall:
                 raise AssistantErr(_["call_8"])
             except (NoAudioSourceFound, NoVideoSourceFound):
-                if video and attempt < 1:
-                     vid_id = extract_video_id(link)
-                     if vid_id:
-                         try:
-                             direct = await get_direct_link(vid_id)
-                             if direct and not direct.endswith(".mp3"):
-                                 stream = dynamic_media_stream(path=direct, video=True)
-                                 await assistant.play(chat_id, stream, config=ksk)
-                                 break
-                         except: pass
                 raise AssistantErr(_["call_11"])
             except (ConnectionNotFound, TelegramServerError):
                 if attempt < retries - 1:
                     await asyncio.sleep(2)
                     continue
                 raise AssistantErr(_["call_10"])
-            except (asyncio.TimeoutError, asyncio.exceptions.CancelledError, Exception) as e:
-                if "already joined" in str(e).lower() or "active call" in str(e).lower():
-                    try: await assistant.change_stream(chat_id, stream)
-                    except: pass
-                    break
-                
-                if "Timeout" in str(e) or "Cancelled" in str(e) or "yt-dlp timeout" in str(e):
-                    if attempt < retries - 1:
-                        await asyncio.sleep(2)
-                        continue
-                    else:
-                        raise AssistantErr("فشل الاتصال.")
-                else:
-                    LOGGER(__name__).error(f"💣 [JOIN ERROR] {chat_id}: {e}")
-                    raise AssistantErr(f"Error: {e}")
+            except Exception as e:
+                if attempt < retries - 1:
+                    await asyncio.sleep(2)
+                    continue
+                raise AssistantErr(f"Error: {e}")
                   
         self.active_calls.add(chat_id)
         await add_active_chat(chat_id)
@@ -398,6 +366,8 @@ class Call:
 
     @capture_internal_err
     async def play(self, client, chat_id: int) -> None:
+        # --- [OLD LOGIC START] ---
+        # هنا المنطق القديم للتعرف على الملفات (live_, vid_, telegram, soundcloud)
         check = db.get(chat_id)
         popped = None
         loop = await get_loop(chat_id)
@@ -409,14 +379,11 @@ class Call:
                 await set_loop(chat_id, loop)
             await auto_clean(popped)
             
-            # 🛑 [STRICT LEAVE] خروج فوري إذا القائمة فارغة
             if not check:
                 await _clear_(chat_id)
-                try: 
-                    await client.leave_call(chat_id)
+                try: await client.leave_call(chat_id)
                 except: pass
-                finally: 
-                    self.active_calls.discard(chat_id)
+                finally: self.active_calls.discard(chat_id)
                 return
         except:
             try:
@@ -431,8 +398,7 @@ class Call:
             user = check[0]["by"]
             original_chat_id = check[0]["chat_id"]
             streamtype = check[0]["streamtype"]
-            # 🛑 Clean ID
-            videoid = clean_vidid(check[0]["vidid"])
+            videoid = check[0]["vidid"] # Keep Raw ID for checks
             db[chat_id][0]["played"] = 0
 
             exis = (check[0]).get("old_dur")
@@ -450,80 +416,149 @@ class Call:
                         await client.change_stream(chat_id, stream_obj)
                     else:
                         await client.play(chat_id, stream_obj)
-                except Exception as e:
-                    try:
-                        await client.change_stream(chat_id, stream_obj)
-                        return
-                    except: pass
+                except Exception:
                     try:
                         await client.leave_call(chat_id)
                         await asyncio.sleep(0.5)
                         await client.play(chat_id, stream_obj)
                     except:
                         await _clear_(chat_id)
-                        try: await client.leave_call(chat_id)
-                        except: pass
                         return await app.send_message(original_chat_id, text=_["call_6"])
 
+            # --- [OLD ID DETECTION + NEW ENGINE] ---
             try:
-                final_link = queued
-                if "live_" in queued or "vid_" in queued or "index_" in queued:
+                if "live_" in queued:
+                    n, link = await YouTube.video(videoid, True)
+                    if n == 0:
+                        return await app.send_message(original_chat_id, text=_["call_6"])
+                    
+                    # HEIGHT ENGINE USAGE
+                    stream = dynamic_media_stream(path=link, video=video)
+                    await _play_stream(stream)
+                    
+                    img = await get_thumb(videoid)
+                    button = stream_markup(_, chat_id)
+                    run = await app.send_photo(
+                        chat_id=original_chat_id,
+                        photo=img,
+                        caption=_["stream_1"].format(
+                            f"https://t.me/{app.username}?start=info_{videoid}",
+                            title[:23],
+                            check[0]["dur"],
+                            user,
+                        ),
+                        reply_markup=InlineKeyboardMarkup(button),
+                    )
+                    db[chat_id][0]["mystic"] = run
+                    db[chat_id][0]["markup"] = "tg"
+
+                elif "vid_" in queued:
+                    mystic = await app.send_message(original_chat_id, _["call_7"])
                     try:
-                        if videoid and len(videoid) == 11:
-                            direct_url = await get_direct_link(videoid)
-                            if direct_url: final_link = direct_url
-                            else:
-                                try:
-                                    # 🛑 Pass None as videoid to prevent 'True' bug
-                                    path, is_direct = await YouTube.download(
-                                        f"https://www.youtube.com/watch?v={videoid}",
-                                        None,
-                                        video=video,
-                                        videoid=None 
-                                    )
-                                    if path: final_link = path
-                                except: pass
-                    except: pass
+                        file_path, direct = await YouTube.download(
+                            videoid,
+                            mystic,
+                            videoid=True,
+                            video=video,
+                        )
+                    except:
+                        return await mystic.edit_text(_["call_6"], disable_web_page_preview=True)
 
-                # 🛑 Force Video Fetch in Queue
-                if video and final_link and final_link.endswith((".mp3", ".m4a", ".flac", ".opus")):
-                     if videoid and len(videoid) == 11:
-                         try:
-                             new_link = await get_direct_link(videoid)
-                             if new_link and not new_link.endswith(".mp3"): 
-                                 final_link = new_link
-                         except: pass
+                    # HEIGHT ENGINE USAGE
+                    stream = dynamic_media_stream(path=file_path, video=video)
+                    await _play_stream(stream)
 
-                stream = dynamic_media_stream(path=final_link, video=video)
-                await _play_stream(stream)
+                    img = await get_thumb(videoid)
+                    button = stream_markup(_, chat_id)
+                    await mystic.delete()
+                    run = await app.send_photo(
+                        chat_id=original_chat_id,
+                        photo=img,
+                        caption=_["stream_1"].format(
+                            f"https://t.me/{app.username}?start=info_{videoid}",
+                            title[:23],
+                            check[0]["dur"],
+                            user,
+                        ),
+                        reply_markup=InlineKeyboardMarkup(button),
+                    )
+                    db[chat_id][0]["mystic"] = run
+                    db[chat_id][0]["markup"] = "stream"
 
-                img = await get_thumb(videoid)
-                button = stream_markup(_, chat_id)
-                
-                try:
-                    if db[chat_id][0].get("mystic"):
-                        await db[chat_id][0].get("mystic").delete()
-                except: pass
+                elif "index_" in queued:
+                    # HEIGHT ENGINE USAGE
+                    stream = dynamic_media_stream(path=videoid, video=video)
+                    await _play_stream(stream)
 
-                run = await app.send_photo(
-                    chat_id=original_chat_id,
-                    photo=img,
-                    caption=_["stream_1"].format(
-                        f"https://t.me/{app.username}?start=info_{videoid}",
-                        title[:23],
-                        check[0]["dur"],
-                        user,
-                    ),
-                    reply_markup=InlineKeyboardMarkup(button),
-                )
-                db[chat_id][0]["mystic"] = run
-                db[chat_id][0]["markup"] = "stream"
+                    button = stream_markup(_, chat_id)
+                    run = await app.send_photo(
+                        chat_id=original_chat_id,
+                        photo=config.STREAM_IMG_URL,
+                        caption=_["stream_2"].format(user),
+                        reply_markup=InlineKeyboardMarkup(button),
+                    )
+                    db[chat_id][0]["mystic"] = run
+                    db[chat_id][0]["markup"] = "tg"
 
+                else:
+                    # Standard Link Handling (YouTube/Soundcloud/Telegram)
+                    stream = dynamic_media_stream(path=queued, video=video)
+                    await _play_stream(stream)
+
+                    if videoid == "telegram":
+                        button = stream_markup(_, chat_id)
+                        run = await app.send_photo(
+                            chat_id=original_chat_id,
+                            photo=(config.TELEGRAM_AUDIO_URL if str(streamtype) == "audio" else config.TELEGRAM_VIDEO_URL),
+                            caption=_["stream_1"].format(config.SUPPORT_CHAT, title[:23], check[0]["dur"], user),
+                            reply_markup=InlineKeyboardMarkup(button),
+                        )
+                        db[chat_id][0]["mystic"] = run
+                        db[chat_id][0]["markup"] = "tg"
+
+                    elif videoid == "soundcloud":
+                        button = stream_markup(_, chat_id)
+                        run = await app.send_photo(
+                            chat_id=original_chat_id,
+                            photo=config.SOUNCLOUD_IMG_URL,
+                            caption=_["stream_1"].format(config.SUPPORT_CHAT, title[:23], check[0]["dur"], user),
+                            reply_markup=InlineKeyboardMarkup(button),
+                        )
+                        db[chat_id][0]["mystic"] = run
+                        db[chat_id][0]["markup"] = "tg"
+
+                    else:
+                        img = await get_thumb(videoid)
+                        button = stream_markup(_, chat_id)
+                        try:
+                            run = await app.send_photo(
+                                chat_id=original_chat_id,
+                                photo=img,
+                                caption=_["stream_1"].format(
+                                    f"https://t.me/{app.username}?start=info_{videoid}",
+                                    title[:23],
+                                    check[0]["dur"],
+                                    user,
+                                ),
+                                reply_markup=InlineKeyboardMarkup(button),
+                            )
+                        except FloodWait as e:
+                            await asyncio.sleep(e.value)
+                            run = await app.send_photo(
+                                chat_id=original_chat_id,
+                                photo=img,
+                                caption=_["stream_1"].format(
+                                    f"https://t.me/{app.username}?start=info_{videoid}",
+                                    title[:23],
+                                    check[0]["dur"],
+                                    user,
+                                ),
+                                reply_markup=InlineKeyboardMarkup(button),
+                            )
+                        db[chat_id][0]["mystic"] = run
+                        db[chat_id][0]["markup"] = "stream"
             except Exception:
                 LOGGER(__name__).error(f"💣 [PLAY ERROR] Chat: {chat_id}\n{traceback.format_exc()}")
-                await _clear_(chat_id)
-                try: await client.leave_call(chat_id)
-                except: pass
                 return await app.send_message(original_chat_id, text=_["call_6"])
 
     async def start(self) -> None:
