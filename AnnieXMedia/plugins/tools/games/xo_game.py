@@ -1,479 +1,466 @@
 # Authored By Certified Coders 2026
-# Module: XO Game Advanced System (Rust Powered + Clean Text)
+# Architecture: MVC (Model-View-Controller)
+# Engine: Pure Python Optimized (Alpha-Beta Pruning)
 
 import asyncio
-import ctypes
 import json
 import os
-import subprocess
+import random
+from dataclasses import dataclass, field
+from typing import Dict, Optional, List, Tuple
+
 from pyrogram import filters, Client
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
-from pyrogram.errors import MessageNotModified, FloodWait
+from pyrogram.errors import MessageNotModified
 
 from AnnieXMedia import app
 import config
 
-# ─── 1. Rust Engine Auto-Compile ───
-RUST_SRC = "AnnieXMedia/plugins/xo_engine.rs"
-ENGINE_PATH = "./xo_engine.so"
-xo_lib = None
+# ════════════════════ [ 1. CONFIGURATION ] ════════════════════
 
-def compile_and_load():
-    global xo_lib
-    # Compile if source exists and lib doesn't (or force recompile logic if needed)
-    if os.path.exists(RUST_SRC) and not os.path.exists(ENGINE_PATH):
-        print("⚙️ Compiling Rust Engine...")
-        try:
-            subprocess.run(
-                ["rustc", "--crate-type", "cdylib", "-O", "-C", "target-cpu=native", "-o", ENGINE_PATH, RUST_SRC],
-                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-            print("✅ Rust Engine Compiled.")
-        except Exception as e:
-            print(f"❌ Rust Compile Error: {e}")
-
-    # Load Library
-    if os.path.exists(ENGINE_PATH):
-        try:
-            xo_lib = ctypes.CDLL(ENGINE_PATH)
-            xo_lib.check_winner_engine.argtypes = [ctypes.c_char_p]
-            xo_lib.check_winner_engine.restype = ctypes.c_char
-            xo_lib.get_hard_move.argtypes = [ctypes.c_char_p]
-            xo_lib.get_hard_move.restype = ctypes.c_int
-            xo_lib.get_medium_move.argtypes = [ctypes.c_char_p]
-            xo_lib.get_medium_move.restype = ctypes.c_int
-            xo_lib.get_easy_move.argtypes = [ctypes.c_char_p]
-            xo_lib.get_easy_move.restype = ctypes.c_int
-        except Exception as e:
-            print(f"⚠️ Failed to load Rust Engine: {e}")
-
-# Run Compilation on Import
-compile_and_load()
-
-# ─── Settings ───
-
-GAME_IMAGE = "https://files.catbox.moe/gy85j3.jpg"
-POINTS_FILE = "xo_points.json"
-
-SYM_X = "❌"
-SYM_O = "⭕"
-SYM_E = "◻️"
-
-ENGINE_MAP = {SYM_X: b'X', SYM_O: b'O', SYM_E: b'-'}
-
-active_games = {}
-waiting_for_input = {}
-game_lock = asyncio.Lock()
-
-# ─── Points System (Smart Name Caching) ───
-
-def load_data():
-    if not os.path.exists(POINTS_FILE): return {}
-    try:
-        with open(POINTS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if data and not isinstance(list(data.values())[0], dict):
-                return {k: {"points": v, "name": "Unknown"} for k, v in data.items()}
-            return data
-    except: return {}
-
-def save_data(data):
-    with open(POINTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-def update_user(user_id, name, points_add=0):
-    data = load_data()
-    uid = str(user_id)
-    if uid not in data:
-        data[uid] = {"points": 0, "name": name}
+class Config:
+    GAME_IMAGE = "https://files.catbox.moe/gy85j3.jpg"
+    POINTS_FILE = "xo_points.json"
     
-    data[uid]["points"] += points_add
-    data[uid]["name"] = name
-    save_data(data)
-    return data[uid]["points"]
+    # Symbols (Keyboard Only)
+    SYM_X = "❌"
+    SYM_O = "⭕"
+    SYM_E = "◻️"
 
-def get_user_points(user_id):
-    data = load_data()
-    return data.get(str(user_id), {}).get("points", 0)
+# ════════════════════ [ 2. LOGIC ENGINE (PURE PYTHON) ] ════════════════════
 
-def get_leaderboard():
-    data = load_data()
-    sorted_users = sorted(data.items(), key=lambda x: x[1]['points'], reverse=True)[:5]
-    return sorted_users
+class AIEngine:
+    WINS = [
+        (0,1,2), (3,4,5), (6,7,8),
+        (0,3,6), (1,4,7), (2,5,8),
+        (0,4,8), (2,4,6)
+    ]
 
-# ─── Helpers ───
+    @staticmethod
+    def check_status(board: List[str]) -> Optional[str]:
+        for a, b, c in AIEngine.WINS:
+            if board[a] == board[b] == board[c] and board[a] != Config.SYM_E:
+                return board[a]
+        if Config.SYM_E not in board:
+            return "Draw"
+        return None
 
-def get_engine_board(py_board):
-    return b"".join([ENGINE_MAP[c] for c in py_board])
+    @staticmethod
+    def minimax(board, depth, is_max, alpha, beta):
+        res = AIEngine.check_status(board)
+        if res == Config.SYM_O: return 100 - depth
+        if res == Config.SYM_X: return depth - 100
+        if res == "Draw": return 0
 
-def check_winner_fallback(board):
-    """Python fallback if Rust fails"""
-    wins = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]]
-    for w in wins:
-        if board[w[0]] == board[w[1]] == board[w[2]] and board[w[0]] != SYM_E:
-            return board[w[0]]
-    if SYM_E not in board: return "Draw"
-    return None
+        if is_max:
+            best = -1000
+            for i in range(9):
+                if board[i] == Config.SYM_E:
+                    board[i] = Config.SYM_O
+                    val = AIEngine.minimax(board, depth + 1, False, alpha, beta)
+                    board[i] = Config.SYM_E
+                    best = max(best, val)
+                    alpha = max(alpha, best)
+                    if beta <= alpha: break
+            return best
+        else:
+            best = 1000
+            for i in range(9):
+                if board[i] == Config.SYM_E:
+                    board[i] = Config.SYM_X
+                    val = AIEngine.minimax(board, depth + 1, True, alpha, beta)
+                    board[i] = Config.SYM_E
+                    best = min(best, val)
+                    beta = min(beta, best)
+                    if beta <= alpha: break
+            return best
 
-def build_keyboard(board, game_id):
-    buttons = []
-    row = []
-    for i, cell in enumerate(board):
-        row.append(InlineKeyboardButton(cell, callback_data=f"xo_m_{game_id}_{i}"))
-        if len(row) == 3:
-            buttons.append(row)
-            row = []
-    return InlineKeyboardMarkup(buttons)
+    @staticmethod
+    def get_best_move(board: List[str], diff: str) -> int:
+        # 1. Cheat / Easy
+        if (hasattr(config, "XO_CHEAT") and config.XO_CHEAT) or diff == "Easy":
+            empties = [i for i, x in enumerate(board) if x == Config.SYM_E]
+            return random.choice(empties) if empties else -1
 
-def format_name(user_id, name):
-    return f"[{name}](tg://user?id={user_id})"
+        # 2. Medium (50% Hard)
+        if diff == "Medium" and random.random() < 0.4:
+            empties = [i for i, x in enumerate(board) if x == Config.SYM_E]
+            return random.choice(empties) if empties else -1
 
-# ─── Start Command ───
+        # 3. Hard (Unbeatable)
+        if board[4] == Config.SYM_E: return 4 # Optimization
+        
+        best_val = -1000
+        best_move = -1
+        
+        for i in range(9):
+            if board[i] == Config.SYM_E:
+                board[i] = Config.SYM_O
+                move_val = AIEngine.minimax(board, 0, False, -1000, 1000)
+                board[i] = Config.SYM_E
+                
+                if move_val > best_val:
+                    best_val = move_val
+                    best_move = i
+                    
+        return best_move
+
+# ════════════════════ [ 3. DATA LAYER (STORAGE) ] ════════════════════
+
+class DataManager:
+    @staticmethod
+    def _rw(data=None):
+        if data is None: # Read Mode
+            if not os.path.exists(Config.POINTS_FILE): return {}
+            try:
+                with open(Config.POINTS_FILE, "r", encoding="utf-8") as f: return json.load(f)
+            except: return {}
+        else: # Write Mode
+            with open(Config.POINTS_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+
+    @classmethod
+    def update_player(cls, uid: int, name: str, points_add: int = 0) -> int:
+        db = cls._rw()
+        sid = str(uid)
+        
+        entry = db.get(sid, {"points": 0, "name": name})
+        if isinstance(entry, int): entry = {"points": entry, "name": name}
+        
+        entry["name"] = name
+        entry["points"] += points_add
+        db[sid] = entry
+        
+        cls._rw(db)
+        return entry["points"]
+
+    @classmethod
+    def get_points(cls, uid: int) -> int:
+        db = cls._rw()
+        val = db.get(str(uid), 0)
+        return val["points"] if isinstance(val, dict) else val
+
+    @classmethod
+    def get_leaderboard(cls) -> List[Tuple[str, int]]:
+        db = cls._rw()
+        data = []
+        for v in db.values():
+            if isinstance(v, dict): data.append((v["name"], v["points"]))
+            else: data.append(("Unknown", v))
+        return sorted(data, key=lambda x: x[1], reverse=True)[:5]
+
+# ════════════════════ [ 4. MODEL LAYER (GAME STATE) ] ════════════════════
+
+@dataclass
+class GameSession:
+    board: List[str]
+    turn: int
+    p1: int
+    p2: int
+    p1_name: str
+    p2_name: str
+    mode: str
+    diff: str = "Easy"
+
+class GameManager:
+    sessions: Dict[str, GameSession] = {}
+    invites: Dict[int, dict] = {} 
+    lock = asyncio.Lock()
+
+    @classmethod
+    async def create(cls, key: str, p1: int, n1: str, mode: str, p2: int = 0, n2: str = "AI", diff: str = "Easy"):
+        async with cls.lock:
+            cls.sessions[key] = GameSession(
+                board=[Config.SYM_E] * 9,
+                turn=p1,
+                p1=p1, p1_name=n1,
+                p2=p2, p2_name=n2,
+                mode=mode, diff=diff
+            )
+        return cls.sessions[key]
+
+    @classmethod
+    def get(cls, key: str) -> Optional[GameSession]:
+        return cls.sessions.get(key)
+
+    @classmethod
+    def delete(cls, key: str):
+        if key in cls.sessions: del cls.sessions[key]
+
+# ════════════════════ [ 5. UI LAYER (INTERFACE) ] ════════════════════
+
+class UIFactory:
+    @staticmethod
+    def get_keyboard(board: List[str], game_key: str) -> InlineKeyboardMarkup:
+        buttons = []
+        row = []
+        for i, cell in enumerate(board):
+            row.append(InlineKeyboardButton(cell, callback_data=f"xo_m_{game_key}_{i}"))
+            if len(row) == 3:
+                buttons.append(row)
+                row = []
+        return InlineKeyboardMarkup(buttons)
+
+    @staticmethod
+    def format_name(uid: int, name: str) -> str:
+        return f"[{name}](tg://user?id={uid})"
+
+# ════════════════════ [ 6. CONTROLLER (HANDLERS) ] ════════════════════
 
 @app.on_message(filters.command(["xo", "اكس او", "لعبة xo"], prefixes=["", "/", "!"]))
-async def start_xo_command(client, message):
+async def start_handler(client, message):
     if hasattr(config, "XO_ENABLED") and not config.XO_ENABLED:
         return await message.reply_text("اللعبة معطلة حالياً.")
 
     uid = message.from_user.id
     name = message.from_user.first_name
-    update_user(uid, name, 0) 
+    DataManager.update_player(uid, name)
+    pts = DataManager.get_points(uid)
 
-    pts = get_user_points(uid)
     text = (
         f"**مرحباً بك في لعبة إكس أو**\n"
         f"**نقاطك:** `{pts}`\n"
         f"**المعرف:** `{message.id}`"
     )
     
-    keyboard = InlineKeyboardMarkup([
+    kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("Play vs AI", callback_data=f"xo_pre_ai_{uid}")],
         [InlineKeyboardButton("Play vs Friend", callback_data=f"xo_pre_pvp_{uid}")],
         [InlineKeyboardButton("Leaderboard", callback_data=f"xo_top_{uid}")]
     ])
     
-    await message.reply_photo(GAME_IMAGE, caption=text, reply_markup=keyboard)
+    await message.reply_photo(Config.GAME_IMAGE, caption=text, reply_markup=kb)
 
-# ─── Menu Handler ───
-
-@app.on_callback_query(filters.regex(r"^xo_(pre_ai|sel_ai|pre_pvp|make_open|req|top|join|cancel)_"))
-async def xo_menu_handler(client, cb: CallbackQuery):
-    data_parts = cb.data.split("_")
-    action = data_parts[1]
-    user = cb.from_user
-    game_key = f"{cb.message.chat.id}_{cb.message.id}"
-
-    # 1. Join Check
-    if action == "join":
-        owner_id = int(data_parts[-1])
-        
-        if user.id == owner_id:
-            return await cb.answer("لا يمكنك اللعب ضد نفسك.", show_alert=True)
-        
-        try:
-            owner = await client.get_users(owner_id)
-            p1_name = owner.first_name
-        except: p1_name = "Player 1"
-
-        update_user(user.id, user.first_name, 0)
-
-        async with game_lock:
-            active_games[game_key] = {
-                "board": [SYM_E] * 9,
-                "turn": owner_id,
-                "p1": owner_id,
-                "p2": user.id,
-                "p1_name": p1_name,
-                "p2_name": user.first_name,
-                "mode": "pvp"
-            }
-        await update_game_ui(client, cb.message, game_key)
-        return
-
-    # Determine Owner
-    if action == "sel": owner_id = int(data_parts[4])
-    else: owner_id = int(data_parts[-1])
-
-    if user.id != owner_id:
-        return await cb.answer("هذه اللعبة ليست لك.", show_alert=True)
-
-    # Leaderboard
-    if action == "top":
-        top = get_leaderboard()
-        txt = "**قائمة أفضل اللاعبين:**\n\n"
-        for i, (uid, data) in enumerate(top, 1):
-            n = data.get("name", "Unknown")
-            p = data.get("points", 0)
-            txt += f"{i}. {n} : `{p}` نقطة\n"
-        
-        await cb.edit_message_caption(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data=f"xo_main_{owner_id}")]]))
-
-    # Difficulty Select
-    elif action == "pre" and "ai" in cb.data:
+@app.on_callback_query(filters.regex(r"^xo_"))
+async def callback_router(client, cb: CallbackQuery):
+    data = cb.data.split("_")
+    action = data[1]
+    uid = cb.from_user.id
+    
+    # --- Navigation ---
+    if action == "main":
+        if uid != int(data[2]): return await cb.answer("هذه اللعبة ليست لك.", show_alert=True)
+        pts = DataManager.update_player(uid, cb.from_user.first_name)
+        text = f"**مرحباً بك في لعبة إكس أو**\n**نقاطك:** `{pts}`\n**المعرف:** `{cb.message.id}`"
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Easy", callback_data=f"xo_sel_ai_Easy_{owner_id}")],
-            [InlineKeyboardButton("Medium", callback_data=f"xo_sel_ai_Medium_{owner_id}")],
-            [InlineKeyboardButton("Hard", callback_data=f"xo_sel_ai_Hard_{owner_id}")],
-            [InlineKeyboardButton("Back", callback_data=f"xo_main_{owner_id}")]
-        ])
-        await cb.edit_message_caption("**اختر مستوى الصعوبة:**", reply_markup=kb)
-
-    # PVP Select
-    elif action == "pre" and "pvp" in cb.data:
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Open Lobby", callback_data=f"xo_make_open_{owner_id}")],
-            [InlineKeyboardButton("Challenge ID", callback_data=f"xo_req_{owner_id}")],
-            [InlineKeyboardButton("Back", callback_data=f"xo_main_{owner_id}")]
-        ])
-        await cb.edit_message_caption("**اختر طريقة اللعب:**", reply_markup=kb)
-
-    # Open Lobby
-    elif action == "make":
-        text = f"**تم إنشاء اللعبة بواسطة {user.first_name}**\n**بانتظار الخصم...**"
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Join Match", callback_data=f"xo_join_{owner_id}")],
-            [InlineKeyboardButton("Cancel", callback_data=f"xo_main_{owner_id}")]
+            [InlineKeyboardButton("Play vs AI", callback_data=f"xo_pre_ai_{uid}")],
+            [InlineKeyboardButton("Play vs Friend", callback_data=f"xo_pre_pvp_{uid}")],
+            [InlineKeyboardButton("Leaderboard", callback_data=f"xo_top_{uid}")]
         ])
         await cb.edit_message_caption(text, reply_markup=kb)
 
-    # Start AI
-    elif action == "sel":
-        diff = data_parts[3]
-        async with game_lock:
-            active_games[game_key] = {
-                "board": [SYM_E] * 9,
-                "turn": owner_id,
-                "p1": owner_id,
-                "p2": "AI",
-                "p1_name": user.first_name,
-                "p2_name": f"Bot ({diff})",
-                "mode": "ai",
-                "diff": diff
-            }
-        await update_game_ui(client, cb.message, game_key)
+    # --- Leaderboard ---
+    elif action == "top":
+        top = DataManager.get_leaderboard()
+        txt = "**قائمة أفضل اللاعبين:**\n\n"
+        for i, (n, p) in enumerate(top, 1): txt += f"{i}. {n} : `{p}` نقطة\n"
+        await cb.edit_message_caption(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data=f"xo_main_{uid}")]]))
 
-    # Request ID
-    elif action == "req":
-        waiting_for_input[user.id] = {"chat_id": cb.message.chat.id, "msg_id": cb.message.id}
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data=f"xo_cancel_{owner_id}")]])
+    # --- Setup Phase ---
+    elif action == "pre":
+        owner = int(data[3])
+        if uid != owner: return await cb.answer("هذه اللعبة ليست لك.", show_alert=True)
+        
+        mode = data[2]
+        if mode == "ai":
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("Easy", callback_data=f"xo_sel_ai_Easy_{owner}")],
+                [InlineKeyboardButton("Medium", callback_data=f"xo_sel_ai_Medium_{owner}")],
+                [InlineKeyboardButton("Hard", callback_data=f"xo_sel_ai_Hard_{owner}")],
+                [InlineKeyboardButton("Back", callback_data=f"xo_main_{owner}")]
+            ])
+            await cb.edit_message_caption("**اختر مستوى الصعوبة:**", reply_markup=kb)
+        elif mode == "pvp":
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("Open Lobby", callback_data=f"xo_mk_pvp_{owner}")],
+                [InlineKeyboardButton("Challenge ID", callback_data=f"xo_req_{owner}")],
+                [InlineKeyboardButton("Back", callback_data=f"xo_main_{owner}")]
+            ])
+            await cb.edit_message_caption("**اختر طريقة اللعب:**", reply_markup=kb)
+
+    # --- Game Initialization ---
+    elif action == "sel": # AI Start
+        diff, owner = data[3], int(data[4])
+        key = f"{cb.message.chat.id}_{cb.message.id}"
+        
+        await GameManager.create(key, owner, cb.from_user.first_name, "ai", diff=diff, n2=f"Bot ({diff})")
+        await update_game_interface(client, cb.message, key)
+
+    elif action == "mk": # Open Lobby
+        owner = int(data[3])
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Join Match", callback_data=f"xo_join_{owner}")],
+            [InlineKeyboardButton("Cancel", callback_data=f"xo_main_{owner}")]
+        ])
+        await cb.edit_message_caption(f"**تم إنشاء اللعبة بواسطة {cb.from_user.first_name}**\n**بانتظار الخصم...**", reply_markup=kb)
+
+    elif action == "join": # Join Lobby
+        owner = int(data[2])
+        if uid == owner: return await cb.answer("لا يمكنك اللعب ضد نفسك!", show_alert=True)
+        
+        try: n1 = (await client.get_users(owner)).first_name
+        except: n1 = "Player 1"
+        
+        key = f"{cb.message.chat.id}_{cb.message.id}"
+        DataManager.update_player(uid, cb.from_user.first_name)
+        
+        await GameManager.create(key, owner, n1, "pvp", p2=uid, n2=cb.from_user.first_name)
+        await update_game_interface(client, cb.message, key)
+
+    elif action == "req": # Challenge Request
+        GameManager.invites[uid] = {"cid": cb.message.chat.id, "mid": cb.message.id}
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data=f"xo_main_{uid}")]])
         await cb.edit_message_caption("**أرسل الآن يوزر أو آيدي الشخص الذي تريد تحديه:**", reply_markup=kb)
 
-    # Cancel
-    elif action == "cancel":
-        waiting_for_input.pop(user.id, None)
-        await back_to_main(cb, owner_id)
+    # --- Core Gameplay ---
+    elif action == "m":
+        key = f"{data[2]}_{data[3]}"
+        pos = int(data[4])
+        
+        game = GameManager.get(key)
+        if not game: return await cb.answer("انتهت صلاحية الجلسة.", show_alert=True)
+        
+        if uid != game.turn:
+            if uid in [game.p1, game.p2]: return await cb.answer("ليس دورك!", show_alert=True)
+            return await cb.answer("لست مشاركاً في هذه اللعبة.", show_alert=True)
+            
+        if game.board[pos] != Config.SYM_E: return await cb.answer("هذه الخانة مشغولة.", show_alert=True)
 
-@app.on_callback_query(filters.regex(r"^xo_main_"))
-async def back_to_main_handler(client, cb):
-    await back_to_main(cb, cb.from_user.id)
+        async with GameManager.lock:
+            # 1. Human Move
+            sym = Config.SYM_X if uid == game.p1 else Config.SYM_O
+            game.board[pos] = sym
+            
+            winner = AIEngine.check_status(game.board)
+            if winner:
+                await handle_game_end(client, cb.message, key, winner)
+                return
 
-async def back_to_main(cb, owner_id):
-    pts = get_user_points(owner_id)
-    text = f"**القائمة الرئيسية**\n**نقاطك:** `{pts}`"
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Play vs AI", callback_data=f"xo_pre_ai_{owner_id}")],
-        [InlineKeyboardButton("Play vs Friend", callback_data=f"xo_pre_pvp_{owner_id}")],
-        [InlineKeyboardButton("Leaderboard", callback_data=f"xo_top_{owner_id}")]
-    ])
-    await cb.edit_message_caption(text, reply_markup=kb)
+            # 2. Logic Switch
+            if game.mode == "pvp":
+                game.turn = game.p2 if game.turn == game.p1 else game.p1
+                await update_game_interface(client, cb.message, key)
+            
+            elif game.mode == "ai":
+                ai_move = AIEngine.get_best_move(game.board, game.diff)
+                if ai_move != -1:
+                    game.board[ai_move] = Config.SYM_O
+                    winner_ai = AIEngine.check_status(game.board)
+                    if winner_ai:
+                        await handle_game_end(client, cb.message, key, winner_ai)
+                        return
+                game.turn = game.p1
+                await update_game_interface(client, cb.message, key)
 
-# ─── Challenge Handler ───
-
-@app.on_message(filters.text & ~filters.command("xo") & filters.group)
-async def handle_challenge_text(client, message):
+# --- Challenge Listener ---
+@app.on_message(filters.text & filters.group)
+async def challenge_input_listener(client, message):
     uid = message.from_user.id
-    if uid in waiting_for_input:
-        if message.chat.id != waiting_for_input[uid]["chat_id"]: return
+    if uid in GameManager.invites:
+        ctx = GameManager.invites.pop(uid)
+        if message.chat.id != ctx["cid"]: return
         
-        data = waiting_for_input.pop(uid)
-        orig_msg_id = data["msg_id"]
+        try: target = await client.get_users(message.text)
+        except: return await message.reply_text("لم يتم العثور على اللاعب.")
         
-        try:
-            target = await client.get_users(message.text)
-        except:
-            return await message.reply_text("لم يتم العثور على اللاعب.")
-
-        if target.id == uid or target.is_bot:
-            return await message.reply_text("لا يمكنك تحدي نفسك أو البوتات.")
-
-        update_user(uid, message.from_user.first_name, 0)
-        update_user(target.id, target.first_name, 0)
-
+        if target.id == uid or target.is_bot: return await message.reply_text("لا يمكنك تحدي نفسك أو البوتات.")
+        
+        DataManager.update_player(uid, message.from_user.first_name)
+        DataManager.update_player(target.id, target.first_name)
+        
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Accept", callback_data=f"xo_acc_{uid}_{target.id}_{orig_msg_id}")],
-            [InlineKeyboardButton("Reject", callback_data=f"xo_dny_{uid}_{target.id}_{orig_msg_id}")]
+            [InlineKeyboardButton("Accept", callback_data=f"xo_acc_{uid}_{target.id}_{ctx['mid']}")],
+            [InlineKeyboardButton("Reject", callback_data=f"xo_dny_{uid}_{target.id}_{ctx['mid']}")]
         ])
         await message.reply_text(f"**تحدي جديد!**\n**{message.from_user.mention}** يتحدى **{target.mention}**", reply_markup=kb)
 
-@app.on_callback_query(filters.regex(r"^xo_(acc|dny)_"))
-async def challenge_resp(client, cb):
-    parts = cb.data.split("_")
-    action, p1_id, p2_id, orig_id = parts[1], int(parts[2]), int(parts[3]), int(parts[4])
-
-    if cb.from_user.id != p2_id:
-        return await cb.answer("هذا التحدي ليس لك.", show_alert=True)
-
-    if action == "dny":
-        await cb.message.edit_text(f"**تم رفض التحدي من قبل {cb.from_user.mention}.**")
-    else:
-        game_key = f"{cb.message.chat.id}_{orig_id}"
-        try:
-            p1_name = (await client.get_users(p1_id)).first_name
-        except: p1_name = "Player 1"
-        
-        async with game_lock:
-            active_games[game_key] = {
-                "board": [SYM_E] * 9,
-                "turn": p1_id,
-                "p1": p1_id,
-                "p2": p2_id,
-                "p1_name": p1_name,
-                "p2_name": cb.from_user.first_name,
-                "mode": "pvp"
-            }
-        await cb.message.delete()
-        orig_msg = await client.get_messages(cb.message.chat.id, orig_id)
-        await update_game_ui(client, orig_msg, game_key)
-
-# ─── Gameplay Handler ───
-
-@app.on_callback_query(filters.regex(r"^xo_m_"))
-async def gameplay_handler(client, cb):
-    parts = cb.data.split("_")
+@app.on_callback_query(filters.regex(r"^xo_(acc|dny)"))
+async def challenge_response(client, cb):
+    data = cb.data.split("_")
+    p1, p2, mid = int(data[2]), int(data[3]), int(data[4])
+    
+    if cb.from_user.id != p2: return await cb.answer("هذا التحدي ليس لك.", show_alert=True)
+    if data[1] == "dny": return await cb.message.edit_text("**تم رفض التحدي.**")
+    
+    key = f"{cb.message.chat.id}_{mid}"
+    try: p1n = (await client.get_users(p1)).first_name
+    except: p1n = "Player 1"
+    
+    await cb.message.delete()
+    await GameManager.create(key, p1, p1n, "pvp", p2=p2, n2=cb.from_user.first_name)
+    
     try:
-        pos = int(parts[-1])
-        game_key = f"{parts[2]}_{parts[3]}"
-    except: return await cb.answer("Error")
+        orig = await client.get_messages(cb.message.chat.id, mid)
+        await update_game_interface(client, orig, key)
+    except: await cb.message.reply_text("خطأ في بدء اللعبة.")
 
-    game = active_games.get(game_key)
-    if not game: return await cb.answer("الجلسة منتهية.", show_alert=True)
+# --- UI Updaters ---
 
-    uid = cb.from_user.id
+async def update_game_interface(client, message, key):
+    game = GameManager.get(key)
     
-    if uid != game["turn"]:
-        if uid in [game["p1"], game["p2"]]: return await cb.answer("ليس دورك!", show_alert=True)
-        return await cb.answer("لست في هذه اللعبة.", show_alert=True)
-
-    if game["board"][pos] != SYM_E: return await cb.answer("خانة مشغولة.", show_alert=True)
-
-    async with game_lock:
-        sym = SYM_X if uid == game["p1"] else SYM_O
-        game["board"][pos] = sym
-        
-        winner = check_game_winner(game["board"])
-        if winner:
-            await handle_win(client, cb.message, game, winner, game_key)
-            return
-
-        if game["mode"] == "pvp":
-            game["turn"] = game["p2"] if uid == game["p1"] else game["p1"]
-            await update_game_ui(client, cb.message, game_key)
-        
-        elif game["mode"] == "ai":
-            # Rust AI Move
-            move = -1
-            if xo_lib:
-                c_board = get_engine_board(game["board"])
-                diff = game["diff"]
-                
-                if hasattr(config, "XO_CHEAT") and config.XO_CHEAT:
-                    move = xo_lib.get_easy_move(c_board)
-                else:
-                    if diff == "Hard": move = xo_lib.get_hard_move(c_board)
-                    elif diff == "Medium": move = xo_lib.get_medium_move(c_board)
-                    else: move = xo_lib.get_easy_move(c_board)
-            else:
-                # Python Fallback
-                empties = [i for i, x in enumerate(game["board"]) if x == SYM_E]
-                move = random.choice(empties) if empties else -1
-
-            if move != -1:
-                game["board"][move] = SYM_O
-                winner_ai = check_game_winner(game["board"])
-                if winner_ai:
-                    await handle_win(client, cb.message, game, winner_ai, game_key)
-                    return
-            
-            game["turn"] = game["p1"]
-            await update_game_ui(client, cb.message, game_key)
-
-# ─── Core Functions ───
-
-def check_game_winner(board):
-    if xo_lib:
-        res = xo_lib.check_winner_engine(get_engine_board(board))
-        if res == b'X': return SYM_X
-        if res == b'O': return SYM_O
-        if res == b'D': return "Draw"
-        return None
-    return check_winner_fallback(board)
-
-async def update_game_ui(client, message, key):
-    game = active_games[key]
-    turn_n = game['p1_name'] if game['turn'] == game['p1'] else game['p2_name']
-    sym = SYM_X if game['turn'] == game['p1'] else SYM_O
+    p1n = UIFactory.format_name(game.p1, game.p1_name)
+    p2n = game.p2_name if game.mode == "ai" else UIFactory.format_name(game.p2, game.p2_name)
     
-    p1 = format_name(game['p1'], game['p1_name'])
-    p2 = game['p2_name'] if game['p2'] == "AI" else format_name(game['p2'], game['p2_name'])
+    turn_name = game.p1_name if game.turn == game.p1 else game.p2_name
+    sym = Config.SYM_X if game.turn == game.p1 else Config.SYM_O
     
-    txt = (
+    text = (
         f"**المباراة جارية:**\n"
-        f"**{p1} ({SYM_X})**\n"
-        f"**{p2} ({SYM_O})**\n\n"
-        f"**الدور الحالي:** {turn_n} ({sym})"
+        f"**{p1n} ({Config.SYM_X})**\n"
+        f"**{p2n} ({Config.SYM_O})**\n\n"
+        f"**الدور الحالي:** {turn_name} ({sym})"
     )
-    try: await message.edit_caption(txt, reply_markup=build_keyboard(game["board"], key))
-    except: pass
-
-async def handle_win(client, message, game, winner, key):
-    p1_name = game['p1_name']
-    p2_name = game['p2_name']
-    p1_link = format_name(game['p1'], p1_name)
-    p2_link = p2_name if game['p2'] == "AI" else format_name(game['p2'], p2_name)
     
-    res_txt = ""
+    try: await message.edit_caption(text, reply_markup=UIFactory.get_keyboard(game.board, key))
+    except MessageNotModified: pass
+
+async def handle_game_end(client, message, key, winner):
+    game = GameManager.get(key)
+    p1n = UIFactory.format_name(game.p1, game.p1_name)
+    p2n = game.p2_name if game.mode == "ai" else UIFactory.format_name(game.p2, game.p2_name)
+    
+    res_text = ""
+    pts_msg = ""
+    
     if winner == "Draw":
-        res_txt = "**انتهت المباراة بالتعادل!**\n(+5 نقاط لكل لاعب)"
-        update_user(game['p1'], p1_name, 5)
-        if game['mode'] == 'pvp':
-            update_user(game['p2'], p2_name, 5)
-            
+        res_text = "**انتهت المباراة بالتعادل!**"
+        pts_msg = "(+5 نقاط لكل لاعب)"
+        DataManager.update_player(game.p1, game.p1_name, 5)
+        if game.mode == "pvp": DataManager.update_player(game.p2, game.p2_name, 5)
     else:
-        is_p1 = (winner == SYM_X)
-        win_id = game['p1'] if is_p1 else game['p2']
-        win_name = p1_name if is_p1 else p2_name
+        is_p1 = (winner == Config.SYM_X)
+        win_id = game.p1 if is_p1 else game.p2
+        win_nm = game.p1_name if is_p1 else game.p2_name
         
-        if not is_p1 and game['mode'] == 'ai': display_win = "Bot"
-        else: display_win = format_name(win_id, win_name)
+        disp_nm = f"البوت" if (game.mode == "ai" and not is_p1) else UIFactory.format_name(win_id, win_nm)
+        res_text = f"**الفائز هو: {disp_nm} !**"
         
-        res_txt = f"**الفائز هو: {display_win} !**"
-        
-        if game['mode'] == 'pvp':
-            update_user(win_id, win_name, 20)
-            res_txt += "\n(+20 نقطة)"
-        elif game['mode'] == 'ai':
-            if is_p1:
-                pts = {"Easy": 5, "Medium": 10, "Hard": 20}.get(game['diff'], 5)
-                update_user(win_id, win_name, pts)
-                res_txt += f"\n(+{pts} نقطة)"
-            else:
-                res_txt += "\n(حظ أوفر المرة القادمة)"
+        if game.mode == "pvp":
+            DataManager.update_player(win_id, win_nm, 20)
+            pts_msg = "\n(+20 نقطة)"
+        elif game.mode == "ai" and is_p1:
+            pts = {"Easy": 5, "Medium": 10, "Hard": 20}.get(game.diff, 5)
+            DataManager.update_player(win_id, win_nm, pts)
+            pts_msg = f"\n(+{pts} نقطة)"
+        elif game.mode == "ai" and not is_p1:
+            pts_msg = "\n(حظ أوفر المرة القادمة)"
 
-    final = (
+    final_txt = (
         f"**نتيجة المباراة**\n"
-        f"**{p1_link} ({SYM_X})**\n"
-        f"**{p2_link} ({SYM_O})**\n\n"
-        f"{res_txt}"
+        f"**{p1n} ({Config.SYM_X})**\n"
+        f"**{p2n} ({Config.SYM_O})**\n\n"
+        f"{res_text}{pts_msg}"
     )
     
-    dead_kb = []
+    btns = []
     row = []
-    for c in game["board"]:
+    for c in game.board:
         row.append(InlineKeyboardButton(c, callback_data="none"))
-        if len(row) == 3: dead_kb.append(row); row = []
-    dead_kb.append([InlineKeyboardButton("Back", callback_data=f"xo_main_{game['p1']}")])
+        if len(row) == 3: btns.append(row); row = []
+    btns.append([InlineKeyboardButton("Back to Menu", callback_data=f"xo_main_{game.p1}")])
     
-    try: await message.edit_caption(final, reply_markup=InlineKeyboardMarkup(dead_kb))
+    try: await message.edit_caption(final_txt, reply_markup=InlineKeyboardMarkup(btns))
     except: pass
     
-    if key in active_games: del active_games[key]
+    GameManager.delete(key)
