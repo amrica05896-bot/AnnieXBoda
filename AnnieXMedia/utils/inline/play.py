@@ -1,70 +1,57 @@
 # Authored By Certified Coders © 2026
-# Module: Inline Keyboard Markups (Stream.py Compatible)
-# Fixes: Matches argument count in stream.py, includes aq_markup & close_markup
+# Module: Advanced Inline Keyboard System (Language Support Enabled 🌍)
+# Features: Python 3.13 Compatible, Modern Progress Bar (▰▱), Multi-Language Support
 
 import math
-import time
-from pyrogram.types import InlineKeyboardButton
+from typing import List, Union
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from AnnieXMedia.utils.formatters import time_to_seconds
+from config import SUPPORT_CHAT, SUPPORT_CHANNEL
 
-# Cache to prevent FloodWait errors from Telegram
-LAST_UPDATE_TIME = {}
-
-def get_progress_bar(percentage):
+# --- [ 1. The Engine: High-Precision Progress Bar ] ---
+def get_progress_bar(percentage: float) -> str:
     """
-    Generates a high-precision, aesthetic progress bar.
-    Style: —————◉—————
+    Generates a modern progress bar using ▰ and ▱.
     """
     p = min(max(percentage, 0), 100)
-    length = 12 
+    length = 10 
     filled_length = int(length * p // 100)
-    
-    if filled_length == 0:
-        bar = "◉" + "—" * (length - 1)
-    elif filled_length >= length:
-        bar = "—" * (length - 1) + "◉"
-    else:
-        bar = "—" * filled_length + "◉" + "—" * (length - filled_length - 1)
-    
-    return bar
+    return "▰" * filled_length + "▱" * (length - filled_length)
 
-def should_update_progress(chat_id):
-    now = time.time()
-    last = LAST_UPDATE_TIME.get(chat_id, 0)
-    if now - last >= 8:
-        LAST_UPDATE_TIME[chat_id] = now
-        return True
-    return False
-
-# --- Unified Control Buttons ---
-def control_buttons(chat_id):
+# --- [ 2. The Skeleton: Reusable Button Components ] ---
+def _get_controls(chat_id: Union[int, str]) -> List[InlineKeyboardButton]:
+    """Returns the standard playback control buttons (Icons are universal)."""
     return [
-        [
-            InlineKeyboardButton(text="▷", callback_data=f"ADMIN Resume|{chat_id}"),
-            InlineKeyboardButton(text="II", callback_data=f"ADMIN Pause|{chat_id}"),
-            InlineKeyboardButton(text="↻", callback_data=f"ADMIN Replay|{chat_id}"),
-            InlineKeyboardButton(text="‣‣I", callback_data=f"ADMIN Skip|{chat_id}"),
-            InlineKeyboardButton(text="▢", callback_data=f"ADMIN Stop|{chat_id}"),
-        ]
+        InlineKeyboardButton(text="▷", callback_data=f"ADMIN Resume|{chat_id}"),
+        InlineKeyboardButton(text="II", callback_data=f"ADMIN Pause|{chat_id}"),
+        InlineKeyboardButton(text="↻", callback_data=f"ADMIN Replay|{chat_id}"),
+        InlineKeyboardButton(text="‣‣I", callback_data=f"ADMIN Skip|{chat_id}"),
+        InlineKeyboardButton(text="▢", callback_data=f"ADMIN Stop|{chat_id}"),
     ]
 
-# --- Markup Generators ---
+def _get_footer(_) -> List[List[InlineKeyboardButton]]:
+    """Returns the footer buttons using Language File for text."""
+    return [
+        [
+            InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
+            InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
+        ],
+        [
+            # ✅ هنا الاعتماد على ملف اللغة
+            InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
+        ],
+    ]
 
-def stream_markup_timer(_, chat_id, played, dur):
-    """
-    The Main Player UI with Timer and Progress Bar.
-    """
-    if not should_update_progress(chat_id):
-        return None
+# --- [ 3. The Interface: Main Markups ] ---
 
+def stream_markup_timer(_, chat_id: int, played: str, dur: str) -> InlineKeyboardMarkup:
+    """
+    Dynamic Player UI with Live Timer.
+    """
     played_sec = time_to_seconds(played)
     duration_sec = time_to_seconds(dur)
     
-    if duration_sec == 0:
-        percentage = 0
-    else:
-        percentage = (played_sec / duration_sec) * 100
-
+    percentage = (played_sec / duration_sec) * 100 if duration_sec > 0 else 0
     bar = get_progress_bar(percentage)
 
     buttons = [
@@ -73,94 +60,45 @@ def stream_markup_timer(_, chat_id, played, dur):
                 text=f"{played} {bar} {dur}",
                 callback_data="GetTimer"
             )
-        ]
+        ],
+        _get_controls(chat_id)
     ]
-    # 1. Controls
-    buttons.extend(control_buttons(chat_id))
+    buttons.extend(_get_footer(_)) # Pass lang dict
     
-    # 2. Boda Buttons
-    buttons.append([
-        InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
-        InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
-    ])
-    
-    # 3. Close
-    buttons.append([
-        InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
-    ])
+    return InlineKeyboardMarkup(buttons)
+
+def stream_markup(_, chat_id: int) -> List[List[InlineKeyboardButton]]:
+    """
+    Standard markup for streams.
+    """
+    buttons = [_get_controls(chat_id)]
+    buttons.extend(_get_footer(_))
     return buttons
 
-# ✅ Fixed: Accepts only (_, chat_id) to match stream.py line 200, 277, etc.
-def stream_markup(_, chat_id):
-    """
-    Default markup for streams (YouTube, etc).
-    """
-    buttons = control_buttons(chat_id)
-    
-    # Boda Buttons
-    buttons.append([
-        InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
-        InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
-    ])
-    
-    buttons.append([
-        InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
-    ])
+def telegram_markup(_, chat_id: int) -> List[List[InlineKeyboardButton]]:
+    """Markup for Telegram Audio Files."""
+    buttons = [_get_controls(chat_id)]
+    buttons.extend(_get_footer(_))
     return buttons
 
-def telegram_markup(_, chat_id):
-    """
-    Markup for Telegram Audio Files.
-    """
-    buttons = control_buttons(chat_id)
-    
-    # Boda Buttons
-    buttons.append([
-        InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
-        InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
-    ])
-    
-    buttons.append([
-        InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
-    ])
+def aq_markup(_, chat_id: int) -> List[List[InlineKeyboardButton]]:
+    """Markup for 'Added to Queue' messages."""
+    buttons = [_get_controls(chat_id)]
+    buttons.extend(_get_footer(_))
     return buttons
 
-# ✅ Added: Required by stream.py line 247
-def aq_markup(_, chat_id):
-    """
-    Markup for 'Added to Queue' messages.
-    """
-    buttons = control_buttons(chat_id) # Reuse controls for consistency
-    
-    # Boda Buttons
-    buttons.append([
-        InlineKeyboardButton(text="ᏟᎻᎪᏁᏁᎬᏞ", url="https://t.me/SourceBoda"),
-        InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", url="https://t.me/S_G0C7"),
-    ])
-    
-    buttons.append([
-        InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
-    ])
-    return buttons
+def close_markup(_) -> List[List[InlineKeyboardButton]]:
+    """Simple Close Button."""
+    return [[InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")]]
 
-# ✅ Added: Required by stream.py line 217
-def close_markup(_):
-    """
-    Simple Close Button for playlists.
-    """
+# --- [ 4. Advanced Menus (Playlist / Slider) ] ---
+
+def playlist_markup(_, videoid, user_id, ptype, channel, fplay) -> List[List[InlineKeyboardButton]]:
     return [
         [
-            InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
-        ]
-    ]
-
-# --- Selection & Menu Markups ---
-
-def playlist_markup(_, videoid, user_id, ptype, channel, fplay):
-    return [
-        [
+            # ✅ استخدام مفاتيح اللغة (P_B_1 للصوت، P_B_2 للفيديو)
             InlineKeyboardButton(
-                text=_["P_B_1"],
+                text=_["P_B_1"], 
                 callback_data=f"AnniePlaylists {videoid}|{user_id}|{ptype}|a|{channel}|{fplay}"
             ),
             InlineKeyboardButton(
@@ -176,7 +114,7 @@ def playlist_markup(_, videoid, user_id, ptype, channel, fplay):
         ],
     ]
 
-def track_markup(_, videoid, user_id, channel, fplay):
+def track_markup(_, videoid, user_id, channel, fplay) -> List[List[InlineKeyboardButton]]:
     return [
         [
             InlineKeyboardButton(
@@ -196,8 +134,8 @@ def track_markup(_, videoid, user_id, channel, fplay):
         ],
     ]
 
-def slider_markup(_, videoid, user_id, query, query_type, channel, fplay):
-    short_query = query[:20]
+def slider_markup(_, videoid, user_id, query, query_type, channel, fplay) -> List[List[InlineKeyboardButton]]:
+    query = f"{query[:20]}"
     return [
         [
             InlineKeyboardButton(
@@ -211,25 +149,25 @@ def slider_markup(_, videoid, user_id, query, query_type, channel, fplay):
         ],
         [
             InlineKeyboardButton(
-                text="◁",
-                callback_data=f"slider B|{query_type}|{short_query}|{user_id}|{channel}|{fplay}",
+                text="❮",
+                callback_data=f"slider B|{query_type}|{query}|{user_id}|{channel}|{fplay}",
             ),
             InlineKeyboardButton(
                 text=_["CLOSE_BUTTON"],
-                callback_data=f"forceclose {short_query}|{user_id}",
+                callback_data=f"forceclose {query}|{user_id}",
             ),
             InlineKeyboardButton(
-                text="▷",
-                callback_data=f"slider F|{query_type}|{short_query}|{user_id}|{channel}|{fplay}",
+                text="❯",
+                callback_data=f"slider F|{query_type}|{query}|{user_id}|{channel}|{fplay}",
             ),
         ],
     ]
 
-def livestream_markup(_, videoid, user_id, mode, channel, fplay):
+def livestream_markup(_, videoid, user_id, mode, channel, fplay) -> List[List[InlineKeyboardButton]]:
     return [
         [
             InlineKeyboardButton(
-                text=_["P_B_3"],
+                text=_["P_B_3"], # ✅ مفتاح زرار اللايف
                 callback_data=f"LiveStream {videoid}|{user_id}|{mode}|{channel}|{fplay}",
             )
         ],
