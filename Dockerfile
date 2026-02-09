@@ -1,51 +1,57 @@
-# ============================================================
-# 🚀 AnnieXBoda 2026 - Python 3.14.3 (Compatibility Fix)
-# Fixed: Removed Legacy AI Dependencies (llvmlite/numba)
-# ============================================================
+خد روق عليه 
+# ==========================================
+# 🚀 AnnieXBoda 2026 - Streamlined Version
+# Optimized for Speed & Light Deployment
+# ==========================================
 
-FROM python:3.14-slim
+FROM python:3.13-slim
 
+# التحسينات الأساسية للمحرك (بايثون 3.13 الخام)
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHON_JIT=on \
-    UV_SYSTEM_PYTHON=1 \
+    PIP_NO_CACHE_DIR=1 \
     DENO_INSTALL="/root/.deno" \
-    PATH="/usr/local/bin:/root/.deno/bin:${PATH}"
+    PATH="/root/.deno/bin:${PATH}"
 
 WORKDIR /app
 
-# 🏗️ تثبيت الترسانة الأساسية
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ffmpeg curl unzip ca-certificates findutils \
-    aria2 build-essential libffi-dev libssl-dev && \
+# تثبيت الأدوات الأساسية فقط (FFmpeg هو العمود الفقري)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git ffmpeg curl unzip ca-certificates findutils \
+        # بنحتاج دول لبعض مكتبات بايثون اللي بتجمع نفسها
+        build-essential libffi-dev libssl-dev && \
     \
-    # 🟢 Node.js 21
+    # 🟢 Node.js (عشان محرك تشفير يوتيوب)
     curl -fsSL https://deb.nodesource.com/setup_21.x | bash - && \
     apt-get install -y nodejs && \
     \
-    # 🦕 Deno
+    # 🦕 Deno (أسرع حل لفك شفرات يوتيوب في 2026)
     curl -fsSL https://deno.land/install.sh | sh && \
-    \
-    # ⚡ تثبيت UV
-    curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh && \
     \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# 🐍 تجهيز المكتبات
-COPY requirements.txt .
+# تحديث أدوات بايثون
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# التعامل مع المكتبات المحلية
 COPY pytgcalls /app/pytgcalls
+COPY requirements.txt .
 
-# 🛠️ الفلترة الذكية: شلنا المكتبات اللي بتسبب مشاكل مع بايثون 14
-RUN grep -v -i '^py-tgcalls\|pytgcalls\|deepai\|numba\|llvmlite\|quimb' requirements.txt > filtered.txt && \
-    uv pip install --no-cache -r filtered.txt && \
-    uv pip install --no-cache uvloop g4f curl_cffi
+# تثبيت المكتبات (باستثناء المحلي)
+RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
+    pip install --no-cache-dir -r filtered.txt
 
-# نقل الكود
+# تثبيت المحركات المساعدة
+RUN pip install --no-cache-dir uvloop g4f curl_cffi
+
+# نسخ الكود بالكامل
 COPY . .
 
-# 🛡️ إعدادات الضغط العالي
+# زيادة حدود الملفات المفتوحة (عشان الـ 30 ألف مستخدم)
 RUN echo "* soft nofile 1048576" >> /etc/security/limits.conf && \
     echo "* hard nofile 1048576" >> /etc/security/limits.conf
 
-# 🚀 انطلاق المحرك
+# تشغيل البوت
 CMD ["python3", "run.py"]
