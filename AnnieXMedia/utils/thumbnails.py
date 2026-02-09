@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # Module: Thumbnail Generator (Glass Design)
-# Optimized for Python 3.13 & Pillow 11.x (No Deprecated Methods)
+# Optimized for Python 3.13 & Pillow 11.x (Renamed to get_thumb for compatibility)
 
 import os
 import re
@@ -54,13 +54,14 @@ def trim_to_width(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> str:
     """Uses getlength which is compatible with Pillow 10+ & Python 3.13"""
     ellipsis = "…"
     try:
+        # Modern Pillow (10.x / 11.x)
         if font.getlength(text) <= max_w:
             return text
         for i in range(len(text) - 1, 0, -1):
             if font.getlength(text[:i] + ellipsis) <= max_w:
                 return text[:i] + ellipsis
     except AttributeError:
-        # Fallback for very old Pillow (unlikely on Py 3.13 but safe)
+        # Fallback for older Pillow
         if font.getsize(text)[0] <= max_w:
             return text
         for i in range(len(text) - 1, 0, -1):
@@ -68,12 +69,12 @@ def trim_to_width(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> str:
                 return text[:i] + ellipsis
     return ellipsis
 
-# ✅ الدالة اسمها gen_thumb عشان التوافق
-async def gen_thumb(videoid: str) -> str:
+# ✅ الدالة اسمها get_thumb عشان التوافق مع ملفاتك القديمة
+async def get_thumb(videoid: str) -> str:
     if not os.path.isdir(CACHE_DIR):
         os.makedirs(CACHE_DIR)
 
-    cache_path = os.path.join(CACHE_DIR, f"{videoid}_v6_py313.png")
+    cache_path = os.path.join(CACHE_DIR, f"{videoid}_v7_glass_py313.png")
     if os.path.exists(cache_path):
         return cache_path
 
