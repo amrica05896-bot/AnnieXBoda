@@ -39,8 +39,8 @@ COPY pytgcalls /app/pytgcalls
 # تثبيت متطلبات السورس (بسرعة UV الخرافية)
 RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
     uv pip install --no-cache -r filtered.txt && \
-    # تحديث مكتبات الصوت لنسخ فبراير 2026
-    uv pip install --no-cache ntgcalls>=2.1.0 py-tgcalls>=2.2.11 uvloop>=0.22.1 g4f curl_cffi
+    # تثبيت المحركات المساعدة
+    uv pip install --no-cache uvloop g4f curl_cffi
 
 # نقل الكود بالكامل
 COPY . .
