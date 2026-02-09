@@ -1,4 +1,4 @@
-خد روق عليه 
+
 # ==========================================
 # 🚀 AnnieXBoda 2026 - Streamlined Version
 # Optimized for Speed & Light Deployment
