@@ -1,7 +1,6 @@
-
 # Authored By Certified Coders © 2026
-# System: Call Controller (Crash Fixes & Strict Type Safety)
-# Fixes: NoneType in os.path, Boolean in VideoID, Audio/Video Switching
+# System: Call Controller (Custom PyTgCalls Implementation)
+# Built specifically for local library version 2.2.11+ (Methods: play, leave_call, pause, mute)
 
 import asyncio
 import os
@@ -51,16 +50,16 @@ from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.formatters import check_duration, seconds_to_min, speed_converter
 from AnnieXMedia.utils.inline.play import stream_markup
 from AnnieXMedia.utils.stream.autoclear import auto_clean
+# ✅ استخدام get_thumb المتوافق مع ملف thumbnails.py
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
 autoend = {}
 counter = {}
 
-# --- [1] Robust Helpers ---
+# --- [1] Helpers ---
 
 def clean_vidid(vid):
-    """Sanitizes Video ID to ensure it's a valid string."""
     if vid is None or vid is True or vid is False: 
         return None
     return str(vid)
@@ -72,7 +71,6 @@ def extract_video_id(url: str) -> Union[str, None]:
     return match.group(1) if match else None
 
 async def get_direct_link(videoid: str, video: bool = False):
-    """Fetches direct URL with strict format selection."""
     clean_id = clean_vidid(videoid)
     if not clean_id or len(clean_id) != 11: return None
     
@@ -98,14 +96,12 @@ async def get_direct_link(videoid: str, video: bool = False):
 
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
     if not path: path = ""
-    path = str(path) # Ensure string
+    path = str(path)
     is_url = path.startswith("http")
     
-    # 🛑 CRASH FIX: If local file is Audio, force Video=False to prevent NoVideoSource error
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")):
         video = False
 
-    # Titan Flags
     if is_url:
         titan_flags = (
             "-threads 4 "
@@ -167,11 +163,13 @@ class Call:
 
         self.active_calls: set[int] = set()
 
+    # ✅ استخدام pause(chat_id)
     @capture_internal_err
     async def pause_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
         await assistant.pause(chat_id)
 
+    # ✅ استخدام resume(chat_id) (موجودة في utilities/resume.py عادةً أو pause.py كعكس)
     @capture_internal_err
     async def resume_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
@@ -180,16 +178,19 @@ class Call:
         except:
             await assistant.unmute(chat_id)
 
+    # ✅ استخدام mute(chat_id) من ملف mute.py
     @capture_internal_err
     async def mute_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
         await assistant.mute(chat_id)
 
+    # ✅ استخدام unmute(chat_id)
     @capture_internal_err
     async def unmute_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
         await assistant.unmute(chat_id)
 
+    # ✅ استخدام leave_call(chat_id) من ملف leave_call.py
     @capture_internal_err
     async def stop_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
@@ -223,25 +224,20 @@ class Call:
     @capture_internal_err
     async def skip_stream(self, chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
-        
-        # 🛑 FIX: Handle NoneType link to prevent crash
         if not link:
-            # Try getting from DB or Queue if link is missing
             try:
                 check = db.get(chat_id)
                 if check: link = check[0]["file"]
             except: pass
-            if not link: return # If still None, abort safely
+            if not link: return 
 
         final_link = link
         vid_id = extract_video_id(str(link))
 
-        # 🔥 SMART SWITCH: If Audio file exists but Video requested -> Fetch Direct Link
         if os.path.exists(str(link)) and video:
             if str(link).endswith((".mp3", ".m4a", ".flac", ".opus")):
                 if vid_id:
                     try:
-                        # Bypass RAM, fetch Direct Video
                         direct = await get_direct_link(vid_id, video=True)
                         if direct: final_link = direct
                     except: pass
@@ -255,9 +251,10 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         
+        # ✅ استخدام play بدلاً من change_stream (من ملف play.py)
         if chat_id in self.active_calls:
             try:
-                await assistant.change_stream(chat_id, stream)
+                await assistant.play(chat_id, stream)
             except Exception:
                 try: await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=False))
                 except: pass 
@@ -265,21 +262,13 @@ class Call:
             await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=False))
 
     @capture_internal_err
-    async def vc_users(self, chat_id: int) -> list:
-        assistant = await group_assistant(self, chat_id)
-        try:
-            participants = await assistant.get_participants(chat_id)
-            return [p.user_id for p in participants if not p.is_muted]
-        except:
-            return []
-
-    @capture_internal_err
     async def seek_stream(self, chat_id: int, file_path: str, to_seek: str, duration: str, mode: str) -> None:
         assistant = await group_assistant(self, chat_id)
         ffmpeg_params = f"-ss {to_seek} -to {duration}"
         is_video = mode == "video"
         stream = dynamic_media_stream(path=file_path, video=is_video, ffmpeg_params=ffmpeg_params)
-        await assistant.change_stream(chat_id, stream)
+        # ✅ استخدام play (لأنها تدمج التغيير)
+        await assistant.play(chat_id, stream)
 
     @capture_internal_err
     async def speedup_stream(self, chat_id: int, file_path: str, speed: float, playing: list) -> None:
@@ -302,22 +291,10 @@ class Call:
         ffmpeg_params = f"-ss {played} -to {duration_min}"
         stream = dynamic_media_stream(path=out, video=is_video, ffmpeg_params=ffmpeg_params)
         if chat_id in db and db[chat_id] and db[chat_id][0].get("file") == file_path:
-            await assistant.change_stream(chat_id, stream)
+            await assistant.play(chat_id, stream)
             db[chat_id][0].update({"played": con_seconds, "dur": duration_min, "seconds": dur, "speed_path": out, "speed": speed})
         else:
             raise AssistantErr("Stream mismatch.")
-
-    @capture_internal_err
-    async def stream_call(self, link: str) -> None:
-        assistant = await group_assistant(self, config.LOGGER_ID)
-        stream = dynamic_media_stream(link)
-        try:
-            await assistant.play(config.LOGGER_ID, stream)
-            await asyncio.sleep(8)
-        except: pass
-        finally:
-            try: await assistant.leave_call(config.LOGGER_ID)
-            except: pass
 
     @capture_internal_err
     async def join_call(
@@ -335,7 +312,6 @@ class Call:
         final_link = link
         vid_id = extract_video_id(str(link))
 
-        # 🔥 SMART JOIN: If local audio exists but video requested -> Re-Fetch
         if os.path.exists(str(link)) and video and str(link).endswith((".mp3", ".m4a", ".flac", ".opus")):
              if vid_id:
                  try:
@@ -355,19 +331,20 @@ class Call:
 
         if chat_id in self.active_calls:
             try:
-                await assistant.change_stream(chat_id, stream)
+                # ✅ استخدام play
+                await assistant.play(chat_id, stream)
                 return 
             except: pass 
 
         retries = 3
         for attempt in range(retries):
             try:
+                # ✅ استخدام play (تدير الانضمام تلقائياً حسب play.py)
                 await assistant.play(chat_id, stream, config=ksk)
                 break
             except NoActiveGroupCall:
                 raise AssistantErr(_["call_8"])
             except (NoAudioSourceFound, NoVideoSourceFound):
-                # Fallback: Video failed? Try Audio only (Last Resort)
                 if video and attempt == retries - 1:
                     try:
                         stream = dynamic_media_stream(path=final_link, video=False)
@@ -383,7 +360,7 @@ class Call:
             except Exception as e:
                 if "already joined" in str(e).lower() or "active call" in str(e).lower():
                     try: 
-                        await assistant.change_stream(chat_id, stream)
+                        await assistant.play(chat_id, stream)
                         break
                     except: pass
                 if attempt < retries - 1:
@@ -399,6 +376,7 @@ class Call:
 
         if await is_autoend():
             counter[chat_id] = {}
+            # ✅ استخدام get_participants(chat_id) من ملف get_participants.py
             try:
                 users = len(await assistant.get_participants(chat_id))
                 if users == 1:
@@ -453,7 +431,7 @@ class Call:
             async def _play_stream(stream_obj):
                 try:
                     if chat_id in self.active_calls:
-                        await client.change_stream(chat_id, stream_obj)
+                        await client.play(chat_id, stream_obj)
                     else:
                         await client.play(chat_id, stream_obj)
                 except Exception:
@@ -470,8 +448,6 @@ class Call:
                 final_link = queued
                 vid_id = extract_video_id(str(queued)) or videoid 
 
-                # 🔥 QUEUE SMART CHECK:
-                # If cached file is Audio but Video is demanded, bypass cache.
                 if os.path.exists(str(queued)) and video:
                     if str(queued).endswith((".mp3", ".m4a", ".flac", ".opus")):
                         if vid_id:
@@ -480,7 +456,6 @@ class Call:
                                 if direct_url: final_link = direct_url
                             except: pass
                 
-                # Check 2: Live/Vid prefix
                 elif "live_" in queued or "vid_" in queued or "index_" in queued:
                     try:
                         if vid_id:
@@ -488,7 +463,6 @@ class Call:
                             if direct_url: final_link = direct_url
                             else:
                                 try:
-                                    # Fix: Don't pass boolean as ID
                                     path, is_direct = await YouTube.download(
                                         f"https://www.youtube.com/watch?v={vid_id}",
                                         None,
