@@ -1,11 +1,11 @@
 # Authored By Certified Coders 2026
-# Module: XO Game Advanced System (Name Caching Fix + Alpha-Beta AI)
+# Module: XO Game Advanced System (Rust Powered + Clean Text)
 
 import asyncio
 import ctypes
 import json
 import os
-import random
+import subprocess
 from pyrogram import filters, Client
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
 from pyrogram.errors import MessageNotModified, FloodWait
@@ -13,23 +13,42 @@ from pyrogram.errors import MessageNotModified, FloodWait
 from AnnieXMedia import app
 import config
 
-# ─── C++ Engine Link ───
+# ─── 1. Rust Engine Auto-Compile ───
+RUST_SRC = "AnnieXMedia/plugins/xo_engine.rs"
 ENGINE_PATH = "./xo_engine.so"
 xo_lib = None
 
-if os.path.exists(ENGINE_PATH):
-    try:
-        xo_lib = ctypes.CDLL(ENGINE_PATH)
-        xo_lib.check_winner_engine.argtypes = [ctypes.c_char_p]
-        xo_lib.check_winner_engine.restype = ctypes.c_char
-        xo_lib.get_hard_move.argtypes = [ctypes.c_char_p]
-        xo_lib.get_hard_move.restype = ctypes.c_int
-        xo_lib.get_medium_move.argtypes = [ctypes.c_char_p]
-        xo_lib.get_medium_move.restype = ctypes.c_int
-        xo_lib.get_easy_move.argtypes = [ctypes.c_char_p]
-        xo_lib.get_easy_move.restype = ctypes.c_int
-    except Exception as e:
-        print(f"XO Engine Warning: {e}")
+def compile_and_load():
+    global xo_lib
+    # Compile if source exists and lib doesn't (or force recompile logic if needed)
+    if os.path.exists(RUST_SRC) and not os.path.exists(ENGINE_PATH):
+        print("⚙️ Compiling Rust Engine...")
+        try:
+            subprocess.run(
+                ["rustc", "--crate-type", "cdylib", "-O", "-C", "target-cpu=native", "-o", ENGINE_PATH, RUST_SRC],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            print("✅ Rust Engine Compiled.")
+        except Exception as e:
+            print(f"❌ Rust Compile Error: {e}")
+
+    # Load Library
+    if os.path.exists(ENGINE_PATH):
+        try:
+            xo_lib = ctypes.CDLL(ENGINE_PATH)
+            xo_lib.check_winner_engine.argtypes = [ctypes.c_char_p]
+            xo_lib.check_winner_engine.restype = ctypes.c_char
+            xo_lib.get_hard_move.argtypes = [ctypes.c_char_p]
+            xo_lib.get_hard_move.restype = ctypes.c_int
+            xo_lib.get_medium_move.argtypes = [ctypes.c_char_p]
+            xo_lib.get_medium_move.restype = ctypes.c_int
+            xo_lib.get_easy_move.argtypes = [ctypes.c_char_p]
+            xo_lib.get_easy_move.restype = ctypes.c_int
+        except Exception as e:
+            print(f"⚠️ Failed to load Rust Engine: {e}")
+
+# Run Compilation on Import
+compile_and_load()
 
 # ─── Settings ───
 
@@ -53,7 +72,6 @@ def load_data():
     try:
         with open(POINTS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            # Fix old format if exists (migration)
             if data and not isinstance(list(data.values())[0], dict):
                 return {k: {"points": v, "name": "Unknown"} for k, v in data.items()}
             return data
@@ -64,14 +82,13 @@ def save_data(data):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 def update_user(user_id, name, points_add=0):
-    """تحديث بيانات المستخدم (الاسم والنقاط)"""
     data = load_data()
     uid = str(user_id)
     if uid not in data:
         data[uid] = {"points": 0, "name": name}
     
     data[uid]["points"] += points_add
-    data[uid]["name"] = name  # تحديث الاسم دائماً
+    data[uid]["name"] = name
     save_data(data)
     return data[uid]["points"]
 
@@ -81,7 +98,6 @@ def get_user_points(user_id):
 
 def get_leaderboard():
     data = load_data()
-    # Sort by points
     sorted_users = sorted(data.items(), key=lambda x: x[1]['points'], reverse=True)[:5]
     return sorted_users
 
@@ -90,7 +106,8 @@ def get_leaderboard():
 def get_engine_board(py_board):
     return b"".join([ENGINE_MAP[c] for c in py_board])
 
-def check_winner_py(board):
+def check_winner_fallback(board):
+    """Python fallback if Rust fails"""
     wins = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]]
     for w in wins:
         if board[w[0]] == board[w[1]] == board[w[2]] and board[w[0]] != SYM_E:
@@ -118,7 +135,6 @@ async def start_xo_command(client, message):
     if hasattr(config, "XO_ENABLED") and not config.XO_ENABLED:
         return await message.reply_text("اللعبة معطلة حالياً.")
 
-    # تسجيل المستخدم فوراً لحل مشكلة Unknown مستقبلاً
     uid = message.from_user.id
     name = message.from_user.first_name
     update_user(uid, name, 0) 
@@ -147,19 +163,18 @@ async def xo_menu_handler(client, cb: CallbackQuery):
     user = cb.from_user
     game_key = f"{cb.message.chat.id}_{cb.message.id}"
 
-    # 1. Join Check (First priority)
+    # 1. Join Check
     if action == "join":
         owner_id = int(data_parts[-1])
         
         if user.id == owner_id:
-            return await cb.answer("لا يمكنك اللعب ضد نفسك!", show_alert=True)
+            return await cb.answer("لا يمكنك اللعب ضد نفسك.", show_alert=True)
         
         try:
             owner = await client.get_users(owner_id)
             p1_name = owner.first_name
         except: p1_name = "Player 1"
 
-        # تسجيل اللاعب الثاني لحل مشكلة Unknown
         update_user(user.id, user.first_name, 0)
 
         async with game_lock:
@@ -179,11 +194,10 @@ async def xo_menu_handler(client, cb: CallbackQuery):
     if action == "sel": owner_id = int(data_parts[4])
     else: owner_id = int(data_parts[-1])
 
-    # Ownership Check
     if user.id != owner_id:
         return await cb.answer("هذه اللعبة ليست لك.", show_alert=True)
 
-    # Leaderboard (Fixed Unknown Issue)
+    # Leaderboard
     if action == "top":
         top = get_leaderboard()
         txt = "**قائمة أفضل اللاعبين:**\n\n"
@@ -282,7 +296,6 @@ async def handle_challenge_text(client, message):
         if target.id == uid or target.is_bot:
             return await message.reply_text("لا يمكنك تحدي نفسك أو البوتات.")
 
-        # Update both users in DB
         update_user(uid, message.from_user.first_name, 0)
         update_user(target.id, target.first_name, 0)
 
@@ -357,6 +370,8 @@ async def gameplay_handler(client, cb):
             await update_game_ui(client, cb.message, game_key)
         
         elif game["mode"] == "ai":
+            # Rust AI Move
+            move = -1
             if xo_lib:
                 c_board = get_engine_board(game["board"])
                 diff = game["diff"]
@@ -368,6 +383,7 @@ async def gameplay_handler(client, cb):
                     elif diff == "Medium": move = xo_lib.get_medium_move(c_board)
                     else: move = xo_lib.get_easy_move(c_board)
             else:
+                # Python Fallback
                 empties = [i for i, x in enumerate(game["board"]) if x == SYM_E]
                 move = random.choice(empties) if empties else -1
 
@@ -390,7 +406,7 @@ def check_game_winner(board):
         if res == b'O': return SYM_O
         if res == b'D': return "Draw"
         return None
-    return check_winner_py(board)
+    return check_winner_fallback(board)
 
 async def update_game_ui(client, message, key):
     game = active_games[key]
@@ -418,7 +434,6 @@ async def handle_win(client, message, game, winner, key):
     res_txt = ""
     if winner == "Draw":
         res_txt = "**انتهت المباراة بالتعادل!**\n(+5 نقاط لكل لاعب)"
-        # Update Points & Names
         update_user(game['p1'], p1_name, 5)
         if game['mode'] == 'pvp':
             update_user(game['p2'], p2_name, 5)
@@ -428,7 +443,6 @@ async def handle_win(client, message, game, winner, key):
         win_id = game['p1'] if is_p1 else game['p2']
         win_name = p1_name if is_p1 else p2_name
         
-        # Display Name
         if not is_p1 and game['mode'] == 'ai': display_win = "Bot"
         else: display_win = format_name(win_id, win_name)
         
@@ -457,7 +471,7 @@ async def handle_win(client, message, game, winner, key):
     for c in game["board"]:
         row.append(InlineKeyboardButton(c, callback_data="none"))
         if len(row) == 3: dead_kb.append(row); row = []
-    dead_kb.append([InlineKeyboardButton("Back to Menu", callback_data=f"xo_main_{game['p1']}")])
+    dead_kb.append([InlineKeyboardButton("Back", callback_data=f"xo_main_{game['p1']}")])
     
     try: await message.edit_caption(final, reply_markup=InlineKeyboardMarkup(dead_kb))
     except: pass
