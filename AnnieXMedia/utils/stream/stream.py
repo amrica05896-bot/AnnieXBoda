@@ -1,7 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Stream Controller (Full Version - Direct Button Edit)
-# Updated 2026 - Compatibility layer for pytgcalls / ntgcalls newer versions
-# - preserves original logic while enabling direct inline button switching
+# System: Stream Controller (Modern PyTgCalls Compatible)
+# Fixes: Uses correct join_call/play methods directly
 
 import asyncio
 import os
@@ -22,23 +21,22 @@ from AnnieXMedia.utils.inline import aq_markup, close_markup, stream_markup
 from AnnieXMedia.utils.inline.custom import custom_markup
 from AnnieXMedia.utils.pastebin import ANNIEBIN
 from AnnieXMedia.utils.stream.queue import put_queue, put_queue_index
+# ✅ استخدام get_thumb الصحيح
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
-# small helper safe-delete/send wrappers to avoid crashes when message id invalid
+# Helpers for safe message handling
 async def safe_delete(message):
     try:
         if message:
             await message.delete()
     except Exception:
-        # ignore everything (MessageIdInvalid, RPCError, etc.)
         return
 
 async def safe_send_photo(chat_id: int, **kwargs):
     try:
         return await app.send_photo(chat_id, **kwargs)
     except Exception:
-        # fallback to send_message with photo URL if send_photo fails
         try:
             caption = kwargs.get("caption", "")
             if "photo" in kwargs and isinstance(kwargs["photo"], str):
@@ -52,45 +50,18 @@ async def safe_send_message(chat_id: int, **kwargs):
     except Exception:
         return None
 
-# Utility: attempt to call the join method on StreamController with fallbacks
-async def _join_call_with_fallback(chat_id, original_chat_id, file_path, video=False, image=None):
-    """
-    Calls the appropriate StreamController join function while handling
-    possible API name changes across pytgcalls/ntgcalls versions.
-    """
-    # list of candidate method names in preference order
-    candidates = [
-        "join_call",
-        "join_stream",
-        "join",
-        "start_stream",
-        "start_call",
-    ]
-    excs = []
-    for name in candidates:
-        fn = getattr(StreamController, name, None)
-        if callable(fn):
-            try:
-                # detect if method is static or coroutine function
-                result = fn(chat_id, original_chat_id, file_path, video=video, image=image)
-                if asyncio.iscoroutine(result):
-                    return await result
-                return result
-            except TypeError:
-                # maybe signature differs (e.g., lacks named args) - try positional
-                try:
-                    result = fn(chat_id, original_chat_id, file_path, video, image)
-                    if asyncio.iscoroutine(result):
-                        return await result
-                    return result
-                except Exception as e:
-                    excs.append(e)
-                    continue
-            except Exception as e:
-                excs.append(e)
-                continue
-    # If we reach here, nothing worked
-    raise RuntimeError(f"Could not call StreamController join method, tried: {candidates}. Errors: {excs}")
+# ✅ الدالة المباشرة للانضمام (متوافقة مع call.py الجديد)
+async def _join_call(chat_id, original_chat_id, file_path, video=False, image=None):
+    try:
+        await StreamController.join_call(
+            chat_id, 
+            original_chat_id, 
+            file_path, 
+            video=video, 
+            image=image
+        )
+    except Exception as e:
+        raise e
 
 @capture_internal_err
 async def stream(
@@ -113,16 +84,11 @@ async def stream(
     is_video = True if video else False
 
     if forceplay:
-        # try to stop previous stream; keep safe if API changed
-        stop_fn = getattr(StreamController, "force_stop_stream", None) or getattr(StreamController, "stop_stream", None) or getattr(StreamController, "force_stop", None)
-        if callable(stop_fn):
-            try:
-                res = stop_fn(chat_id)
-                if asyncio.iscoroutine(res):
-                    await res
-            except Exception:
-                # ignore stop failure
-                pass
+        # ✅ استخدام stop_stream من call.py الجديد
+        try:
+            await StreamController.stop_stream(chat_id)
+        except Exception:
+            pass
 
     # -----------------------------
     # 🛑 0) CUSTOM SONG MODE (Switching Buttons on Current Message)
@@ -134,7 +100,6 @@ async def stream(
         thumbnail = result.get("thumb")
 
         try:
-            # mystic هنا هي الرسالة اللي فيها زر "تشغيل الآن"
             file_path, direct = await YouTube.download(vidid, mystic, video=is_video, videoid=vidid)
         except Exception:
             raise AssistantErr(_["play_14"])
@@ -143,7 +108,7 @@ async def stream(
             db[chat_id] = []
 
         try:
-            await _join_call_with_fallback(chat_id, original_chat_id, file_path, video=is_video, image=thumbnail)
+            await _join_call(chat_id, original_chat_id, file_path, video=is_video, image=thumbnail)
         except Exception:
             raise AssistantErr(_["play_14"])
 
@@ -160,13 +125,9 @@ async def stream(
             forceplay=forceplay,
         )
 
-        # 🛑 تعديل الأزرار تحت الملف نفسه بدلاً من إرسال رسالة جديدة
         button = custom_markup(_, chat_id, vidid)
         try:
-            # تبديل زرار "تشغيل الآن" بالـ 4 زرارير الكوستوم
             await mystic.edit_reply_markup(reply_markup=button)
-            
-            # حفظ الرسالة في الداتابيز عشان التايمر يكمل تحديث عليها
             db[chat_id][0]["mystic"] = mystic
             db[chat_id][0]["markup"] = "custom"
         except Exception:
@@ -193,7 +154,6 @@ async def stream(
             if duration_sec and duration_sec > config.DURATION_LIMIT:
                 continue
 
-            # if already active, just queue
             if await is_active_chat(chat_id):
                 await put_queue(
                     chat_id,
@@ -213,7 +173,6 @@ async def stream(
             else:
                 if not forceplay:
                     db[chat_id] = []
-                # attempt download - YouTube.download must accept videoid kwarg
                 try:
                     file_path, direct = await YouTube.download(vidid, mystic, video=is_video, videoid=vidid)
                 except Exception:
@@ -222,11 +181,9 @@ async def stream(
                 if not file_path:
                     raise AssistantErr(_["play_14"])
 
-                # join with fallback
                 try:
-                    await _join_call_with_fallback(chat_id, original_chat_id, file_path, video=is_video, image=thumbnail)
+                    await _join_call(chat_id, original_chat_id, file_path, video=is_video, image=thumbnail)
                 except Exception:
-                    # If join failed, try to cleanup and raise
                     raise AssistantErr(_["play_14"])
 
                 await put_queue(
@@ -245,7 +202,6 @@ async def stream(
                 img = await get_thumb(vidid)
                 button = stream_markup(_, chat_id)
 
-                # delete the "loading" message if exists
                 await safe_delete(mystic)
 
                 caption_text = "🧚 " + _["stream_1"].format(
@@ -266,13 +222,11 @@ async def stream(
                         db[chat_id][0]["mystic"] = run
                         db[chat_id][0]["markup"] = "stream"
                 except Exception:
-                    # don't crash if message sending fails
                     pass
 
         if count == 0:
             return
 
-        # send playlist summary
         link = await ANNIEBIN(msg)
         try:
             carbon = await Carbon.generate(msg, randint(100, 10000000))
@@ -332,7 +286,7 @@ async def stream(
                 db[chat_id] = []
 
             try:
-                await _join_call_with_fallback(chat_id, original_chat_id, file_path, video=is_video, image=thumbnail)
+                await _join_call(chat_id, original_chat_id, file_path, video=is_video, image=thumbnail)
             except Exception:
                 raise AssistantErr(_["play_14"])
 
@@ -406,7 +360,7 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             try:
-                await _join_call_with_fallback(chat_id, original_chat_id, file_path, video=False)
+                await _join_call(chat_id, original_chat_id, file_path, video=False)
             except Exception:
                 raise AssistantErr(_["play_14"])
             await put_queue(
@@ -468,7 +422,7 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             try:
-                await _join_call_with_fallback(chat_id, original_chat_id, file_path, video=is_video)
+                await _join_call(chat_id, original_chat_id, file_path, video=is_video)
             except Exception:
                 raise AssistantErr(_["play_14"])
 
@@ -530,12 +484,17 @@ async def stream(
         else:
             if not forceplay:
                 db[chat_id] = []
-            # delegate to YouTube.video (user had this in original code)
-            n, file_path = await YouTube.video(link)
-            if n == 0 or not file_path:
-                raise AssistantErr(_["str_3"])
+            # delegate to YouTube.video for direct link
             try:
-                await _join_call_with_fallback(chat_id, original_chat_id, file_path, video=is_video, image=thumbnail)
+                # ✅ التصحيح: استدعاء الدالة بشكل متوافق
+                n, file_path = await YouTube.video(link)
+                if n == 0 or not file_path:
+                     raise AssistantErr(_["str_3"])
+            except:
+                raise AssistantErr(_["str_3"])
+
+            try:
+                await _join_call(chat_id, original_chat_id, file_path, video=is_video, image=thumbnail)
             except Exception:
                 raise AssistantErr(_["play_14"])
 
@@ -593,7 +552,7 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             try:
-                await _join_call_with_fallback(chat_id, original_chat_id, link, video=is_video)
+                await _join_call(chat_id, original_chat_id, link, video=is_video)
             except Exception:
                 raise AssistantErr(_["play_14"])
             await put_queue_index(
