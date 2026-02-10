@@ -173,17 +173,14 @@ async def handle_skip_replay(callback: CallbackQuery, _, chat_id: int, command: 
         db[chat_id][0]["speed_path"] = None
         db[chat_id][0]["speed"] = 1.0
 
-    # 🔥 ملاحظة: Call.py يقبل image كـ None عادي جداً، فمفيش مشكلة نبعتها
+    # 🔥 التصحيح 1: Live Stream (حذفنا image)
     if "live_" in queued:
         n, new_link = await YouTube.video(videoid, True)
         if n == 0:
             return await callback.message.reply_text(_["admin_7"].format(title), reply_markup=close_markup(_))
-        try:
-            image = await YouTube.thumbnail(videoid, True)
-        except: image = None
         
         try:
-            await StreamController.skip_stream(chat_id, new_link, video=status, image=image)
+            await StreamController.skip_stream(chat_id, new_link, video=status)
         except Exception:
             return await callback.message.reply_text(_["call_6"])
             
@@ -198,18 +195,16 @@ async def handle_skip_replay(callback: CallbackQuery, _, chat_id: int, command: 
         db[chat_id][0]["markup"] = "tg"
         await callback.edit_message_text(text_msg, reply_markup=close_markup(_))
 
+    # 🔥 التصحيح 2: Video/Audio File (حذفنا image)
     elif "vid_" in queued:
         mystic = await callback.message.reply_text(_["call_7"], disable_web_page_preview=True)
         try:
             file_path, direct = await YouTube.download(videoid, mystic, videoid=True, video=status)
         except Exception:
             return await mystic.edit_text(_["call_6"])
-        try:
-            image = await YouTube.thumbnail(videoid, True)
-        except: image = None
         
         try:
-            await StreamController.skip_stream(chat_id, file_path, video=status, image=image)
+            await StreamController.skip_stream(chat_id, file_path, video=status)
         except Exception:
             return await mystic.edit_text(_["call_6"])
             
@@ -225,6 +220,7 @@ async def handle_skip_replay(callback: CallbackQuery, _, chat_id: int, command: 
         await callback.edit_message_text(text_msg, reply_markup=close_markup(_))
         await mystic.delete()
 
+    # 🔥 التصحيح 3: Index/M3U8 (حذفنا image)
     elif "index_" in queued:
         try:
             await StreamController.skip_stream(chat_id, videoid, video=status)
@@ -240,16 +236,10 @@ async def handle_skip_replay(callback: CallbackQuery, _, chat_id: int, command: 
         db[chat_id][0]["markup"] = "tg"
         await callback.edit_message_text(text_msg, reply_markup=close_markup(_))
 
+    # 🔥 التصحيح 4: General/Telegram (حذفنا image)
     else:
-        if videoid in ["telegram", "soundcloud"]:
-            image = None
-        else:
-            try:
-                image = await YouTube.thumbnail(videoid, True)
-            except: image = None
-            
         try:
-            await StreamController.skip_stream(chat_id, queued, video=status, image=image)
+            await StreamController.skip_stream(chat_id, queued, video=status)
         except Exception:
             return await callback.message.reply_text(_["call_6"])
             
@@ -320,7 +310,7 @@ async def handle_seek(callback: CallbackQuery, _, chat_id: int, command: str, us
         if n == 0:
             return await mystic.edit_text(_["admin_22"])
     
-    # 🔥 تحديث Seek ليتوافق مع Call.py الجديد
+    # 🔥 تحديث Seek: إضافة Mode (video/audio)
     try:
         streamtype = playing[0]["streamtype"]
         mode = "video" if streamtype == "video" else "audio"
@@ -329,7 +319,7 @@ async def handle_seek(callback: CallbackQuery, _, chat_id: int, command: str, us
             file_path,
             seconds_to_min(to_seek),
             duration,
-            mode, # تمرير الـ Mode الصحيح
+            mode, 
         )
     except Exception:
         return await mystic.edit_text(_["admin_26"])
