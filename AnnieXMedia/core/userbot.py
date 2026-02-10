@@ -22,35 +22,35 @@ class Userbot:
             config.API_ID,
             config.API_HASH,
             session_string=str(config.STRING1),
-            no_updates=True,
+            no_updates=False,
         )
         self.two = Client(
             "AnnieAssis2",
             config.API_ID,
             config.API_HASH,
             session_string=str(config.STRING2),
-            no_updates=True,
+            no_updates=False,
         )
         self.three = Client(
             "AnnieAssis3",
             config.API_ID,
             config.API_HASH,
             session_string=str(config.STRING3),
-            no_updates=True,
+            no_updates=False,
         )
         self.four = Client(
             "AnnieAssis4",
             config.API_ID,
             config.API_HASH,
             session_string=str(config.STRING4),
-            no_updates=True,
+            no_updates=False,
         )
         self.five = Client(
             "AnnieAssis5",
             config.API_ID,
             config.API_HASH,
             session_string=str(config.STRING5),
-            no_updates=True,
+            no_updates=False,
         )
 
     async def start_assistant(self, client: Client, index: int):
