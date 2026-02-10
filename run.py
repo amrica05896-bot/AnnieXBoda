@@ -1,11 +1,41 @@
-# Authored By Certified Coders © 2025
-# TitanOS Ultimate Engine: Force Loop Binding 🛡️
+# Authored By Certified Coders © 2026
+# TitanOS Ultimate Engine: Force Loop Binding + Auto-Clean 🛡️
 
 import asyncio
 import logging
 import sys
+import os
+import glob
 
-# 1. تفعيل uvloop فوراً
+# ==========================================
+# 🔥 1. نظام التنظيف النووي (قبل أي شيء)
+# ==========================================
+def clean_garbage():
+    """حذف ملفات الجلسة التالفة لمنع خطأ struct.error"""
+    try:
+        # بنمسح أي ملف ينتهي بـ .session أو .session-journal
+        junk_files = glob.glob("*.session") + glob.glob("*.session-journal")
+        if junk_files:
+            print(f"🧹 TitanOS: Found junk sessions: {junk_files}")
+            for f in junk_files:
+                try:
+                    os.remove(f)
+                    print(f"✅ Deleted: {f}")
+                except Exception as e:
+                    print(f"❌ Failed to delete {f}: {e}")
+        else:
+            print("✅ TitanOS: System clean. No junk sessions found.")
+    except Exception as e:
+        print(f"⚠️ Clean error: {e}")
+
+# تنفيذ التنظيف فوراً
+clean_garbage()
+
+# ==========================================
+# 🚀 2. إعدادات النظام
+# ==========================================
+
+# تفعيل uvloop فوراً
 try:
     import uvloop
     uvloop.install()
@@ -24,7 +54,7 @@ LOGGER = logging.getLogger("TitanOS")
 async def main():
     LOGGER.info("⚡ Initializing TitanOS Core...")
     
-    # 2. استدعاء ملفات البوت (يتم الاستدعاء هنا داخل الدالة لضمان الترتيب)
+    # استدعاء ملفات البوت (بعد التنظيف)
     from AnnieXMedia.__main__ import init
     from AnnieXMedia import app, userbot
     from AnnieXMedia.core.call import StreamController
@@ -34,15 +64,18 @@ async def main():
     
     LOGGER.info("🔗 Patching Client Loops (The Magic Fix)...")
     
-    # 4. (الحل الجذري) إجبار البوت والمساعد وتطبيقات الاتصال على استخدام نفس الـ Loop
-    # بنغير الـ loop property جوه الكائنات دي عشان متضربش error
-    app.loop = current_loop
-    userbot.loop = current_loop
-    
+    # 4. إجبار البوت والمساعد وتطبيقات الاتصال على استخدام نفس الـ Loop
+    try:
+        app.loop = current_loop
+        userbot.loop = current_loop
+        if hasattr(app, 'storage'): app.storage.loop = current_loop
+    except Exception as e:
+        LOGGER.error(f"Loop patch error: {e}")
+
     # إصلاح مشكلة PyTgCalls (StreamController)
     try:
-        if hasattr(StreamController, 'one'):
-            # بنحفر جوه المكتبة عشان نغير الـ Loop للعميل الداخلي
+        # محاولة الوصول للعملاء وتوحيد الـ Loop
+        if hasattr(StreamController, 'one') and StreamController.one:
             if hasattr(StreamController.one, '_app'):
                 StreamController.one._app.loop = current_loop
             if hasattr(StreamController.one, '_bind_client'):
