@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# Module: Seek Stream - Optimized for Titan Core
-# Fixes: Strict Mode (Audio/Video) handling
+# Module: Seek Stream - Optimized for Titan Core & Call.py
+# Compatibility: Fully Compatible with StreamController.seek_stream
 
 from pyrogram import filters
 from pyrogram.types import Message
@@ -43,7 +43,8 @@ async def seek_comm(cli, message: Message, _, chat_id):
     
     # تحديد اتجاه التقديم أو التأخير
     command = message.command[0]
-    # أوامر الرجوع للخلف
+    
+    # منطق الرجوع للخلف (Rewind)
     if command in ["seekback", "cseekback", "رجع"]:
         if (duration_played - duration_to_skip) <= 10:
             return await message.reply_text(
@@ -52,7 +53,8 @@ async def seek_comm(cli, message: Message, _, chat_id):
             )
         to_seek = duration_played - duration_to_skip
         is_back = True
-    # أوامر التقديم للأمام
+        
+    # منطق التقديم للأمام (Forward)
     else:
         if (duration_seconds - (duration_played + duration_to_skip)) <= 10:
             return await message.reply_text(
@@ -64,6 +66,7 @@ async def seek_comm(cli, message: Message, _, chat_id):
 
     mystic = await message.reply_text(_["admin_24"])
     
+    # معالجة روابط يوتيوب المباشرة
     if "vid_" in file_path:
         n, file_path = await YouTube.video(playing[0]["vidid"], True)
         if n == 0:
@@ -75,7 +78,7 @@ async def seek_comm(cli, message: Message, _, chat_id):
     if "index_" in file_path:
         file_path = playing[0]["vidid"]
 
-    # 🔥 التعديل المهم: تحديد الـ Mode بدقة
+    # 🔥 تحديد الـ Mode (فيديو/صوت) بدقة عشان Call.py
     streamtype = playing[0]["streamtype"]
     mode = "video" if streamtype == "video" else "audio"
         
@@ -85,11 +88,12 @@ async def seek_comm(cli, message: Message, _, chat_id):
             file_path,
             seconds_to_min(to_seek),
             duration,
-            mode, # تمرير المود الصحيح
+            mode, 
         )
     except Exception as e:
         return await mystic.edit_text(_["admin_26"], reply_markup=close_markup(_))
     
+    # تحديث العداد في قاعدة البيانات
     if is_back:
         db[chat_id][0]["played"] -= duration_to_skip
     else:
