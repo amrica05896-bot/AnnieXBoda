@@ -1,4 +1,7 @@
-# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2026
+# System: Play Plugin (User Interface)
+# Compatibility: Fully synced with Nuclear Call & Stream
+
 import asyncio
 import random
 import string
@@ -27,16 +30,16 @@ from AnnieXMedia.utils.inline import (
     track_markup,
 )
 from AnnieXMedia.utils.logger import play_logs
+# استيراد دالة الستريم المطورة
 from AnnieXMedia.utils.stream.stream import stream
 
 # ==========================================================
-# إعدادات قاعدة البيانات (مشتركة مع ملف song.py)
+# إعدادات قاعدة البيانات (Search Lock)
 # ==========================================================
 
 SUDO_USERS = OWNER_ID if isinstance(OWNER_ID, list) else [OWNER_ID]
 _mongo_client_ = AsyncIOMotorClient(MONGO_DB_URI)
 mongodb = _mongo_client_.Annie
-# نستخدم نفس الكولكشن المستخدم في ملف song.py لتوحيد القفل
 songdb = mongodb.song_settings
 
 async def get_search_state():
@@ -52,7 +55,7 @@ async def set_search_state(locked: bool):
     except: pass
 
 # ==========================================================
-# أوامر قفل وفتح البحث (بدون سلاش)
+# أوامر قفل وفتح البحث
 # ==========================================================
 
 @app.on_message(filters.command(["قفل البحث", "تعطيل البحث"], prefixes=["", "/"]) & filters.user(SUDO_USERS))
@@ -66,7 +69,7 @@ async def unlock_search_cmd(client, message):
     await message.reply_text("**تم فتح البحث بنجاح .**")
 
 # ==========================================================
-# كود التشغيل الرئيسي
+# كود التشغيل الرئيسي (Play Command)
 # ==========================================================
 
 @app.on_message(
@@ -75,7 +78,7 @@ async def unlock_search_cmd(client, message):
             "play", "vplay", "cplay", "cvplay", "playforce", "vplayforce", "cplayforce", "cvplayforce",
             "تشغيل", "شغل", "فيد", "فيديو"
         ],
-        prefixes=["", "/", "!", "#"] # تم تفعيل "" ليعمل بدون سلاش
+        prefixes=["", "/", "!", "#"]
     )
     & filters.group
     & ~BANNED_USERS
@@ -119,7 +122,9 @@ async def play_command(
     user_id = message.from_user.id
     user_name = message.from_user.first_name
 
-    # التعامل مع الملفات المرفقة (رد)
+    # -------------------------------------------------------
+    # 1. التعامل مع الملفات الصوتية (Reply Audio)
+    # -------------------------------------------------------
     audio_telegram = (
         (message.reply_to_message.audio or message.reply_to_message.voice)
         if message.reply_to_message
@@ -175,6 +180,9 @@ async def play_command(
             return await mystic.delete()
         return
 
+    # -------------------------------------------------------
+    # 2. التعامل مع ملفات الفيديو (Reply Video)
+    # -------------------------------------------------------
     video_telegram = (
         (message.reply_to_message.video or message.reply_to_message.document)
         if message.reply_to_message
@@ -236,6 +244,9 @@ async def play_command(
             return await mystic.delete()
         return
 
+    # -------------------------------------------------------
+    # 3. التعامل مع الروابط (URL Handling)
+    # -------------------------------------------------------
     if url:
         if await YouTube.exists(url):
             if "playlist" in url:
@@ -399,6 +410,7 @@ async def play_command(
             return await mystic.delete()
 
         else:
+            # تشغيل الروابط المباشرة (M3U8 / Live)
             try:
                 await StreamController.stream_call(url)
             except NoActiveGroupCall:
@@ -435,6 +447,9 @@ async def play_command(
 
             return await play_logs(message, streamtype="M3U8 or Index Link")
 
+    # -------------------------------------------------------
+    # 4. التعامل مع البحث بالاسم (Query)
+    # -------------------------------------------------------
     else:
         if len(message.command) < 2:
             buttons = botplaylist_markup(_)
@@ -456,6 +471,9 @@ async def play_command(
         internal_type = "youtube"
         log_label = "Youtube Track"
 
+    # -------------------------------------------------------
+    # 5. التنفيذ (Direct vs Playlist vs Slider)
+    # -------------------------------------------------------
     if str(playmode) == "Direct":
         if not plist_type:
             if details.get("duration_min"):
@@ -579,6 +597,9 @@ async def play_command(
                 )
                 return await play_logs(message, streamtype="URL Search Inline")
 
+# ==========================================================
+# معالجات الأزرار (Callbacks)
+# ==========================================================
 
 @app.on_callback_query(filters.regex("MusicStream") & ~BANNED_USERS)
 @languageCB
