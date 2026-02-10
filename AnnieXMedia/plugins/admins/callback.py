@@ -1,5 +1,5 @@
-# Authored By Certified Coders 2026
-# Module: Playback Callback & Control - Arabic & No Emojis
+# Authored By Certified Coders © 2026
+# Module: Playback Callback & Control - Fully Compatible with Titan Core
 
 import asyncio
 import random
@@ -130,7 +130,6 @@ async def handle_skip_replay(callback: CallbackQuery, _, chat_id: int, command: 
         return await callback.answer(_["queue_2"], show_alert=True)
 
     if command == "Skip":
-        # تعريب رسالة التخطي
         text_msg = f"تم تخطي الاغنية\nبواسطة : {user_mention}"
         try:
             popped = playlist.pop(0)
@@ -151,8 +150,7 @@ async def handle_skip_replay(callback: CallbackQuery, _, chat_id: int, command: 
             )
             return await StreamController.stop_stream(chat_id)
     else:
-        # تعريب رسالة إعادة التشغيل
-        text_msg = f"تم تخطي الاغنية\nبواسطة : {user_mention}"
+        text_msg = f"تم إعادة التشغيل\nبواسطة : {user_mention}"
 
     await callback.answer()
 
@@ -166,7 +164,7 @@ async def handle_skip_replay(callback: CallbackQuery, _, chat_id: int, command: 
     duration = current_track["dur"]
     streamtype = current_track["streamtype"]
     videoid = current_track["vidid"]
-    status = True if str(streamtype) == "video" else None
+    status = True if str(streamtype) == "video" else False
 
     db[chat_id][0]["played"] = 0
     if current_track.get("old_dur"):
@@ -175,21 +173,20 @@ async def handle_skip_replay(callback: CallbackQuery, _, chat_id: int, command: 
         db[chat_id][0]["speed_path"] = None
         db[chat_id][0]["speed"] = 1.0
 
+    # 🔥 ملاحظة: Call.py يقبل image كـ None عادي جداً، فمفيش مشكلة نبعتها
     if "live_" in queued:
         n, new_link = await YouTube.video(videoid, True)
         if n == 0:
-            return await callback.message.reply_text(
-                _["admin_7"].format(title),
-                reply_markup=close_markup(_)
-            )
+            return await callback.message.reply_text(_["admin_7"].format(title), reply_markup=close_markup(_))
         try:
             image = await YouTube.thumbnail(videoid, True)
-        except Exception:
-            image = None
+        except: image = None
+        
         try:
             await StreamController.skip_stream(chat_id, new_link, video=status, image=image)
         except Exception:
             return await callback.message.reply_text(_["call_6"])
+            
         buttons = stream_markup(_, chat_id)
         img = await get_thumb(videoid)
         run = await callback.message.reply_photo(
@@ -209,12 +206,13 @@ async def handle_skip_replay(callback: CallbackQuery, _, chat_id: int, command: 
             return await mystic.edit_text(_["call_6"])
         try:
             image = await YouTube.thumbnail(videoid, True)
-        except Exception:
-            image = None
+        except: image = None
+        
         try:
             await StreamController.skip_stream(chat_id, file_path, video=status, image=image)
         except Exception:
             return await mystic.edit_text(_["call_6"])
+            
         buttons = stream_markup(_, chat_id)
         img = await get_thumb(videoid)
         run = await callback.message.reply_photo(
@@ -248,12 +246,13 @@ async def handle_skip_replay(callback: CallbackQuery, _, chat_id: int, command: 
         else:
             try:
                 image = await YouTube.thumbnail(videoid, True)
-            except Exception:
-                image = None
+            except: image = None
+            
         try:
             await StreamController.skip_stream(chat_id, queued, video=status, image=image)
         except Exception:
             return await callback.message.reply_text(_["call_6"])
+            
         if videoid == "telegram":
             buttons = stream_markup(_, chat_id)
             run = await callback.message.reply_photo(
@@ -301,7 +300,6 @@ async def handle_seek(callback: CallbackQuery, _, chat_id: int, command: str, us
     if int(command) in [1, 3]:
         if (duration_played - duration_to_skip) <= 10:
             bet = seconds_to_min(duration_played)
-            # تعريب رسالة خطأ التقديم/التاخير
             return await callback.answer(
                 f"لا يمكن التقديم لان المدة تتجاوز الحد\n\nتم تشغيل : {bet} دقيقة من اصل {duration} دقيقة",
                 show_alert=True
@@ -321,22 +319,26 @@ async def handle_seek(callback: CallbackQuery, _, chat_id: int, command: str, us
         n, file_path = await YouTube.video(playing[0]["vidid"], True)
         if n == 0:
             return await mystic.edit_text(_["admin_22"])
+    
+    # 🔥 تحديث Seek ليتوافق مع Call.py الجديد
     try:
+        streamtype = playing[0]["streamtype"]
+        mode = "video" if streamtype == "video" else "audio"
         await StreamController.seek_stream(
             chat_id,
             file_path,
             seconds_to_min(to_seek),
             duration,
-            playing[0]["streamtype"],
+            mode, # تمرير الـ Mode الصحيح
         )
     except Exception:
         return await mystic.edit_text(_["admin_26"])
+        
     if int(command) in [1, 3]:
         db[chat_id][0]["played"] -= duration_to_skip
     else:
         db[chat_id][0]["played"] += duration_to_skip
     seek_message = _["admin_25"].format(seconds_to_min(to_seek))
-    # تعريب رسالة تأكيد التقديم
     await mystic.edit_text(f"{seek_message}\n\nبواسطة : {user_mention}")
 
 
@@ -387,7 +389,6 @@ async def close_menu(_, query: CallbackQuery):
     try:
         await query.answer()
         await query.message.delete()
-        # تعريب رسالة الإغلاق
         msg = await query.message.reply_text(f"تم الاغلاق بواسطة : {query.from_user.mention}")
         await asyncio.sleep(2)
         await msg.delete()
