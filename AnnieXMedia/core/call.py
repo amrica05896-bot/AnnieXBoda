@@ -2,6 +2,7 @@
 # System: Call Controller (Crash Fixes & Strict Type Safety)
 # Notes: Compatible with py-tgcalls (module name: pytgcalls) / version 2.2.11
 # Fixes included: NoneType checks, audio/video switching, retries, safe handler registration
+# Changes: added cache invalidation helper, safe stream restart helper, stronger fallbacks
 
 import asyncio
 import os
@@ -101,6 +102,7 @@ async def get_direct_link(videoid: str, video: bool = False):
 
         return await loop.run_in_executor(None, _extract)
     except Exception:
+        # fallback: return watch link so calling code can try download fallback
         return link
 
 
@@ -160,6 +162,96 @@ async def _clear_(chat_id: int) -> None:
     await remove_active_video_chat(chat_id)
     await remove_active_chat(chat_id)
     await set_loop(chat_id, 0)
+
+
+# ---- cache invalidation helper (tries multiple safe attempts) ----
+async def _invalidate_direct_cache_for_vid(videoid: Optional[str]) -> None:
+    """Try to remove direct-cache entries related to a vid from YouTube helper caches."""
+    if not videoid:
+        return
+    try:
+        # If YouTube exposes a method (preferred)
+        fn = getattr(YouTube, "invalidate_direct_cache", None)
+        if callable(fn):
+            try:
+                # call sync or async
+                maybe = fn(videoid)
+                if asyncio.iscoroutine(maybe):
+                    await maybe
+                return
+            except Exception:
+                pass
+
+        # fallback: try to access internals (best-effort)
+        cache = getattr(YouTube, "_direct_cache", None)
+        lock = getattr(YouTube, "_direct_cache_lock", None)
+        if cache is None:
+            # sometimes cache is module-level variable in platform module, try attribute on class
+            cache = getattr(YouTube, "direct_cache", None)
+
+        if cache and isinstance(cache, dict):
+            if lock and hasattr(lock, "__aenter__"):
+                try:
+                    async with lock:
+                        keys = list(cache.keys())
+                        prefix = f"https://www.youtube.com/watch?v={videoid}"
+                        for k in keys:
+                            if videoid in k or prefix in k:
+                                cache.pop(k, None)
+                except Exception:
+                    # last resort: mutate without lock
+                    keys = list(cache.keys())
+                    prefix = f"https://www.youtube.com/watch?v={videoid}"
+                    for k in keys:
+                        if videoid in k or prefix in k:
+                            cache.pop(k, None)
+            else:
+                keys = list(cache.keys())
+                prefix = f"https://www.youtube.com/watch?v={videoid}"
+                for k in keys:
+                    if videoid in k or prefix in k:
+                        cache.pop(k, None)
+    except Exception:
+        # don't raise; it's a best-effort invalidation
+        pass
+
+
+# safe stream play/change helper
+async def _safe_apply_stream(assistant, chat_id: int, stream_obj, prefer_restart: bool = False):
+    """
+    Try change_stream first. If type change or failure, do leave+play to ensure correct stream type.
+    prefer_restart: force leave+play (useful when switching audio<->video).
+    """
+    try:
+        if prefer_restart:
+            try:
+                await assistant.leave_call(chat_id)
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+            await assistant.play(chat_id, stream_obj, config=GroupCallConfig(auto_start=False))
+            return
+
+        # try changing stream (fast)
+        try:
+            await assistant.change_stream(chat_id, stream_obj)
+            return
+        except Exception:
+            # fallback: try play (some builds require play instead)
+            try:
+                await assistant.play(chat_id, stream_obj, config=GroupCallConfig(auto_start=False))
+                return
+            except Exception:
+                # last resort: leave then play
+                try:
+                    await assistant.leave_call(chat_id)
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5)
+                await assistant.play(chat_id, stream_obj, config=GroupCallConfig(auto_start=False))
+                return
+    except Exception as e:
+        raise
 
 
 # --- [2] Call Controller ---
@@ -252,6 +344,9 @@ class Call:
         final_link = link
         vid_id = extract_video_id(str(link))
 
+        # invalidate direct cache for this vid (best-effort)
+        await _invalidate_direct_cache_for_vid(vid_id)
+
         # SMART SWITCH: local audio + video requested -> try fetch direct video
         if os.path.exists(str(link)) and video:
             if str(link).endswith((".mp3", ".m4a", ".flac", ".opus")):
@@ -274,11 +369,28 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
+        # determine if we need a restart: check queued/current streamtype
+        prefer_restart = False
+        try:
+            current = db.get(chat_id) and db.get(chat_id)[0]
+            current_type = current.get("streamtype") if current else None
+            new_type = "video" if bool(video) else "audio"
+            if current_type and str(current_type) != str(new_type):
+                prefer_restart = True
+        except Exception:
+            prefer_restart = False
+
         if chat_id in self.active_calls:
             try:
-                await assistant.change_stream(chat_id, stream)
+                await _safe_apply_stream(assistant, chat_id, stream, prefer_restart=prefer_restart)
             except Exception:
                 try:
+                    # last-ditch: force leave and play
+                    try:
+                        await assistant.leave_call(chat_id)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.5)
                     await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=False))
                 except Exception:
                     pass
@@ -365,6 +477,9 @@ class Call:
         final_link = link
         vid_id = extract_video_id(str(link)) if link else None
 
+        # invalidate direct cache for this vid (best-effort)
+        await _invalidate_direct_cache_for_vid(vid_id)
+
         # SMART JOIN: local audio + video requested -> refetch direct video
         if link and os.path.exists(str(link)) and video and str(link).endswith((".mp3", ".m4a", ".flac", ".opus")):
             if vid_id:
@@ -387,9 +502,21 @@ class Call:
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         ksk = GroupCallConfig(auto_start=False)
 
+        # if already active and we only need to change stream, try change with restart decision
         if chat_id in self.active_calls:
+            # check queued/current streamtype to decide restart
+            prefer_restart = False
             try:
-                await assistant.change_stream(chat_id, stream)
+                current = db.get(chat_id) and db.get(chat_id)[0]
+                current_type = current.get("streamtype") if current else None
+                new_type = "video" if bool(video) else "audio"
+                if current_type and str(current_type) != str(new_type):
+                    prefer_restart = True
+            except Exception:
+                prefer_restart = False
+
+            try:
+                await _safe_apply_stream(assistant, chat_id, stream, prefer_restart=prefer_restart)
                 return
             except Exception:
                 pass
@@ -501,10 +628,22 @@ class Call:
 
             async def _play_stream(stream_obj):
                 try:
-                    if chat_id in self.active_calls:
+                    # compute if we must force restart (audio<->video)
+                    prefer_restart = False
+                    try:
+                        curr = db.get(chat_id) and db.get(chat_id)[0]
+                        curr_type = curr.get("streamtype") if curr else None
+                        new_type = "video" if video else "audio"
+                        if curr_type and str(curr_type) != str(new_type):
+                            prefer_restart = True
+                    except Exception:
+                        prefer_restart = False
+
+                    if chat_id in self.active_calls and not prefer_restart:
                         await client.change_stream(chat_id, stream_obj)
                     else:
-                        await client.play(chat_id, stream_obj)
+                        # if prefer_restart or not active, use safe apply
+                        await _safe_apply_stream(client, chat_id, stream_obj, prefer_restart=prefer_restart)
                 except Exception:
                     try:
                         await client.leave_call(chat_id)
@@ -518,6 +657,9 @@ class Call:
             try:
                 final_link = queued
                 vid_id = extract_video_id(str(queued)) or videoid
+
+                # invalidate direct cache for vid before resolving to force fresh type URL
+                await _invalidate_direct_cache_for_vid(vid_id)
 
                 # QUEUE SMART CHECK: cached local audio but video requested
                 if queued and os.path.exists(str(queued)) and video:
