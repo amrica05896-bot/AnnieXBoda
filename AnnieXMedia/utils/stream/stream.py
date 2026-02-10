@@ -1,4 +1,8 @@
-# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2026
+# System: Stream Controller (Logic & Queue Handler)
+# Optimized for: AnnieXBoda Custom Library & Nuclear Call System
+
+import asyncio
 import os
 from random import randint
 from typing import Union
@@ -9,7 +13,10 @@ import config
 from AnnieXMedia import Carbon, YouTube, app
 from AnnieXMedia.core.call import StreamController
 from AnnieXMedia.misc import db
-from AnnieXMedia.utils.database import add_active_video_chat, is_active_chat
+from AnnieXMedia.utils.database import (
+    add_active_video_chat,
+    is_active_chat,
+)
 from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.inline import aq_markup, close_markup, stream_markup
 from AnnieXMedia.utils.pastebin import ANNIEBIN
@@ -17,6 +24,12 @@ from AnnieXMedia.utils.stream.queue import put_queue, put_queue_index
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
+# دالة الحذف الآمن (عشان لو الرسالة اتمسحت قبل كدة ميعملش Error)
+async def safe_delete(message):
+    try:
+        await message.delete()
+    except:
+        pass
 
 @capture_internal_err
 async def stream(
@@ -38,14 +51,17 @@ async def stream(
     forceplay = bool(forceplay)
     is_video = bool(video)
 
+    # لو تشغيل إجباري، نوقف اللي شغال فوراً
     if forceplay:
         await StreamController.force_stop_stream(chat_id)
 
+    # ==========================
+    # 1. PLAYLIST MODE
+    # ==========================
     if streamtype == "playlist":
         msg = f"{_['play_19']}\n\n"
         count = 0
-        position = 0
-
+        
         for search in result:
             if int(count) == config.PLAYLIST_FETCH_LIMIT:
                 continue
@@ -56,10 +72,8 @@ async def stream(
             except Exception:
                 continue
 
-            if str(duration_min) == "None":
-                continue
-            if duration_sec and duration_sec > config.DURATION_LIMIT:
-                continue
+            if str(duration_min) == "None": continue
+            if duration_sec and duration_sec > config.DURATION_LIMIT: continue
 
             if await is_active_chat(chat_id):
                 await put_queue(
@@ -86,16 +100,23 @@ async def stream(
                     )
                 except Exception:
                     raise AssistantErr(_["play_14"])
+                
                 if not file_path:
-                    raise AssistantErr(_["play_14"])
+                     raise AssistantErr(_["play_14"])
 
-                await StreamController.join_call(
-                    chat_id,
-                    original_chat_id,
-                    file_path,
-                    video=is_video,
-                    image=thumbnail,
-                )
+                # 🔥 الانضمام الآمن
+                try:
+                    await StreamController.join_call(
+                        chat_id,
+                        original_chat_id,
+                        file_path,
+                        video=is_video,
+                        image=thumbnail,
+                    )
+                except Exception as e:
+                    # لو فشل الانضمام نوقف ونرجع الخطأ
+                    return
+
                 await put_queue(
                     chat_id,
                     original_chat_id,
@@ -108,8 +129,13 @@ async def stream(
                     "video" if is_video else "audio",
                     forceplay=forceplay,
                 )
+                
                 img = await get_thumb(vidid)
                 button = stream_markup(_, chat_id)
+                
+                # استخدام الحذف الآمن
+                await safe_delete(mystic)
+
                 run = await app.send_photo(
                     original_chat_id,
                     photo=img,
@@ -126,18 +152,16 @@ async def stream(
 
         if count == 0:
             return
+        
         link = await ANNIEBIN(msg)
-        lines = msg.count("\n")
-        car = os.linesep.join(msg.split(os.linesep)[:17]) if lines >= 17 else msg
         try:
-            carbon = await Carbon.generate(car, randint(100, 10000000))
+            carbon = await Carbon.generate(msg, randint(100, 10000000))
             playlist_photo = carbon
-        except Exception:
+        except:
             playlist_photo = config.PLAYLIST_IMG_URL
+            
         upl = close_markup(_)
         final_position = len(db.get(chat_id) or []) - 1
-        if final_position < 0:
-            final_position = 0
         return await app.send_photo(
             original_chat_id,
             photo=playlist_photo,
@@ -145,6 +169,9 @@ async def stream(
             reply_markup=upl,
         )
 
+    # ==========================
+    # 2. YOUTUBE MODE
+    # ==========================
     elif streamtype == "youtube":
         link = result["link"]
         vidid = result["vidid"]
@@ -158,6 +185,7 @@ async def stream(
             )
         except Exception:
             raise AssistantErr(_["play_14"])
+        
         if not file_path:
             raise AssistantErr(_["play_14"])
 
@@ -175,6 +203,7 @@ async def stream(
             )
             position = len(db.get(chat_id)) - 1
             button = aq_markup(_, chat_id)
+            await safe_delete(mystic)
             await app.send_message(
                 chat_id=original_chat_id,
                 text=_["queue_4"].format(position, title[:27], duration_min, user_name),
@@ -183,13 +212,19 @@ async def stream(
         else:
             if not forceplay:
                 db[chat_id] = []
-            await StreamController.join_call(
-                chat_id,
-                original_chat_id,
-                file_path,
-                video=is_video,
-                image=thumbnail,
-            )
+            
+            # 🔥 الانضمام
+            try:
+                await StreamController.join_call(
+                    chat_id,
+                    original_chat_id,
+                    file_path,
+                    video=is_video,
+                    image=thumbnail,
+                )
+            except Exception:
+                return
+
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -204,6 +239,8 @@ async def stream(
             )
             img = await get_thumb(vidid)
             button = stream_markup(_, chat_id)
+            await safe_delete(mystic)
+            
             run = await app.send_photo(
                 original_chat_id,
                 photo=img,
@@ -218,10 +255,14 @@ async def stream(
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "stream"
 
+    # ==========================
+    # 3. SOUNDCLOUD MODE
+    # ==========================
     elif streamtype == "soundcloud":
         file_path = result["filepath"]
         title = result["title"]
         duration_min = result["duration_min"]
+        
         if not file_path:
             raise AssistantErr(_["play_14"])
 
@@ -247,7 +288,13 @@ async def stream(
         else:
             if not forceplay:
                 db[chat_id] = []
-            await StreamController.join_call(chat_id, original_chat_id, file_path, video=False)
+            
+            # 🔥 الانضمام
+            try:
+                await StreamController.join_call(chat_id, original_chat_id, file_path, video=False)
+            except Exception:
+                return
+
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -261,6 +308,8 @@ async def stream(
                 forceplay=forceplay,
             )
             button = stream_markup(_, chat_id)
+            await safe_delete(mystic)
+            
             run = await app.send_photo(
                 original_chat_id,
                 photo=config.SOUNCLOUD_IMG_URL,
@@ -272,11 +321,15 @@ async def stream(
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
 
+    # ==========================
+    # 4. TELEGRAM FILES
+    # ==========================
     elif streamtype == "telegram":
         file_path = result["path"]
         link = result["link"]
         title = (result["title"]).title()
         duration_min = result["dur"]
+        
         if not file_path:
             raise AssistantErr(_["play_14"])
 
@@ -302,7 +355,13 @@ async def stream(
         else:
             if not forceplay:
                 db[chat_id] = []
-            await StreamController.join_call(chat_id, original_chat_id, file_path, video=is_video)
+            
+            # 🔥 الانضمام
+            try:
+                await StreamController.join_call(chat_id, original_chat_id, file_path, video=is_video)
+            except Exception:
+                return
+
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -317,7 +376,10 @@ async def stream(
             )
             if is_video:
                 await add_active_video_chat(chat_id)
+            
             button = stream_markup(_, chat_id)
+            await safe_delete(mystic)
+            
             run = await app.send_photo(
                 original_chat_id,
                 photo=config.TELEGRAM_VIDEO_URL if is_video else config.TELEGRAM_AUDIO_URL,
@@ -327,6 +389,9 @@ async def stream(
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
 
+    # ==========================
+    # 5. LIVE / INDEX MODE
+    # ==========================
     elif streamtype == "live":
         link = result["link"]
         vidid = result["vidid"]
@@ -356,19 +421,25 @@ async def stream(
         else:
             if not forceplay:
                 db[chat_id] = []
+            
             n, file_path = await YouTube.video(link)
             if n == 0:
                 raise AssistantErr(_["str_3"])
             if not file_path:
                 raise AssistantErr(_["play_14"])
 
-            await StreamController.join_call(
-                chat_id,
-                original_chat_id,
-                file_path,
-                video=is_video,
-                image=thumbnail or None,
-            )
+            # 🔥 الانضمام
+            try:
+                await StreamController.join_call(
+                    chat_id,
+                    original_chat_id,
+                    file_path,
+                    video=is_video,
+                    image=thumbnail or None,
+                )
+            except Exception:
+                return
+
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -383,6 +454,8 @@ async def stream(
             )
             img = await get_thumb(vidid)
             button = stream_markup(_, chat_id)
+            await safe_delete(mystic)
+            
             run = await app.send_photo(
                 original_chat_id,
                 photo=img,
@@ -422,12 +495,18 @@ async def stream(
         else:
             if not forceplay:
                 db[chat_id] = []
-            await StreamController.join_call(
-                chat_id,
-                original_chat_id,
-                link,
-                video=is_video,
-            )
+            
+            # 🔥 الانضمام
+            try:
+                await StreamController.join_call(
+                    chat_id,
+                    original_chat_id,
+                    link,
+                    video=is_video,
+                )
+            except Exception:
+                return
+
             await put_queue_index(
                 chat_id,
                 original_chat_id,
@@ -440,6 +519,10 @@ async def stream(
                 forceplay=forceplay,
             )
             button = stream_markup(_, chat_id)
+            
+            # استخدام الحذف الآمن
+            await safe_delete(mystic)
+
             run = await app.send_photo(
                 original_chat_id,
                 photo=config.STREAM_IMG_URL,
@@ -448,4 +531,3 @@ async def stream(
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
-            await mystic.delete()
