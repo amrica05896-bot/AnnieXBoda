@@ -1,18 +1,17 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Adaptive 16-Core Edition)
-# Optimized for: Custom PyTgCalls (High Quality + Auto-Detect Cores + New Filters)
+# System: Call Controller (Fully Compatible with Custom Lib)
+# Optimized for: 16-Core Adaptive & RAM Protection
 
 import asyncio
 import os
 import traceback
-from datetime import datetime, timedelta
 from typing import Union
 
 from pyrogram import Client
 from pyrogram.types import InlineKeyboardMarkup
 from ntgcalls import ConnectionNotFound, TelegramServerError
 
-# 🔥 استيراد الكلاسات من مكتبتك المعدلة
+# 🔥 استيراد المكتبة بناءً على ملفاتك المرسلة
 from pytgcalls import PyTgCalls, filters
 from pytgcalls.exceptions import (
     NoActiveGroupCall, 
@@ -26,7 +25,7 @@ from pytgcalls.types import (
     MediaStream, 
     StreamEnded, 
     ChatUpdate, 
-    GroupCallConfig,
+    GroupCallConfig, 
     Update
 )
 
@@ -56,34 +55,32 @@ from AnnieXMedia.utils.errors import capture_internal_err
 autoend = {}
 counter = {}
 
-# --- [1] إعدادات البث الديناميكية (Smart Cores Logic) ---
+# --- [1] إعدادات البث الذكية (Adaptive MediaStream) ---
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
-    # 1. كشف عدد الكورات الحقيقي للسيرفر
-    # لو 16 كور هيشتغل بـ 16، لو 1 هيشتغل بـ 1 (أمان + سرعة)
+    # كشف عدد الكورات (لو 16 يشتغل بـ 16، لو أقل يتأقلم)
     cores = os.cpu_count() or 2
     
-    # 2. ضبط خيوط المعالجة بناءً على الكورات
-    # -threads: عدد الكورات
-    # -preset ultrafast: أسرع وضع لتقليل الحمل
-    # -tune zerolatency: استجابة لحظية للبث
+    # إعدادات FFmpeg (بناءً على ملف media_stream.py الخاص بيك)
+    # -preset ultrafast: لتقليل استخدام الرام والبروسيسور
+    # -tune zerolatency: عشان البث يبدأ فوراً
     titan_flags = f"-threads {cores} -preset ultrafast -tune zerolatency"
     
     if str(path).startswith("http"):
-        # تحسينات الشبكة للروابط المباشرة (مثل يوتيوب)
+        # تحسينات للروابط المباشرة لتقليل التقطيع
         titan_flags += " -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
     
     if ffmpeg_params:
         titan_flags += f" {ffmpeg_params}"
 
-    # تحديد الأعلام (Flags) حسب نوع البث
+    # إجبار الفيديو والصوت (بناءً على ملف media_stream.py Flags)
     video_flags = MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE
     audio_flags = MediaStream.Flags.REQUIRED
 
     return MediaStream(
         media_path=path,
-        # ✅ الجودة المستقرة لتليجرام (128kbps) كما طلبت
+        # ✅ AudioQuality.HIGH (128k) للاستقرار (زي ما طلبت)
         audio_parameters=AudioQuality.HIGH,   
-        # ✅ جودة الفيديو 720p 60FPS (بناءً على ملف video_quality.py)
+        # ✅ VideoQuality.HD_720p (60FPS) بناءً على ملف video_quality.py
         video_parameters=VideoQuality.HD_720p, 
         audio_flags=audio_flags,
         video_flags=video_flags,
@@ -101,13 +98,14 @@ async def _clear_(chat_id: int) -> None:
 
 class Call:
     def __init__(self):
+        # الحفاظ على أسماء المتغيرات القديمة عشان السورس ميكرش
         self.userbot1 = userbot.one
         self.userbot2 = userbot.two
         self.userbot3 = userbot.three
         self.userbot4 = userbot.four
         self.userbot5 = userbot.five
 
-        # زيادة مدة الكاش لـ 24 ساعة (86400) لتقليل طلبات API كما في ملف pytgcalls.py
+        # كاش 24 ساعة (86400) لتقليل الضغط على API تليجرام
         self.one = PyTgCalls(self.userbot1, cache_duration=86400)
         self.two = PyTgCalls(self.userbot2, cache_duration=86400)
         self.three = PyTgCalls(self.userbot3, cache_duration=86400)
@@ -170,7 +168,7 @@ class Call:
     @capture_internal_err
     async def skip_stream(self, chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
-        # تشغيل تلقائي للأغنية التالية باستخدام الكونفيج الإجباري
+        # 🔥 إجباري: لازم نبعت GroupCallConfig حسب ملف play.py الخاص بيك
         config = GroupCallConfig(auto_start=True)
         stream = dynamic_media_stream(path=link, video=bool(video))
         await assistant.play(chat_id, stream, config=config)
@@ -225,21 +223,7 @@ class Call:
         else:
             raise AssistantErr("Stream mismatch during speedup.")
 
-    @capture_internal_err
-    async def stream_call(self, link: str) -> None:
-        assistant = await group_assistant(self, config.LOGGER_ID)
-        stream = dynamic_media_stream(link)
-        try:
-            await assistant.play(config.LOGGER_ID, stream)
-            await asyncio.sleep(8)
-        except (NoActiveGroupCall, ConnectionNotFound):
-            LOGGER(__name__).warning("⚠️ لم يتمكن البوت من الانضمام لمجموعة السجل.")
-        except Exception:
-            pass
-        finally:
-            try:
-                await assistant.leave_call(config.LOGGER_ID)
-            except: pass
+    # --- [3] الانضمام والتشغيل (Join Call) ---
 
     @capture_internal_err
     async def join_call(
@@ -252,14 +236,13 @@ class Call:
     ) -> None:
         assistant = await group_assistant(self, chat_id)
         stream = dynamic_media_stream(path=link, video=bool(video))
-        
-        # 🔥 مكتبتك بتتطلب GroupCallConfig في المجموعات
+        # 🔥 إجباري: Config حسب مكتبتك
         config = GroupCallConfig(auto_start=True)
 
         try:
             await assistant.play(chat_id, stream, config=config)
         except NoActiveGroupCall:
-            # محاولة الإنشاء التلقائي للمكالمة (ميزة في مكتبتك)
+            # محاولة الإنشاء التلقائي
             try:
                 await assistant.create_group_call(chat_id)
                 await assistant.play(chat_id, stream, config=config)
@@ -268,7 +251,7 @@ class Call:
         except (NoAudioSourceFound, NoVideoSourceFound):
             raise AssistantErr("❌ فشل العثور على مصدر الملف.")
         except AttributeError:
-             # حماية الـ NoneType (إعادة محاولة سريعة)
+             # حماية الـ NoneType (خاصة بالسيرفرات القوية)
              try:
                  await assistant.leave_call(chat_id)
                  await asyncio.sleep(0.5)
@@ -291,7 +274,20 @@ class Call:
                     autoend[chat_id] = datetime.now() + timedelta(minutes=1)
             except: pass
 
-    # --- [3] نظام التشغيل التلقائي (Next Track) ---
+    @capture_internal_err
+    async def stream_call(self, link: str) -> None:
+        assistant = await group_assistant(self, config.LOGGER_ID)
+        stream = dynamic_media_stream(link)
+        try:
+            await assistant.play(config.LOGGER_ID, stream)
+            await asyncio.sleep(5)
+        except: pass
+        finally:
+            try: await assistant.leave_call(config.LOGGER_ID)
+            except: pass
+
+    # --- [4] التشغيل التالي (Queue Handler) ---
+
     @capture_internal_err
     async def play(self, client, chat_id: int) -> None:
         check = db.get(chat_id)
@@ -319,7 +315,7 @@ class Call:
                 return await client.leave_call(chat_id)
             except: return
 
-        # تجهيز التراك التالي
+        # بيانات التراك
         track = check[0]
         queued = track["file"]
         title = track["title"]
@@ -327,6 +323,9 @@ class Call:
         videoid = track["vidid"]
         video = (streamtype == "video")
         
+        if track.get("old_dur"):
+            db[chat_id][0].update({"dur": track["old_dur"], "seconds": track["old_second"], "speed_path": None, "speed": 1.0})
+
         stream = dynamic_media_stream(path=queued, video=video)
         
         try:
@@ -339,11 +338,9 @@ class Call:
             except:
                 return await app.send_message(track["chat_id"], "❌ فشل تشغيل المقطع التالي.")
         
-        # تحديث الواجهة (حماية من الكراشات)
+        # تحديث الواجهة
         img = await get_thumb(videoid)
-        lang = await get_lang(chat_id)
-        _ = get_string(lang)
-        button = stream_markup(_, chat_id)
+        button = stream_markup(get_string(await get_lang(chat_id)), chat_id)
         
         try:
             run = await app.send_photo(
@@ -356,27 +353,26 @@ class Call:
             db[chat_id][0]["markup"] = "stream"
         except: pass
 
-    # --- [4] تشغيل العملاء والفلاتر الذكية ---
+    # --- [5] الفلاتر والتشغيل (مهم جداً) ---
 
     async def start(self) -> None:
         LOGGER(__name__).info("Starting Custom PyTgCalls Clients...")
         clients = [self.one, self.two, self.three, self.four, self.five]
         for cli in clients:
-            if cli._app._bind_client: 
+            if hasattr(cli, '_app') and cli._app._bind_client: 
                 await cli.start()
 
     async def decorators(self) -> None:
-        assistants = [self.one, self.two, self.three, self.four, self.five]
+        assistants = list(filter(None, [self.one, self.two, self.three, self.four, self.five]))
         
-        # 🔥 استخدام الفلاتر الحديثة (Filters) بناءً على ملف filters.py
+        # 🔥 تعريف الفلاتر بنفس الطريقة الموجودة في ملف filters.py الخاص بيك
         
-        # 1. فلتر انتهاء البث (Stream Ended)
-        # التأكد إن اللي خلص ده "Audio" (لأن الفيديو بيخلص معاه تلقائي)
+        # 1. فلتر انتهاء البث
         @filters.stream_end(StreamEnded.Type.AUDIO)
         async def stream_end_handler(client: PyTgCalls, update: StreamEnded):
             await self.play(client, update.chat_id)
 
-        # 2. فلتر تحديثات الشات (Left/Kicked/Closed)
+        # 2. فلتر تحديثات الشات (الخروج والطرد)
         @filters.chat_update(
             ChatUpdate.Status.LEFT_CALL | 
             ChatUpdate.Status.KICKED | 
@@ -385,11 +381,20 @@ class Call:
         async def chat_update_handler(client: PyTgCalls, update: ChatUpdate):
             await self.stop_stream(update.chat_id)
 
-        # تسجيل الفلاتر لكل المساعدين النشطين
+        # تسجيل الهاندلرز باستخدام add_handler من Scaffold
         for assistant in assistants:
-            # التأكد من وجود دالة add_handler (من ملف scaffold.py)
             if hasattr(assistant, 'add_handler'):
                 assistant.add_handler(stream_end_handler)
                 assistant.add_handler(chat_update_handler)
+
+    @capture_internal_err
+    async def ping(self) -> str:
+        pings = []
+        if config.STRING1: pings.append(self.one.ping)
+        if config.STRING2: pings.append(self.two.ping)
+        if config.STRING3: pings.append(self.three.ping)
+        if config.STRING4: pings.append(self.four.ping)
+        if config.STRING5: pings.append(self.five.ping)
+        return str(round(sum(pings) / len(pings), 3)) if pings else "0.0"
 
 StreamController = Call()
