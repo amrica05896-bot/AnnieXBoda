@@ -1,3 +1,11 @@
+# Fixed: Added missing PyTgCallsError class to prevent ImportError
+
+class PyTgCallsError(Exception):
+    """Base exception for all PyTgCalls errors."""
+    def __init__(self, message: str = None):
+        super().__init__(message or 'An unknown error occurred')
+
+
 class TooOldPyrogramVersion(Exception):
     def __init__(
             self,
