@@ -1,121 +1,171 @@
-# PyTgCalls: Exceptions | Definitions
-# تم دمج الأكواد الأصلية مع تعريفات النظام السريع
-
-# --- الكلاس الأساسي المفقود (سبب المشكلة) ---
-class PyTgCallsError(Exception):
-    """Exception raised by PyTgCalls."""
-    pass
-
-class PytgcallsConnectionError(PyTgCallsError):
-    """Exception raised when connection fails."""
-    pass
-
-class NotConnected(PytgcallsConnectionError):
-    """Exception raised when client is not connected."""
-    pass
-
-class GroupCallNotFound(PyTgCallsError):
-    """Exception raised when the group call is not found."""
-    pass
-
-# --- أخطاء الإصدارات (من الكود الأصلي) ---
-class TooOldPyrogramVersion(PyTgCallsError):
-    def __init__(self, version_needed: str, pyrogram_version: str):
+class TooOldPyrogramVersion(Exception):
+    def __init__(
+            self,
+            version_needed: str,
+            pyrogram_version: str,
+    ):
         super().__init__(
-            f'Needed pyrogram {version_needed}+, actually installed is {pyrogram_version}',
+            f'Needed pyrogram {version_needed}+, '
+            'actually installed is '
+            f'{pyrogram_version}',
         )
 
-class TooOldTelethonVersion(PyTgCallsError):
-    def __init__(self, version_needed: str, telethon_version: str):
+
+class TooOldTelethonVersion(Exception):
+    def __init__(
+            self,
+            version_needed: str,
+            telethon_version: str,
+    ):
         super().__init__(
-            f'Needed telethon {version_needed}+, actually installed is {telethon_version}',
+            f'Needed telethon {version_needed}+, '
+            'actually installed is '
+            f'{telethon_version}',
         )
 
-class TooOldHydrogramVersion(PyTgCallsError):
-    def __init__(self, version_needed: str, hydrogram_version: str):
+
+class TooOldHydrogramVersion(Exception):
+    def __init__(
+            self,
+            version_needed: str,
+            hydrogram_version: str,
+    ):
         super().__init__(
-            f'Needed hydrogram {version_needed}+, actually installed is {hydrogram_version}',
+            f'Needed hydrogram {version_needed}+, '
+            'actually installed is '
+            f'{hydrogram_version}',
         )
 
-# --- أخطاء الاتصال والمكالمات ---
-class NoMTProtoClientSet(PyTgCallsError):
-    def __init__(self):
-        super().__init__('No MTProto client set')
 
-class NoActiveGroupCall(PyTgCallsError):
+class NoMTProtoClientSet(Exception):
     def __init__(self):
-        super().__init__('No active group call')
+        super().__init__(
+            'No MTProto client set',
+        )
 
-class TimedOutAnswer(PyTgCallsError):
+
+class NoActiveGroupCall(Exception):
     def __init__(self):
-        super().__init__('Timed out waiting for an answer')
+        super().__init__(
+            'No active group call',
+        )
 
-class CallDeclined(PyTgCallsError):
+
+class TimedOutAnswer(Exception):
+    def __init__(self):
+        super().__init__(
+            'Timed out waiting for an answer',
+        )
+
+
+class CallDeclined(Exception):
     def __init__(self, user_id: int):
-        super().__init__(f'Call declined by {user_id}')
+        super().__init__(
+            f'Call declined by {user_id}',
+        )
 
-class CallBusy(PyTgCallsError):
+
+class CallBusy(Exception):
     def __init__(self, user_id: int):
-        super().__init__(f'The user {user_id} is busy')
+        super().__init__(
+            f'The user {user_id} is busy',
+        )
 
-class CallDiscarded(PyTgCallsError):
+
+class CallDiscarded(Exception):
     def __init__(self, user_id: int):
-        super().__init__(f'Call discarded by {user_id}')
+        super().__init__(
+            f'Call discarded by {user_id}',
+        )
 
-class NotInCallError(PyTgCallsError):
+
+class NotInCallError(Exception):
     def __init__(self):
-        super().__init__('The userbot is not in a call')
+        super().__init__(
+            'The userbot is not in a call',
+        )
 
-class ClientNotStarted(PyTgCallsError):
+
+class ClientNotStarted(Exception):
     def __init__(self):
-        super().__init__('Ensure you have started the process with start() before calling this method')
+        super().__init__(
+            'Ensure you have started the process with start() '
+            'before calling this method',
+        )
 
-class PyTgCallsAlreadyRunning(PyTgCallsError):
+
+class PyTgCallsAlreadyRunning(Exception):
     def __init__(self):
-        super().__init__('PyTgCalls client is already running')
+        super().__init__(
+            'PyTgCalls client is already running',
+        )
 
-class TooManyCustomApiDecorators(PyTgCallsError):
+
+class TooManyCustomApiDecorators(Exception):
     def __init__(self):
-        super().__init__('Too Many Custom Api Decorators')
+        super().__init__(
+            'Too Many Custom Api Decorators',
+        )
 
-class InvalidMTProtoClient(PyTgCallsError):
+
+class InvalidMTProtoClient(Exception):
     def __init__(self):
-        super().__init__('Invalid MTProto Client')
+        super().__init__(
+            'Invalid MTProto Client',
+        )
 
-class MTProtoClientNotConnected(PyTgCallsError):
-    def __init__(self):
-        super().__init__('MTProto client not connected')
 
-class UnsupportedMethod(PyTgCallsError):
-    def __init__(self):
-        super().__init__('Unsupported method for this kind of call')
-
-# --- أخطاء الوسائط (FFmpeg & YtDlp) ---
-
-class FFmpegError(PyTgCallsError):
-    """Generic FFmpeg error."""
-    pass
-
-class NoVideoSourceFound(FFmpegError):
+class NoVideoSourceFound(Exception):
     def __init__(self, path: str):
-        super().__init__(f'No video source found on "{path}"')
+        super().__init__(
+            f'No video source found on "{path}"',
+        )
 
-class InvalidVideoProportion(FFmpegError):
+
+class InvalidVideoProportion(Exception):
     def __init__(self, message: str):
-        super().__init__(message)
+        super().__init__(
+            message,
+        )
 
-class NoAudioSourceFound(FFmpegError):
+
+class NoAudioSourceFound(Exception):
     def __init__(self, path: str):
-        super().__init__(f'No audio source found on "{path}"')
+        super().__init__(
+            f'No audio source found on "{path}"',
+        )
 
-class ImageSourceFound(FFmpegError):
+
+class ImageSourceFound(Exception):
     def __init__(self, path: str):
-        super().__init__(f'Found an image source on "{path}"')
+        super().__init__(
+            f'Found an image source on "{path}"',
+        )
 
-class LiveStreamFound(FFmpegError):
+
+class LiveStreamFound(Exception):
     def __init__(self, path: str):
-        super().__init__(f'Found a livestream on "{path}"')
+        super().__init__(
+            f'Found a livestream on "{path}"',
+        )
 
-class YtDlpError(PyTgCallsError):
+
+class YtDlpError(Exception):
     def __init__(self, message: str):
-        super().__init__(message)
+        super().__init__(
+            message,
+        )
+
+
+class MTProtoClientNotConnected(Exception):
+    def __init__(self):
+        super().__init__(
+            'MTProto client not connected',
+        )
+
+
+class UnsupportedMethod(Exception):
+    def __init__(self):
+        super().__init__(
+            'Unsupported method for this kind of call',
+        )
