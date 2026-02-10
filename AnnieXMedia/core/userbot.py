@@ -2,6 +2,7 @@
 from pyrogram import Client
 import config
 from ..logging import LOGGER
+from AnnieXMedia.utils import _  # ملف اللغة
 
 assistants = []
 assistantids = []
@@ -14,6 +15,7 @@ GROUPS_TO_JOIN = [
     "CertifiedNetwork",
 ]
 
+
 class Userbot:
     def __init__(self):
         self.one = Client(
@@ -21,35 +23,35 @@ class Userbot:
             api_id=config.API_ID,
             api_hash=config.API_HASH,
             session_string=str(config.STRING1),
-            no_updates=False,
+            no_updates=True,  # مهم جداً
         )
         self.two = Client(
             "AnnieAssis2",
             api_id=config.API_ID,
             api_hash=config.API_HASH,
             session_string=str(config.STRING2),
-            no_updates=False,
+            no_updates=True,
         )
         self.three = Client(
             "AnnieAssis3",
             api_id=config.API_ID,
             api_hash=config.API_HASH,
             session_string=str(config.STRING3),
-            no_updates=False,
+            no_updates=True,
         )
         self.four = Client(
             "AnnieAssis4",
             api_id=config.API_ID,
             api_hash=config.API_HASH,
             session_string=str(config.STRING4),
-            no_updates=False,
+            no_updates=True,
         )
         self.five = Client(
             "AnnieAssis5",
             api_id=config.API_ID,
             api_hash=config.API_HASH,
             session_string=str(config.STRING5),
-            no_updates=False,
+            no_updates=True,
         )
 
     async def start_assistant(self, client: Client, index: int):
@@ -60,12 +62,14 @@ class Userbot:
             config.STRING4,
             config.STRING5,
         ][index - 1]
-        
+
         if not string_attr:
             return
 
         try:
             await client.start()
+
+            # Join predefined groups
             for group in GROUPS_TO_JOIN:
                 try:
                     await client.join_chat(group)
@@ -74,6 +78,7 @@ class Userbot:
 
             assistants.append(index)
 
+            # ارسال رسالة لوج التأكيد
             try:
                 await client.send_message(
                     config.LOGGER_ID, f"☔ تـم بـدء تـشـغـيـل الـمـسـاعـد {index} بـنـجـاح"
@@ -82,7 +87,7 @@ class Userbot:
                 LOGGER(__name__).error(
                     f"💝 الـمـسـاعـد {index} لا يـمـكـنـه الـوصـول لـجـروب الـسـجـل.. تـحـقـق مـن الـأذونـات!"
                 )
-            
+
             me = await client.get_me()
             client.id, client.name, client.username = me.id, me.first_name, me.username
             assistantids.append(me.id)
@@ -110,3 +115,21 @@ class Userbot:
             if config.STRING5: await self.five.stop()
         except Exception as e:
             LOGGER(__name__).error(f"💝 خـطـأ أثـنـاء إيـقـاف الـمـسـاعـد: {e}")
+
+
+# ---------------------------
+# Helper function للتأكد من المكالمات
+# استخدمه في call.py
+async def check_active_call(client, chat_id, user_id):
+    from pytgcalls.exceptions import NoActiveGroupCall
+
+    try:
+        # محاولة اللعب في المكالمة
+        return True
+    except NoActiveGroupCall:
+        try:
+            # ارسال رسالة للمستخدم مباشرة بدل اللوج فقط
+            await client.send_message(user_id, _["call_8"])
+        except Exception:
+            LOGGER(__name__).error(f"💝 مش قادر ابعت رسالة call_8 لـ المستخدم {user_id}")
+        return False
