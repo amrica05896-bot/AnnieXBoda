@@ -1,22 +1,15 @@
-# Authored By Certified Coders © 2026
-# System: Stream Controller (Logic & Queue Handler)
-# Optimized for: AnnieXBoda Custom Library & Nuclear Call System
-
-import asyncio
+# Authored By Certified Coders © 2025
 import os
+from random import randint
 from typing import Union
 
 from pyrogram.types import InlineKeyboardMarkup
-from pyrogram.errors import FloodWait
 
 import config
 from AnnieXMedia import Carbon, YouTube, app
 from AnnieXMedia.core.call import StreamController
 from AnnieXMedia.misc import db
-from AnnieXMedia.utils.database import (
-    add_active_video_chat,
-    is_active_chat,
-)
+from AnnieXMedia.utils.database import add_active_video_chat, is_active_chat
 from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.inline import aq_markup, close_markup, stream_markup
 from AnnieXMedia.utils.pastebin import ANNIEBIN
@@ -24,12 +17,6 @@ from AnnieXMedia.utils.stream.queue import put_queue, put_queue_index
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
-# دالة الحذف الآمن (تم إصلاحها لمنع الكراش)
-async def safe_delete(message):
-    try:
-        await message.delete()
-    except:
-        pass
 
 @capture_internal_err
 async def stream(
@@ -49,18 +36,16 @@ async def stream(
         return
 
     forceplay = bool(forceplay)
-    is_video = True if video else False
+    is_video = bool(video)
 
-    # إيقاف التشغيل الإجباري إذا تم طلبه
     if forceplay:
         await StreamController.force_stop_stream(chat_id)
 
-    # ==========================
-    # 1. PLAYLIST MODE
-    # ==========================
     if streamtype == "playlist":
         msg = f"{_['play_19']}\n\n"
         count = 0
+        position = 0
+
         for search in result:
             if int(count) == config.PLAYLIST_FETCH_LIMIT:
                 continue
@@ -71,8 +56,10 @@ async def stream(
             except Exception:
                 continue
 
-            if str(duration_min) == "None": continue
-            if duration_sec and duration_sec > config.DURATION_LIMIT: continue
+            if str(duration_min) == "None":
+                continue
+            if duration_sec and duration_sec > config.DURATION_LIMIT:
+                continue
 
             if await is_active_chat(chat_id):
                 await put_queue(
@@ -99,20 +86,16 @@ async def stream(
                     )
                 except Exception:
                     raise AssistantErr(_["play_14"])
+                if not file_path:
+                    raise AssistantErr(_["play_14"])
 
-                # 🔥 التعديل الجوهري: الانضمام أولاً
-                try:
-                    await StreamController.join_call(
-                        chat_id,
-                        original_chat_id,
-                        file_path,
-                        video=is_video,
-                        image=thumbnail,
-                    )
-                except Exception:
-                    # لو فشل الانضمام (الكول مقفولة)، نتوقف فوراً
-                    return 
-
+                await StreamController.join_call(
+                    chat_id,
+                    original_chat_id,
+                    file_path,
+                    video=is_video,
+                    image=thumbnail,
+                )
                 await put_queue(
                     chat_id,
                     original_chat_id,
@@ -125,57 +108,49 @@ async def stream(
                     "video" if is_video else "audio",
                     forceplay=forceplay,
                 )
-                
                 img = await get_thumb(vidid)
                 button = stream_markup(_, chat_id)
-                await safe_delete(mystic)
-                
-                caption_text = "🧚 " + _["stream_1"].format(
-                    f"https://t.me/{app.username}?start=info_{vidid}",
-                    title[:23],
-                    duration_min,
-                    user_name,
+                run = await app.send_photo(
+                    original_chat_id,
+                    photo=img,
+                    caption=_["stream_1"].format(
+                        f"https://t.me/{app.username}?start=info_{vidid}",
+                        title[:23],
+                        duration_min,
+                        user_name,
+                    ),
+                    reply_markup=InlineKeyboardMarkup(button),
                 )
-                try:
-                    run = await app.send_photo(
-                        original_chat_id,
-                        photo=img,
-                        caption=caption_text,
-                        reply_markup=InlineKeyboardMarkup(button),
-                    )
-                    db[chat_id][0]["mystic"] = run
-                    db[chat_id][0]["markup"] = "stream"
-                except Exception:
-                    pass
+                db[chat_id][0]["mystic"] = run
+                db[chat_id][0]["markup"] = "stream"
 
         if count == 0:
             return
-        
         link = await ANNIEBIN(msg)
+        lines = msg.count("\n")
+        car = os.linesep.join(msg.split(os.linesep)[:17]) if lines >= 17 else msg
         try:
-            carbon = await Carbon.generate(msg, 12345678)
+            carbon = await Carbon.generate(car, randint(100, 10000000))
             playlist_photo = carbon
-        except:
+        except Exception:
             playlist_photo = config.PLAYLIST_IMG_URL
-            
         upl = close_markup(_)
         final_position = len(db.get(chat_id) or []) - 1
+        if final_position < 0:
+            final_position = 0
         return await app.send_photo(
             original_chat_id,
             photo=playlist_photo,
-            caption="🧚 " + _["play_21"].format(final_position, link),
+            caption=_["play_21"].format(final_position, link),
             reply_markup=upl,
         )
 
-    # ==========================
-    # 2. YOUTUBE MODE (DIRECT STREAM + HYBRID)
-    # ==========================
     elif streamtype == "youtube":
-        link = result.get("link")
-        vidid = result.get("vidid")
-        title = (result.get("title")).title()
-        duration_min = result.get("duration_min")
-        thumbnail = result.get("thumb")
+        link = result["link"]
+        vidid = result["vidid"]
+        title = (result["title"]).title()
+        duration_min = result["duration_min"]
+        thumbnail = result["thumb"]
 
         try:
             file_path, direct = await YouTube.download(
@@ -183,9 +158,8 @@ async def stream(
             )
         except Exception:
             raise AssistantErr(_["play_14"])
-
         if not file_path:
-             raise AssistantErr(_["play_14"])
+            raise AssistantErr(_["play_14"])
 
         if await is_active_chat(chat_id):
             await put_queue(
@@ -201,28 +175,21 @@ async def stream(
             )
             position = len(db.get(chat_id)) - 1
             button = aq_markup(_, chat_id)
-            await safe_delete(mystic)
             await app.send_message(
                 chat_id=original_chat_id,
-                text="🧚 " + _["queue_4"].format(position, title[:27], duration_min, user_name),
+                text=_["queue_4"].format(position, title[:27], duration_min, user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
         else:
             if not forceplay:
                 db[chat_id] = []
-            
-            # 🔥 الانضمام قبل أي شيء
-            try:
-                await StreamController.join_call(
-                    chat_id,
-                    original_chat_id,
-                    file_path,
-                    video=is_video,
-                    image=thumbnail,
-                )
-            except Exception:
-                return 
-
+            await StreamController.join_call(
+                chat_id,
+                original_chat_id,
+                file_path,
+                video=is_video,
+                image=thumbnail,
+            )
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -235,37 +202,29 @@ async def stream(
                 "video" if is_video else "audio",
                 forceplay=forceplay,
             )
-            
             img = await get_thumb(vidid)
             button = stream_markup(_, chat_id)
-            await safe_delete(mystic)
-            
-            caption_text = "🧚 " + _["stream_1"].format(
-                f"https://t.me/{app.username}?start=info_{vidid}",
-                title[:23],
-                duration_min,
-                user_name,
+            run = await app.send_photo(
+                original_chat_id,
+                photo=img,
+                caption=_["stream_1"].format(
+                    f"https://t.me/{app.username}?start=info_{vidid}",
+                    title[:23],
+                    duration_min,
+                    user_name,
+                ),
+                reply_markup=InlineKeyboardMarkup(button),
             )
-            try:
-                run = await app.send_photo(
-                    original_chat_id,
-                    photo=img,
-                    caption=caption_text,
-                    reply_markup=InlineKeyboardMarkup(button),
-                )
-                db[chat_id][0]["mystic"] = run
-                db[chat_id][0]["markup"] = "stream"
-            except Exception:
-                pass
+            db[chat_id][0]["mystic"] = run
+            db[chat_id][0]["markup"] = "stream"
 
-    # ==========================
-    # 3. SOUNDCLOUD MODE
-    # ==========================
     elif streamtype == "soundcloud":
-        file_path = result.get("filepath")
-        title = result.get("title")
-        duration_min = result.get("duration_min")
-        
+        file_path = result["filepath"]
+        title = result["title"]
+        duration_min = result["duration_min"]
+        if not file_path:
+            raise AssistantErr(_["play_14"])
+
         if await is_active_chat(chat_id):
             await put_queue(
                 chat_id,
@@ -282,19 +241,13 @@ async def stream(
             button = aq_markup(_, chat_id)
             await app.send_message(
                 chat_id=original_chat_id,
-                text="🧚 " + _["queue_4"].format(position, title[:27], duration_min, user_name),
+                text=_["queue_4"].format(position, title[:27], duration_min, user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
         else:
             if not forceplay:
                 db[chat_id] = []
-            
-            # 🔥 الانضمام
-            try:
-                await StreamController.join_call(chat_id, original_chat_id, file_path, video=False)
-            except Exception:
-                return
-
+            await StreamController.join_call(chat_id, original_chat_id, file_path, video=False)
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -308,12 +261,10 @@ async def stream(
                 forceplay=forceplay,
             )
             button = stream_markup(_, chat_id)
-            await safe_delete(mystic)
-            
             run = await app.send_photo(
                 original_chat_id,
                 photo=config.SOUNCLOUD_IMG_URL,
-                caption="🧚 " + _["stream_1"].format(
+                caption=_["stream_1"].format(
                     config.SUPPORT_CHAT, title[:23], duration_min, user_name
                 ),
                 reply_markup=InlineKeyboardMarkup(button),
@@ -321,14 +272,13 @@ async def stream(
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
 
-    # ==========================
-    # 4. TELEGRAM FILES
-    # ==========================
     elif streamtype == "telegram":
-        file_path = result.get("path")
-        link = result.get("link")
-        title = (result.get("title")).title()
-        duration_min = result.get("dur", result.get("duration_min", "00:00"))
+        file_path = result["path"]
+        link = result["link"]
+        title = (result["title"]).title()
+        duration_min = result["dur"]
+        if not file_path:
+            raise AssistantErr(_["play_14"])
 
         if await is_active_chat(chat_id):
             await put_queue(
@@ -346,19 +296,13 @@ async def stream(
             button = aq_markup(_, chat_id)
             await app.send_message(
                 chat_id=original_chat_id,
-                text="🧚 " + _["queue_4"].format(position, title[:27], duration_min, user_name),
+                text=_["queue_4"].format(position, title[:27], duration_min, user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
         else:
             if not forceplay:
                 db[chat_id] = []
-            
-            # 🔥 الانضمام
-            try:
-                await StreamController.join_call(chat_id, original_chat_id, file_path, video=is_video)
-            except Exception:
-                return
-
+            await StreamController.join_call(chat_id, original_chat_id, file_path, video=is_video)
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -373,27 +317,21 @@ async def stream(
             )
             if is_video:
                 await add_active_video_chat(chat_id)
-            
             button = stream_markup(_, chat_id)
-            await safe_delete(mystic)
-            
             run = await app.send_photo(
                 original_chat_id,
                 photo=config.TELEGRAM_VIDEO_URL if is_video else config.TELEGRAM_AUDIO_URL,
-                caption="🧚 " + _["stream_1"].format(link, title[:23], duration_min, user_name),
+                caption=_["stream_1"].format(link, title[:23], duration_min, user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
 
-    # ==========================
-    # 5. LIVE / INDEX MODE
-    # ==========================
     elif streamtype == "live":
-        link = result.get("link")
-        vidid = result.get("vidid")
-        title = (result.get("title")).title()
-        thumbnail = result.get("thumb")
+        link = result["link"]
+        vidid = result["vidid"]
+        title = (result["title"]).title()
+        thumbnail = result["thumb"]
         duration_min = "Live Track"
 
         if await is_active_chat(chat_id):
@@ -412,29 +350,25 @@ async def stream(
             button = aq_markup(_, chat_id)
             await app.send_message(
                 chat_id=original_chat_id,
-                text="🧚 " + _["queue_4"].format(position, title[:27], duration_min, user_name),
+                text=_["queue_4"].format(position, title[:27], duration_min, user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
         else:
             if not forceplay:
                 db[chat_id] = []
-            
             n, file_path = await YouTube.video(link)
             if n == 0:
                 raise AssistantErr(_["str_3"])
+            if not file_path:
+                raise AssistantErr(_["play_14"])
 
-            # 🔥 الانضمام
-            try:
-                await StreamController.join_call(
-                    chat_id,
-                    original_chat_id,
-                    file_path,
-                    video=is_video,
-                    image=thumbnail or None,
-                )
-            except Exception:
-                return
-
+            await StreamController.join_call(
+                chat_id,
+                original_chat_id,
+                file_path,
+                video=is_video,
+                image=thumbnail or None,
+            )
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -449,12 +383,10 @@ async def stream(
             )
             img = await get_thumb(vidid)
             button = stream_markup(_, chat_id)
-            await safe_delete(mystic)
-            
             run = await app.send_photo(
                 original_chat_id,
                 photo=img,
-                caption="🧚 " + _["stream_1"].format(
+                caption=_["stream_1"].format(
                     f"https://t.me/{app.username}?start=info_{vidid}",
                     title[:23],
                     duration_min,
@@ -467,7 +399,7 @@ async def stream(
 
     elif streamtype == "index":
         link = result
-        title = "رابط خارجي"
+        title = "ɪɴᴅᴇx ᴏʀ ᴍ3ᴜ8 ʟɪɴᴋ"
         duration_min = "00:00"
 
         if await is_active_chat(chat_id):
@@ -484,23 +416,18 @@ async def stream(
             position = len(db.get(chat_id)) - 1
             button = aq_markup(_, chat_id)
             await mystic.edit_text(
-                text="🧚 " + _["queue_4"].format(position, title[:27], duration_min, user_name),
+                text=_["queue_4"].format(position, title[:27], duration_min, user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
         else:
             if not forceplay:
                 db[chat_id] = []
-            # 🔥 الانضمام
-            try:
-                await StreamController.join_call(
-                    chat_id,
-                    original_chat_id,
-                    link,
-                    video=is_video,
-                )
-            except Exception:
-                return
-
+            await StreamController.join_call(
+                chat_id,
+                original_chat_id,
+                link,
+                video=is_video,
+            )
             await put_queue_index(
                 chat_id,
                 original_chat_id,
@@ -513,13 +440,12 @@ async def stream(
                 forceplay=forceplay,
             )
             button = stream_markup(_, chat_id)
-            await safe_delete(mystic)
-            
             run = await app.send_photo(
                 original_chat_id,
                 photo=config.STREAM_IMG_URL,
-                caption="🧚 " + _["stream_2"].format(user_name),
+                caption=_["stream_2"].format(user_name),
                 reply_markup=InlineKeyboardMarkup(button),
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
+            await mystic.delete()
