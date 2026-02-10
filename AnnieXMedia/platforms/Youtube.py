@@ -1,12 +1,14 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
 # Fixed: Added download_thumb method logic & Search Function & Keep-Alive
+# Change: added invalidate_direct_cache and clear_direct_cache helpers
 
 import asyncio
 import contextlib
 import json
 import logging
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -163,6 +165,69 @@ class YouTubeAPI:
             self.impersonate = True
         except Exception:
             self.impersonate = False
+
+    # -----------------------
+    # Cache invalidation API
+    # -----------------------
+    async def invalidate_direct_cache(self, vid_or_link: Optional[str]) -> None:
+        """
+        Best-effort: remove direct-cache entries related to a given video id or link.
+        Accepts either a raw 11-char vid, or a youtube link containing the id, or any substring.
+        """
+        if not vid_or_link:
+            return
+        # try to extract 11-char vid if possible
+        vid = None
+        try:
+            # common patterns
+            m = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)', vid_or_link)
+            if m:
+                vid = m.group(1)
+            elif len(vid_or_link.strip()) == 11 and re.match(r'^[0-9A-Za-z_-]{11}$', vid_or_link.strip()):
+                vid = vid_or_link.strip()
+        except Exception:
+            vid = None
+
+        # best-effort removal
+        try:
+            async with _direct_cache_lock:
+                keys = list(_direct_cache.keys())
+                for k in keys:
+                    try:
+                        if vid and vid in k:
+                            _direct_cache.pop(k, None)
+                            continue
+                        # also remove if normalized link substring matches
+                        if vid_or_link in k:
+                            _direct_cache.pop(k, None)
+                    except Exception:
+                        continue
+        except Exception:
+            # fallback: try without lock (best-effort)
+            try:
+                keys = list(_direct_cache.keys())
+                for k in keys:
+                    try:
+                        if vid and vid in k:
+                            _direct_cache.pop(k, None)
+                            continue
+                        if vid_or_link in k:
+                            _direct_cache.pop(k, None)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+    async def clear_direct_cache(self) -> None:
+        """Clear entire direct-cache (useful for debugging)."""
+        try:
+            async with _direct_cache_lock:
+                _direct_cache.clear()
+        except Exception:
+            try:
+                _direct_cache.clear()
+            except Exception:
+                pass
 
     async def url(self, message) -> Optional[str]:
         """Extract URL from a pyrogram Message-like object (robust)."""
