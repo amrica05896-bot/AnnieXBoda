@@ -527,6 +527,13 @@ class Call:
                 await assistant.play(chat_id, stream, config=ksk)
                 break
             except NoActiveGroupCall:
+                # send localized call_8 message (exact text from lang file) to the original chat
+                try:
+                    target = original_chat_id or chat_id
+                    await app.send_message(chat_id=target, text=_["call_8"])
+                except Exception:
+                    # swallow any send errors; we'll still raise AssistantErr
+                    pass
                 raise AssistantErr(_["call_8"])
             except (NoAudioSourceFound, NoVideoSourceFound):
                 # Fallback: try audio-only on last attempt
