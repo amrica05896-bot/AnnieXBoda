@@ -1,8 +1,6 @@
-# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2026
 from pyrogram import Client
-
 import config
-
 from ..logging import LOGGER
 
 assistants = []
@@ -18,36 +16,45 @@ GROUPS_TO_JOIN = [
 
 class Userbot:
     def __init__(self):
-        # 🔥 تم إزالة no_updates=True للسماح للمساعد برؤية المكالمات
         self.one = Client(
             "AnnieAssis1",
-            config.API_ID,
-            config.API_HASH,
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
             session_string=str(config.STRING1),
+            no_updates=False, # ضروري عشان المساعد يشوف الكول
+            in_memory=True,   # 👈 ده الحل السحري اللي بيمنع الكراش
         )
         self.two = Client(
             "AnnieAssis2",
-            config.API_ID,
-            config.API_HASH,
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
             session_string=str(config.STRING2),
+            no_updates=False,
+            in_memory=True,   # 👈
         )
         self.three = Client(
             "AnnieAssis3",
-            config.API_ID,
-            config.API_HASH,
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
             session_string=str(config.STRING3),
+            no_updates=False,
+            in_memory=True,   # 👈
         )
         self.four = Client(
             "AnnieAssis4",
-            config.API_ID,
-            config.API_HASH,
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
             session_string=str(config.STRING4),
+            no_updates=False,
+            in_memory=True,   # 👈
         )
         self.five = Client(
             "AnnieAssis5",
-            config.API_ID,
-            config.API_HASH,
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
             session_string=str(config.STRING5),
+            no_updates=False,
+            in_memory=True,   # 👈
         )
 
     async def start_assistant(self, client: Client, index: int):
@@ -58,6 +65,7 @@ class Userbot:
             config.STRING4,
             config.STRING5,
         ][index - 1]
+        
         if not string_attr:
             return
 
@@ -79,8 +87,7 @@ class Userbot:
                 LOGGER(__name__).error(
                     f"💝 الـمـسـاعـد {index} لا يـمـكـنـه الـوصـول لـجـروب الـسـجـل.. تـحـقـق مـن الـأذونـات!"
                 )
-                exit()
-
+            
             me = await client.get_me()
             client.id, client.name, client.username = me.id, me.first_name, me.username
             assistantids.append(me.id)
@@ -93,23 +100,18 @@ class Userbot:
     async def start(self):
         LOGGER(__name__).info("💝 جـارٍ بـدء تـشـغـيـل حـسـابـات الـمـسـاعـد...")
         await self.start_assistant(self.one, 1)
-        await self.start_assistant(self.two, 2)
-        await self.start_assistant(self.three, 3)
-        await self.start_assistant(self.four, 4)
-        await self.start_assistant(self.five, 5)
+        if config.STRING2: await self.start_assistant(self.two, 2)
+        if config.STRING3: await self.start_assistant(self.three, 3)
+        if config.STRING4: await self.start_assistant(self.four, 4)
+        if config.STRING5: await self.start_assistant(self.five, 5)
 
     async def stop(self):
         LOGGER(__name__).info("☔ جـارٍ إيـقـاف الـمـسـاعـد...")
         try:
-            if config.STRING1:
-                await self.one.stop()
-            if config.STRING2:
-                await self.two.stop()
-            if config.STRING3:
-                await self.three.stop()
-            if config.STRING4:
-                await self.four.stop()
-            if config.STRING5:
-                await self.five.stop()
+            if config.STRING1: await self.one.stop()
+            if config.STRING2: await self.two.stop()
+            if config.STRING3: await self.three.stop()
+            if config.STRING4: await self.four.stop()
+            if config.STRING5: await self.five.stop()
         except Exception as e:
             LOGGER(__name__).error(f"💝 خـطـأ أثـنـاء إيـقـاف الـمـسـاعـد: {e}")
