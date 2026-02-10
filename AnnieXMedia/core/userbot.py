@@ -1,4 +1,3 @@
-# Authored By Certified Coders © 2026
 from pyrogram import Client
 import config
 from ..logging import LOGGER
@@ -6,6 +5,7 @@ from AnnieXMedia.utils import _  # ملف اللغة
 
 assistants = []
 assistantids = []
+
 
 GROUPS_TO_JOIN = [
     "CertifiedDiscussion",
