@@ -1,5 +1,6 @@
-# Authored By Certified Coders 2026
-# Module: Seek Stream - Arabic Commands + Language Support
+# Authored By Certified Coders © 2026
+# Module: Seek Stream - Optimized for Titan Core
+# Fixes: Strict Mode (Audio/Video) handling
 
 from pyrogram import filters
 from pyrogram.types import Message
@@ -7,7 +8,8 @@ from pyrogram.types import Message
 from AnnieXMedia import YouTube, app
 from AnnieXMedia.core.call import StreamController
 from AnnieXMedia.misc import db
-from AnnieXMedia.utils import AdminRightsCheck, seconds_to_min
+from AnnieXMedia.utils.decorators import AdminRightsCheck
+from AnnieXMedia.utils.formatters import seconds_to_min
 from AnnieXMedia.utils.inline import close_markup
 from config import BANNED_USERS
 
@@ -40,25 +42,24 @@ async def seek_comm(cli, message: Message, _, chat_id):
     duration = playing[0]["dur"]
     
     # تحديد اتجاه التقديم أو التأخير
-    # الأوامر التي تعني "رجوع" للخلف
     command = message.command[0]
+    # أوامر الرجوع للخلف
     if command in ["seekback", "cseekback", "رجع"]:
-        # منطق الرجوع للخلف
         if (duration_played - duration_to_skip) <= 10:
             return await message.reply_text(
                 text=_["admin_23"].format(seconds_to_min(duration_played), duration),
                 reply_markup=close_markup(_),
             )
-        to_seek = duration_played - duration_to_skip + 1
+        to_seek = duration_played - duration_to_skip
         is_back = True
+    # أوامر التقديم للأمام
     else:
-        # منطق التقديم للأمام (seek, cseek, مرر, قدم)
         if (duration_seconds - (duration_played + duration_to_skip)) <= 10:
             return await message.reply_text(
                 text=_["admin_23"].format(seconds_to_min(duration_played), duration),
                 reply_markup=close_markup(_),
             )
-        to_seek = duration_played + duration_to_skip + 1
+        to_seek = duration_played + duration_to_skip
         is_back = False
 
     mystic = await message.reply_text(_["admin_24"])
@@ -66,13 +67,17 @@ async def seek_comm(cli, message: Message, _, chat_id):
     if "vid_" in file_path:
         n, file_path = await YouTube.video(playing[0]["vidid"], True)
         if n == 0:
-            return await message.reply_text(_["admin_22"])
+            return await mystic.edit_text(_["admin_22"])
             
     check = (playing[0]).get("speed_path")
     if check:
         file_path = check
     if "index_" in file_path:
         file_path = playing[0]["vidid"]
+
+    # 🔥 التعديل المهم: تحديد الـ Mode بدقة
+    streamtype = playing[0]["streamtype"]
+    mode = "video" if streamtype == "video" else "audio"
         
     try:
         await StreamController.seek_stream(
@@ -80,12 +85,11 @@ async def seek_comm(cli, message: Message, _, chat_id):
             file_path,
             seconds_to_min(to_seek),
             duration,
-            playing[0]["streamtype"],
+            mode, # تمرير المود الصحيح
         )
-    except:
+    except Exception as e:
         return await mystic.edit_text(_["admin_26"], reply_markup=close_markup(_))
     
-    # تحديث العداد في الداتابيز
     if is_back:
         db[chat_id][0]["played"] -= duration_to_skip
     else:
