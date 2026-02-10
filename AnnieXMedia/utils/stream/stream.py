@@ -1,6 +1,6 @@
-# Authored By Certified Coders © 2025
-# Fixed for utils/stream/stream.py
-# CRASH FIX: Removed safe_delete from exception blocks to prevent MessageIdInvalid
+# Authored By Certified Coders © 2026
+# System: Stream Controller (Logic & Queue Handler)
+# Optimized for: AnnieXBoda Custom Library & Nuclear Call System
 
 import asyncio
 import os
@@ -24,6 +24,7 @@ from AnnieXMedia.utils.stream.queue import put_queue, put_queue_index
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
+# دالة الحذف الآمن (تم إصلاحها لمنع الكراش)
 async def safe_delete(message):
     try:
         await message.delete()
@@ -50,6 +51,7 @@ async def stream(
     forceplay = bool(forceplay)
     is_video = True if video else False
 
+    # إيقاف التشغيل الإجباري إذا تم طلبه
     if forceplay:
         await StreamController.force_stop_stream(chat_id)
 
@@ -69,10 +71,8 @@ async def stream(
             except Exception:
                 continue
 
-            if str(duration_min) == "None":
-                continue
-            if duration_sec and duration_sec > config.DURATION_LIMIT:
-                continue
+            if str(duration_min) == "None": continue
+            if duration_sec and duration_sec > config.DURATION_LIMIT: continue
 
             if await is_active_chat(chat_id):
                 await put_queue(
@@ -98,17 +98,21 @@ async def stream(
                         vidid, mystic, video=is_video, videoid=vidid
                     )
                 except Exception:
-                    # ❌ REMOVED safe_delete here to prevent crash
                     raise AssistantErr(_["play_14"])
 
-                await StreamController.join_call(
-                    chat_id,
-                    original_chat_id,
-                    file_path,
-                    video=is_video,
-                    image=thumbnail,
-                )
-                
+                # 🔥 التعديل الجوهري: الانضمام أولاً
+                try:
+                    await StreamController.join_call(
+                        chat_id,
+                        original_chat_id,
+                        file_path,
+                        video=is_video,
+                        image=thumbnail,
+                    )
+                except Exception:
+                    # لو فشل الانضمام (الكول مقفولة)، نتوقف فوراً
+                    return 
+
                 await put_queue(
                     chat_id,
                     original_chat_id,
@@ -124,8 +128,6 @@ async def stream(
                 
                 img = await get_thumb(vidid)
                 button = stream_markup(_, chat_id)
-                
-                # الحذف هنا آمن لأننا نجحنا وسنرسل رسالة جديدة
                 await safe_delete(mystic)
                 
                 caption_text = "🧚 " + _["stream_1"].format(
@@ -151,7 +153,7 @@ async def stream(
         
         link = await ANNIEBIN(msg)
         try:
-            carbon = await Carbon.generate(msg, randint(100, 10000000))
+            carbon = await Carbon.generate(msg, 12345678)
             playlist_photo = carbon
         except:
             playlist_photo = config.PLAYLIST_IMG_URL
@@ -180,11 +182,9 @@ async def stream(
                 vidid, mystic, video=is_video, videoid=vidid
             )
         except Exception:
-            # ❌ REMOVED safe_delete here to prevent crash
             raise AssistantErr(_["play_14"])
 
         if not file_path:
-             # ❌ REMOVED safe_delete here to prevent crash
              raise AssistantErr(_["play_14"])
 
         if await is_active_chat(chat_id):
@@ -211,13 +211,18 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            await StreamController.join_call(
-                chat_id,
-                original_chat_id,
-                file_path,
-                video=is_video,
-                image=thumbnail,
-            )
+            # 🔥 الانضمام قبل أي شيء
+            try:
+                await StreamController.join_call(
+                    chat_id,
+                    original_chat_id,
+                    file_path,
+                    video=is_video,
+                    image=thumbnail,
+                )
+            except Exception:
+                return 
+
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -233,8 +238,6 @@ async def stream(
             
             img = await get_thumb(vidid)
             button = stream_markup(_, chat_id)
-            
-            # الحذف هنا آمن فقط عند النجاح
             await safe_delete(mystic)
             
             caption_text = "🧚 " + _["stream_1"].format(
@@ -285,7 +288,13 @@ async def stream(
         else:
             if not forceplay:
                 db[chat_id] = []
-            await StreamController.join_call(chat_id, original_chat_id, file_path, video=False)
+            
+            # 🔥 الانضمام
+            try:
+                await StreamController.join_call(chat_id, original_chat_id, file_path, video=False)
+            except Exception:
+                return
+
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -343,7 +352,13 @@ async def stream(
         else:
             if not forceplay:
                 db[chat_id] = []
-            await StreamController.join_call(chat_id, original_chat_id, file_path, video=is_video)
+            
+            # 🔥 الانضمام
+            try:
+                await StreamController.join_call(chat_id, original_chat_id, file_path, video=is_video)
+            except Exception:
+                return
+
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -408,13 +423,18 @@ async def stream(
             if n == 0:
                 raise AssistantErr(_["str_3"])
 
-            await StreamController.join_call(
-                chat_id,
-                original_chat_id,
-                file_path,
-                video=is_video,
-                image=thumbnail or None,
-            )
+            # 🔥 الانضمام
+            try:
+                await StreamController.join_call(
+                    chat_id,
+                    original_chat_id,
+                    file_path,
+                    video=is_video,
+                    image=thumbnail or None,
+                )
+            except Exception:
+                return
+
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -470,12 +490,17 @@ async def stream(
         else:
             if not forceplay:
                 db[chat_id] = []
-            await StreamController.join_call(
-                chat_id,
-                original_chat_id,
-                link,
-                video=is_video,
-            )
+            # 🔥 الانضمام
+            try:
+                await StreamController.join_call(
+                    chat_id,
+                    original_chat_id,
+                    link,
+                    video=is_video,
+                )
+            except Exception:
+                return
+
             await put_queue_index(
                 chat_id,
                 original_chat_id,
