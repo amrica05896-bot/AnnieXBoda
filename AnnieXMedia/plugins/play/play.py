@@ -402,11 +402,24 @@ async def play_command(
             try:
                 await StreamController.stream_call(url)
             except NoActiveGroupCall:
-                await mystic.edit_text(_["black_9"])
-                return await app.send_message(
-                    chat_id=config.LOGGER_ID,
-                    text=_["play_17"],
-                )
+                # لو مفيش مكالمة، نبعت للمستخدم في الجروب رسالة مفهومة من ملف اللغة
+                try:
+                    await mystic.edit_text(_["black_9"])
+                except Exception:
+                    pass
+                # رسالة واضحة للمجموعة الأصلية بأن لازم يبدأوا مكالمة
+                try:
+                    await app.send_message(chat_id=chat_id, text=_["call_8"])
+                except Exception:
+                    # لو فشل الإرسال للمجموعة، نحتفظ باللوق للصيانة
+                    try:
+                        await app.send_message(
+                            chat_id=config.LOGGER_ID,
+                            text=_["play_17"],
+                        )
+                    except Exception:
+                        pass
+                return
             except Exception as e:
                 return await mystic.edit_text(_["general_2"].format(type(e).__name__))
 
