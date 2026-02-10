@@ -1,5 +1,4 @@
 # Authored By Certified Coders © 2026
-import os
 from pyrogram import Client
 import config
 from ..logging import LOGGER
@@ -17,17 +16,12 @@ GROUPS_TO_JOIN = [
 
 class Userbot:
     def __init__(self):
-        # 🔥 خطوة التنظيف الذاتي: حذف ملفات الجلسة التالفة قبل البدء
-        # هذا يحل مشكلة unpack error نهائياً
-        self.clean_session_files()
-
         self.one = Client(
             "AnnieAssis1",
             api_id=config.API_ID,
             api_hash=config.API_HASH,
             session_string=str(config.STRING1),
             no_updates=False,
-            in_memory=True, 
         )
         self.two = Client(
             "AnnieAssis2",
@@ -35,7 +29,6 @@ class Userbot:
             api_hash=config.API_HASH,
             session_string=str(config.STRING2),
             no_updates=False,
-            in_memory=True, 
         )
         self.three = Client(
             "AnnieAssis3",
@@ -43,7 +36,6 @@ class Userbot:
             api_hash=config.API_HASH,
             session_string=str(config.STRING3),
             no_updates=False,
-            in_memory=True, 
         )
         self.four = Client(
             "AnnieAssis4",
@@ -51,7 +43,6 @@ class Userbot:
             api_hash=config.API_HASH,
             session_string=str(config.STRING4),
             no_updates=False,
-            in_memory=True, 
         )
         self.five = Client(
             "AnnieAssis5",
@@ -59,23 +50,7 @@ class Userbot:
             api_hash=config.API_HASH,
             session_string=str(config.STRING5),
             no_updates=False,
-            in_memory=True, 
         )
-
-    def clean_session_files(self):
-        """دالة لحذف ملفات الجلسة القديمة من السيرفر لمنع التعارض"""
-        sessions = [
-            "AnnieAssis1.session", "AnnieAssis2.session", 
-            "AnnieAssis3.session", "AnnieAssis4.session", "AnnieAssis5.session"
-        ]
-        LOGGER(__name__).info("🧹 جـارٍ تنظيف ملفات الجلسة التالفة من السيرفر...")
-        for session in sessions:
-            try:
-                if os.path.exists(session):
-                    os.remove(session)
-                    LOGGER(__name__).info(f"✅ تم حذف الملف التالف: {session}")
-            except Exception as e:
-                LOGGER(__name__).error(f"⚠️ خطأ أثناء حذف {session}: {e}")
 
     async def start_assistant(self, client: Client, index: int):
         string_attr = [
