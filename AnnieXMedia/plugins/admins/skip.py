@@ -1,6 +1,8 @@
+# file: AnnieXMedia/plugins/skip.py
 # Authored By Certified Coders © 2026
 # System: Skip Handler (Optimized for Nuclear Call)
 # Changes: Removed 'image' param from skip_stream calls to prevent crashes
+#           Added early active-call check to send call_8 only when no active call.
 
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, Message
@@ -24,6 +26,17 @@ from config import BANNED_USERS
 )
 @AdminRightsCheck
 async def skip(cli, message: Message, _, chat_id):
+    # -----------------------
+    # early: إذا مفيش مكالمة شغالة نرد برسالة call_8 بس
+    # -----------------------
+    try:
+        # StreamController.active_calls هو مجموعة الـ chat_id اللي فيها مكالمات شغالة
+        if chat_id not in StreamController.active_calls:
+            return await message.reply_text(_["call_8"])
+    except Exception:
+        # في حال أي خطأ بسيط فتجاهل الفحص واستكمل (fallback)
+        pass
+
     # -------------------------------------------------------
     # 1. منطق التخطي المتعدد (Skip Specific Number)
     # -------------------------------------------------------
