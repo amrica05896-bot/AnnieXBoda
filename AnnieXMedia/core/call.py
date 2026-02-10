@@ -1,6 +1,7 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Fully Compatible with Custom Lib)
+# System: Call Controller (Fixed Cache Logic)
 # Optimized for: 16-Core Adaptive & RAM Protection
+# Fix: Reverted cache_duration to 100 to prevent SQLite errors
 
 import asyncio
 import os
@@ -11,7 +12,6 @@ from pyrogram import Client
 from pyrogram.types import InlineKeyboardMarkup
 from ntgcalls import ConnectionNotFound, TelegramServerError
 
-# 🔥 استيراد المكتبة بناءً على ملفاتك المرسلة
 from pytgcalls import PyTgCalls, filters
 from pytgcalls.exceptions import (
     NoActiveGroupCall, 
@@ -105,12 +105,13 @@ class Call:
         self.userbot4 = userbot.four
         self.userbot5 = userbot.five
 
-        # كاش 24 ساعة (86400) لتقليل الضغط على API تليجرام
-        self.one = PyTgCalls(self.userbot1, cache_duration=86400)
-        self.two = PyTgCalls(self.userbot2, cache_duration=86400)
-        self.three = PyTgCalls(self.userbot3, cache_duration=86400)
-        self.four = PyTgCalls(self.userbot4, cache_duration=86400)
-        self.five = PyTgCalls(self.userbot5, cache_duration=86400)
+        # 🔥 التعديل السحري: رجعنا الكاش لـ 100 عشان نمنع مشاكل الداتا بيز
+        # ده هيخلي المكتبة خفيفة ومتحاولش تفتح ملفات sqlite
+        self.one = PyTgCalls(self.userbot1, cache_duration=100)
+        self.two = PyTgCalls(self.userbot2, cache_duration=100)
+        self.three = PyTgCalls(self.userbot3, cache_duration=100)
+        self.four = PyTgCalls(self.userbot4, cache_duration=100)
+        self.five = PyTgCalls(self.userbot5, cache_duration=100)
 
         self.active_calls: set[int] = set()
 
@@ -251,7 +252,6 @@ class Call:
         except (NoAudioSourceFound, NoVideoSourceFound):
             raise AssistantErr("❌ فشل العثور على مصدر الملف.")
         except AttributeError:
-             # حماية الـ NoneType (خاصة بالسيرفرات القوية)
              try:
                  await assistant.leave_call(chat_id)
                  await asyncio.sleep(0.5)
@@ -339,10 +339,9 @@ class Call:
                 return await app.send_message(track["chat_id"], "❌ فشل تشغيل المقطع التالي.")
         
         # تحديث الواجهة
-        img = await get_thumb(videoid)
-        button = stream_markup(get_string(await get_lang(chat_id)), chat_id)
-        
         try:
+            img = await get_thumb(videoid)
+            button = stream_markup(get_string(await get_lang(chat_id)), chat_id)
             run = await app.send_photo(
                 chat_id=track["chat_id"],
                 photo=img,
