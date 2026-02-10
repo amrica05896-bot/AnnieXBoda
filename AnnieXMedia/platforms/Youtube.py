@@ -89,8 +89,13 @@ async def _exec_proc(*args: str, timeout: int = 10) -> Tuple[bytes, bytes]:
         return b"", b"timeout"
 
 def _normalize_link(link: str, videoid: Union[bool, str, None] = None) -> str:
-    if videoid:
-        return "https://www.youtube.com/watch?v=" + str(videoid)
+    # Only treat videoid as an explicit id if it's a string of 11 youtube-id chars.
+    try:
+        if isinstance(videoid, str) and re.match(r'^[0-9A-Za-z_-]{11}$', videoid):
+            return "https://www.youtube.com/watch?v=" + videoid
+    except Exception:
+        pass
+
     if not link:
         return ""
     link = link.strip()
@@ -617,7 +622,7 @@ class YouTubeAPI:
         link: str,
         mystic: Any,
         video: Union[bool, str] = None,
-        videoid: Union[bool, str] = None,
+        videoid: Union[bool, str, None] = None,
         songaudio: Union[bool, str] = None,
         songvideo: Union[bool, str] = None,
         format_id: Union[bool, str] = None,
@@ -631,7 +636,8 @@ class YouTubeAPI:
 
         # compute vid
         try:
-            if videoid:
+            # Only accept videoid if it's a valid 11-char string
+            if isinstance(videoid, str) and re.match(r'^[0-9A-Za-z_-]{11}$', videoid):
                 vid = str(videoid)
             elif "v=" in prepared:
                 vid = prepared.split("v=")[1].split("&")[0]
