@@ -1,5 +1,6 @@
-# Authored By Certified Coders 2026
-# Module: Skip Stream - Arabic Commands + Language Support
+# Authored By Certified Coders © 2026
+# System: Skip Handler (Optimized for Nuclear Call)
+# Changes: Removed 'image' param from skip_stream calls to prevent crashes
 
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, Message
@@ -23,6 +24,9 @@ from config import BANNED_USERS
 )
 @AdminRightsCheck
 async def skip(cli, message: Message, _, chat_id):
+    # -------------------------------------------------------
+    # 1. منطق التخطي المتعدد (Skip Specific Number)
+    # -------------------------------------------------------
     if not len(message.command) < 2:
         loop = await get_loop(chat_id)
         if loop != 0:
@@ -66,6 +70,10 @@ async def skip(cli, message: Message, _, chat_id):
                 return await message.reply_text(_["queue_2"])
         else:
             return await message.reply_text(_["admin_9"])
+    
+    # -------------------------------------------------------
+    # 2. منطق التخطي العادي (Skip Next)
+    # -------------------------------------------------------
     else:
         check = db.get(chat_id)
         popped = None
@@ -100,12 +108,14 @@ async def skip(cli, message: Message, _, chat_id):
     if not check:
         return
     
+    # تجهيز التراك الجديد
     queued = check[0]["file"]
     title = (check[0]["title"]).title()
     user = check[0]["by"]
     streamtype = check[0]["streamtype"]
     videoid = check[0]["vidid"]
     status = True if str(streamtype) == "video" else None
+    
     db[chat_id][0]["played"] = 0
     exis = (check[0]).get("old_dur")
     if exis:
@@ -114,18 +124,21 @@ async def skip(cli, message: Message, _, chat_id):
         db[chat_id][0]["speed_path"] = None
         db[chat_id][0]["speed"] = 1.0
         
+    # -------------------------------------------------------
+    # 3. أنواع التشغيل (Live, Video, Index, Audio)
+    # -------------------------------------------------------
+    
+    # [A] Live Stream
     if "live_" in queued:
         n, link = await YouTube.video(videoid, True)
         if n == 0:
             return await message.reply_text(_["admin_7"].format(title))
         try:
-            image = await YouTube.thumbnail(videoid, True)
-        except:
-            image = None
-        try:
-            await StreamController.skip_stream(chat_id, link, video=status, image=image)
+            # 🔥 التعديل: حذفنا image من هنا
+            await StreamController.skip_stream(chat_id, link, video=status)
         except:
             return await message.reply_text(_["call_6"])
+        
         button = stream_markup(_, chat_id)
         img = await get_thumb(videoid)
         run = await message.reply_photo(
@@ -141,6 +154,7 @@ async def skip(cli, message: Message, _, chat_id):
         db[chat_id][0]["mystic"] = run
         db[chat_id][0]["markup"] = "tg"
         
+    # [B] YouTube Video / Audio Downloaded
     elif "vid_" in queued:
         mystic = await message.reply_text(_["call_7"], disable_web_page_preview=True)
         try:
@@ -152,14 +166,13 @@ async def skip(cli, message: Message, _, chat_id):
             )
         except:
             return await mystic.edit_text(_["call_6"])
+        
         try:
-            image = await YouTube.thumbnail(videoid, True)
-        except:
-            image = None
-        try:
-            await StreamController.skip_stream(chat_id, file_path, video=status, image=image)
+            # 🔥 التعديل: حذفنا image من هنا
+            await StreamController.skip_stream(chat_id, file_path, video=status)
         except:
             return await mystic.edit_text(_["call_6"])
+        
         button = stream_markup(_, chat_id)
         img = await get_thumb(videoid)
         run = await message.reply_photo(
@@ -176,11 +189,14 @@ async def skip(cli, message: Message, _, chat_id):
         db[chat_id][0]["markup"] = "stream"
         await mystic.delete()
         
+    # [C] Index Link / M3U8
     elif "index_" in queued:
         try:
+            # 🔥 التعديل: حذفنا image من هنا
             await StreamController.skip_stream(chat_id, videoid, video=status)
         except:
             return await message.reply_text(_["call_6"])
+        
         button = stream_markup(_, chat_id)
         run = await message.reply_photo(
             photo=config.STREAM_IMG_URL,
@@ -190,20 +206,14 @@ async def skip(cli, message: Message, _, chat_id):
         db[chat_id][0]["mystic"] = run
         db[chat_id][0]["markup"] = "tg"
         
+    # [D] Telegram Audio / SoundCloud / Direct Link
     else:
-        if videoid == "telegram":
-            image = None
-        elif videoid == "soundcloud":
-            image = None
-        else:
-            try:
-                image = await YouTube.thumbnail(videoid, True)
-            except:
-                image = None
         try:
-            await StreamController.skip_stream(chat_id, queued, video=status, image=image)
+            # 🔥 التعديل: حذفنا image من هنا
+            await StreamController.skip_stream(chat_id, queued, video=status)
         except:
             return await message.reply_text(_["call_6"])
+        
         if videoid == "telegram":
             button = stream_markup(_, chat_id)
             run = await message.reply_photo(
@@ -217,6 +227,7 @@ async def skip(cli, message: Message, _, chat_id):
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
+            
         elif videoid == "soundcloud":
             button = stream_markup(_, chat_id)
             run = await message.reply_photo(
@@ -230,6 +241,7 @@ async def skip(cli, message: Message, _, chat_id):
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
+            
         else:
             button = stream_markup(_, chat_id)
             img = await get_thumb(videoid)
