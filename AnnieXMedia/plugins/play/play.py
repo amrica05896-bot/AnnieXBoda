@@ -1,6 +1,4 @@
-# Authored By Certified Coders © 2026
-# System: Play Command Handler (Standard Mode -> Sends 'youtube'/'playlist' types)
-
+# Authored By Certified Coders © 2025
 import asyncio
 import random
 import string
@@ -32,7 +30,7 @@ from AnnieXMedia.utils.logger import play_logs
 from AnnieXMedia.utils.stream.stream import stream
 
 # ==========================================================
-# إعدادات قاعدة البيانات
+# إعدادات قاعدة البيانات (مشتركة مع ملف song.py)
 # ==========================================================
 
 SUDO_USERS = OWNER_ID if isinstance(OWNER_ID, list) else [OWNER_ID]
@@ -54,7 +52,7 @@ async def set_search_state(locked: bool):
     except: pass
 
 # ==========================================================
-# أوامر قفل وفتح البحث
+# أوامر قفل وفتح البحث (بدون سلاش)
 # ==========================================================
 
 @app.on_message(filters.command(["قفل البحث", "تعطيل البحث"], prefixes=["", "/"]) & filters.user(SUDO_USERS))
@@ -77,7 +75,7 @@ async def unlock_search_cmd(client, message):
             "play", "vplay", "cplay", "cvplay", "playforce", "vplayforce", "cplayforce", "cvplayforce",
             "تشغيل", "شغل", "فيد", "فيديو"
         ],
-        prefixes=["", "/", "!", "#"] 
+        prefixes=["", "/", "!", "#"] # تم تفعيل "" ليعمل بدون سلاش
     )
     & filters.group
     & ~BANNED_USERS
