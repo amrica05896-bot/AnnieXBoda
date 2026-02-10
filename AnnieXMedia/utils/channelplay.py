@@ -1,9 +1,10 @@
-﻿# Authored By Certified Coders © 2025
-from AnnieXMedia import app
+# Authored By Certified Coders © 2025
 from AnnieXMedia.utils.database import get_cmode
 
-
 async def get_channeplayCB(_, command, CallbackQuery):
+    # استدعاء app جوه الدالة بدل الاستيراد فوق
+    from AnnieXMedia import app
+
     if command == "c":
         chat_id = await get_cmode(CallbackQuery.message.chat.id)
         if chat_id is None:
