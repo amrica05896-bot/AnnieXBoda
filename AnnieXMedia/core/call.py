@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: Call Controller (Stable & Fast)
-# Fixes: TimeoutError, RAM Mismatch, Auto-Start, and Admin Rights Check
+# Fixes: Cold Start Silence, TimeoutError, RAM Mismatch, Auto-Start
 
 import asyncio
 import os
@@ -59,7 +59,10 @@ from AnnieXMedia.utils.errors import capture_internal_err
 autoend = {}
 counter = {}
 
-# --- Helpers ---
+# ===============================
+# Helpers & Optimization
+# ===============================
+
 def clean_vidid(vid):
     if vid is None or vid is True or vid is False: return None
     return str(vid)
@@ -94,11 +97,13 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
-    # 🔥 FIX TIMEOUT ERROR: Light Flags (1M)
-    titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -fflags +genpts+igndts+nobuffer -sync ext"
+    # 🔥 FIX COLD START: Balanced Buffer
+    # Increased probesize/analyzeduration slightly to handle "Cold Start" handshake delay
+    titan_flags = "-threads 2 -probesize 10M -analyzeduration 10M -fflags +genpts+igndts+nobuffer -sync ext"
     
     if is_url:
-        titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -rtbufsize 5M -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 -fflags +genpts+igndts+nobuffer -sync ext"
+        # Added reconnect flags to keep stream alive during initial silence
+        titan_flags = "-threads 2 -probesize 10M -analyzeduration 10M -rtbufsize 10M -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 -fflags +genpts+igndts+nobuffer -sync ext"
     
     if ffmpeg_params: titan_flags += f" {ffmpeg_params}"
 
@@ -128,7 +133,10 @@ async def _invalidate_direct_cache_for_vid(videoid: Optional[str]) -> None:
             if asyncio.iscoroutine(maybe): await maybe
     except: pass
 
-# --- Call Controller ---
+# ===============================
+# Call Controller Class
+# ===============================
+
 class Call:
     def __init__(self):
         self.userbot1 = getattr(userbot, "one", None)
@@ -232,7 +240,6 @@ class Call:
 
         if chat_id in self.active_calls:
             try:
-                # 🔥 Smart Switch: If Type Changed, Re-Join
                 if old_is_video != new_is_video:
                     try: await assistant.leave_call(chat_id)
                     except: pass
@@ -295,6 +302,9 @@ class Call:
         if chat_id in db and db[chat_id] and db[chat_id][0].get("file") == file_path:
             db[chat_id][0].update({"played": con_seconds, "dur": duration_min, "seconds": dur, "speed_path": out, "speed": speed})
 
+    # ==========================================================
+    # 🔥 MAIN JOIN LOGIC (FIXED FOR COLD START SILENCE)
+    # ==========================================================
     @capture_internal_err
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
@@ -320,7 +330,7 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
-        # Handle active calls (Update Only)
+        # 1. Check active calls first (Warm Update)
         if chat_id in self.active_calls:
             try:
                 await self._play_safe(chat_id, stream, force_join=False)
@@ -328,37 +338,42 @@ class Call:
             except Exception:
                 pass
 
-        # 🔥 Fix: Auto-Start Logic + Smart Admin Check
+        # 2. Join Mode (Cold Start)
         retries = 3
         for attempt in range(retries):
             try:
                 await self._play_safe(chat_id, stream, force_join=True)
+                
+                # 🔥 FIX 1: Wait for WebRTC Handshake
+                await asyncio.sleep(1.5)
+                
+                # 🔥 FIX 2: Audio Wake-up (The "Silent" Bug Fix)
+                # Toggle Mute/Unmute to force Telegram to acknowledge the audio track
+                try:
+                    await assistant.mute(chat_id)
+                    await asyncio.sleep(0.1)
+                    await assistant.unmute(chat_id)
+                except: 
+                    pass
+                
                 break
             except Exception as e:
-                # لو دي آخر محاولة، نفحص نوع الخطأ بدقة
                 if attempt == retries - 1:
-                    # 1. لو المساعد مش أدمن (السبب الرئيسي للمشكلة)
                     if isinstance(e, ChatAdminRequired) or "CHAT_ADMIN_REQUIRED" in str(e) or "must be an admin" in str(e).lower():
-                        raise AssistantErr(_["call_8"]) # رجع الخطأ ده عشان stream.py يمسح الرسالة
-                    
-                    # 2. لو مفيش كول (والمساعد مش قادر يفتحه لأي سبب)
+                        raise AssistantErr(_["call_8"]) 
                     elif isinstance(e, NoActiveGroupCall) or "NoActiveGroupCall" in str(e) or "group call not found" in str(e).lower():
                         raise AssistantErr(_["call_8"])
-                    
                     elif isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
-                    
                     elif isinstance(e, (ConnectionNotFound, TelegramServerError)):
                         raise AssistantErr(_["call_10"])
                     
-                    # 3. لو هو أصلاً في الكول بس مهنج (نعمل تحديث ونكمل)
                     if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in str(e).lower():
                         try:
                             await self._play_safe(chat_id, stream, force_join=False)
                             break
                         except: pass
                     else:
-                        # أي خطأ تاني غير متوقع
                         raise AssistantErr(f"Error: {e}")
                 
                 await asyncio.sleep(1)
@@ -496,7 +511,6 @@ class Call:
                     except: pass
                     await self._play_safe(chat_id, stream, force_join=True)
                 else:
-                    # Seamless update if type is the same
                     if chat_id in self.active_calls:
                         try:
                             await self._play_safe(chat_id, stream, force_join=False)
