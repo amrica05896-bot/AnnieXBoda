@@ -1,4 +1,4 @@
-# استخدام أحدث وأخف نسخة مستقرة
+# استخدام أحدث صورة بايثون مستقرة لعام 2026
 FROM python:3.13-slim
 
 # ===============================
@@ -7,6 +7,7 @@ FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
+# Deno مهم جداً لمكتبات الميديا الحديثة في 2026
 ENV DENO_INSTALL="/root/.deno"
 ENV PATH="${DENO_INSTALL}/bin:${PATH}"
 
@@ -21,11 +22,11 @@ RUN apt-get update && \
         libffi-dev libxml2-dev libxslt-dev zlib1g-dev gcc \
         aria2 ca-certificates && \
     \
-    # Node.js (YouTube Cipher Engine 1)
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    # Node.js (Latest LTS for 2026)
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs && \
     \
-    # Deno (YouTube Cipher Engine 2 – مهم جدًا 2026)
+    # Deno (YouTube Cipher Engine)
     curl -fsSL https://deno.land/install.sh | sh && \
     \
     apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -36,21 +37,19 @@ RUN apt-get update && \
 RUN pip install --upgrade pip setuptools wheel
 
 # ===============================
-# Local pytgcalls (Custom Build)
-# ===============================
-COPY pytgcalls /app/pytgcalls
-
-# ===============================
 # Python Libraries
 # ===============================
 COPY requirements.txt .
 
-# استبعاد pytgcalls / py-tgcalls لمنع التعارض
+# 1. تنظيف requirements من أي نسخ قديمة لـ pytgcalls
 RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
     pip install --no-cache-dir -r filtered.txt
 
+# 2. 🔥 تثبيت النسخة الحديثة 2.2.11 إجبارياً
+RUN pip install --no-cache-dir py-tgcalls==2.2.11
+
 # ===============================
-# 🔥 UVLOOP + Network Boost
+# 🔥 Network Boosters (2026 Standard)
 # ===============================
 RUN pip install --no-cache-dir \
     uvloop \
@@ -67,6 +66,9 @@ RUN mkdir -p /etc/yt-dlp && \
 # Copy Bot Source
 # ===============================
 COPY . .
+
+# 🔥 هام جداً: مسح المجلد المحلي القديم عشان نعتمد على 2.2.11 اللي نزلت
+RUN rm -rf /app/pytgcalls
 
 # ===============================
 # Launch 🚀
