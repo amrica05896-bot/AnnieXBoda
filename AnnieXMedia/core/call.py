@@ -1,7 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Custom Build: Restricted Exceptions)
-# Constraint: ONLY [NoActiveGroupCall, NoAudioSourceFound, NoVideoSourceFound, NotInCallError, PyTgCallsAlreadyRunning, PyTgCallsError]
-# Constraint: No change_stream, No join_group_call.
+# System: Call Controller (Stable & Fast)
+# Fixes: TimeoutError (via Light Flags), RAM Mismatch Safety, Auto-Start Logic.
 
 import asyncio
 import os
@@ -89,10 +88,17 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
     if not path: path = ""
     path = str(path)
     is_url = path.startswith("http")
-    if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): video = False
+    
+    # 🔥 RAM Cache Safety:
+    # لو الملف مش رابط (يعني ملف نازل في الرام) وامتداده صوتي، لازم نقفل الفيديو
+    # عشان FFmpeg مايعملش كراش وهو بيحاول يطلع صورة من ملف صوت.
+    # (الحل الجذري لتنزيل الفيديو هيكون في ملف stream.py لما نغير الـ ID)
+    if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
+        video = False
 
-    # FIX: Optimized flags to prevent TimeoutError during cleanup/probe
-    # Reduced probesize to 1M and analyzeduration to 2M for faster startup
+    # 🔥 FIX TIMEOUT ERROR:
+    # تقليل حجم الفحص (Probesize) لـ 1 ميجا فقط بدلاً من 10.
+    # ده بيخلي البوت يشتغل "طلقة" وميستناش التحميل الطويل.
     titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -fflags +genpts+igndts+nobuffer -sync ext"
     
     if is_url:
@@ -145,11 +151,6 @@ class Call:
 
     # --- Wrapper for Safe Play/Update ---
     async def _play_safe(self, chat_id, stream, force_join=False):
-        """
-        Uses Play() for everything.
-        force_join=True -> auto_start=True (Creates call/Joins or Hard Reconnect).
-        force_join=False -> auto_start=False (Updates stream only).
-        """
         assistant = await group_assistant(self, chat_id)
         config = GroupCallConfig(auto_start=force_join)
         await assistant.play(chat_id, stream, config=config)
@@ -223,7 +224,6 @@ class Call:
                     if direct: final_link = direct
                 except: pass
 
-        # Determine Stream Types for Switching Logic
         new_is_video = bool(video)
         old_is_video = False
         try:
@@ -237,17 +237,14 @@ class Call:
 
         if chat_id in self.active_calls:
             try:
-                # FIX: Strict switching logic
+                # 🔥 Smart Switch: If Type Changed, Re-Join
                 if old_is_video != new_is_video:
-                    # Type changed -> LEAVE then JOIN (auto_start=True)
                     try: await assistant.leave_call(chat_id)
                     except: pass
                     await self._play_safe(chat_id, stream, force_join=True)
                 else:
-                    # Same type -> UPDATE only (auto_start=False)
                     await self._play_safe(chat_id, stream, force_join=False)
             except (NoActiveGroupCall, NotInCallError):
-                # If call died, force join
                 await self._play_safe(chat_id, stream, force_join=True)
             except Exception:
                 try: await self.stop_stream(chat_id)
@@ -270,7 +267,6 @@ class Call:
         ffmpeg_params = f"-ss {to_seek} -to {duration}"
         is_video = mode == "video"
         stream = dynamic_media_stream(path=file_path, video=is_video, ffmpeg_params=ffmpeg_params)
-        # Seek is an update
         await self._play_safe(chat_id, stream, force_join=False)
 
     @capture_internal_err
@@ -331,38 +327,32 @@ class Call:
             except Exception:
                 pass
 
-        # Join New Call (Force Join)
+        # 🔥 Auto-Start Retry Logic (Attempts to Open Call)
         retries = 3
         for attempt in range(retries):
             try:
+                # force_join=True tries to create/join the call
                 await self._play_safe(chat_id, stream, force_join=True)
                 break
-            except NoActiveGroupCall:
-                # FIX: Immediate failure if no call exists (Protection)
-                raise AssistantErr(_["call_8"]) 
-            except (NoAudioSourceFound, NoVideoSourceFound):
-                if video and attempt == retries - 1:
-                    try:
-                        stream = dynamic_media_stream(path=final_link, video=False)
-                        await self._play_safe(chat_id, stream, force_join=True)
-                        break
-                    except: pass
-                raise AssistantErr(_["call_11"])
-            except (ConnectionNotFound, TelegramServerError):
-                if attempt < retries - 1:
-                    await asyncio.sleep(2)
-                    continue
-                raise AssistantErr(_["call_10"])
             except Exception as e:
-                if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in str(e).lower():
-                    try:
-                        await self._play_safe(chat_id, stream, force_join=False)
-                        break
-                    except: pass
-                if attempt < retries - 1:
-                    await asyncio.sleep(2)
-                    continue
-                raise AssistantErr(f"Error: {e}")
+                if attempt == retries - 1:
+                    # Final Failure Analysis
+                    if isinstance(e, NoActiveGroupCall) or "NoActiveGroupCall" in str(e) or "group call not found" in str(e).lower():
+                        raise AssistantErr(_["call_8"])
+                    elif isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
+                        raise AssistantErr(_["call_11"])
+                    elif isinstance(e, (ConnectionNotFound, TelegramServerError)):
+                        raise AssistantErr(_["call_10"])
+                    
+                    if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in str(e).lower():
+                        try:
+                            await self._play_safe(chat_id, stream, force_join=False)
+                            break
+                        except: pass
+                    else:
+                        raise AssistantErr(f"Error: {e}")
+                await asyncio.sleep(1)
+                continue
 
         self.active_calls.add(chat_id)
         await add_active_chat(chat_id)
