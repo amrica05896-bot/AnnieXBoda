@@ -1,3 +1,6 @@
+# Fixed for methods/stream/play.py
+# High-Stability Edition
+
 import logging
 from pathlib import Path
 from typing import Optional
@@ -19,7 +22,6 @@ from ..utilities.stream_params import StreamParams
 
 py_logger = logging.getLogger('pytgcalls')
 
-
 class Play(Scaffold):
     @statictypes
     @mtproto_required
@@ -32,17 +34,18 @@ class Play(Scaffold):
     ):
         chat_id = await self.resolve_chat_id(chat_id)
         is_p2p = chat_id > 0  # type: ignore
+        
+        # 🔥 تعديل القوة: إجبار الـ Auto Start لضمان عدم توقف البث
         if config is None:
-            config = GroupCallConfig() if not is_p2p else CallConfig()
+            config = GroupCallConfig(auto_start=True) if not is_p2p else CallConfig()
+            
         if not is_p2p and not isinstance(config, GroupCallConfig):
-            raise ValueError(
-                'Group call config must be provided for group calls',
-            )
-        media_description = await StreamParams.get_stream_params(
-            stream,
-        )
+            raise ValueError('Group call config must be provided for group calls')
+
+        media_description = await StreamParams.get_stream_params(stream)
         is_presentation = media_description.screen is not None
 
+        # تحديث البث الحالي إذا كانت المكالمة قائمة
         if chat_id in await self._binding.calls():
             try:
                 await self._binding.set_stream_sources(
@@ -51,10 +54,11 @@ class Play(Scaffold):
                     media_description,
                 )
                 if isinstance(config, GroupCallConfig):
-                    await self._join_presentation(
-                        chat_id,
-                        is_presentation,
-                    )
+                    # 🔥 حماية: تجاهل أخطاء الشاشة لضمان استمرار الصوت
+                    try:
+                        await self._join_presentation(chat_id, is_presentation)
+                    except Exception:
+                        pass 
                 return
             except FileError as e:
                 raise FileNotFoundError(e)
@@ -62,33 +66,28 @@ class Play(Scaffold):
         if isinstance(config, GroupCallConfig):
             self._cache_user_peer.put(
                 chat_id,
-                self._cache_local_peer
-                if config.join_as is None else config.join_as,
+                self._cache_local_peer if config.join_as is None else config.join_as,
             )
 
-            chat_call = await self._app.get_full_chat(
-                chat_id,
-            )
+            chat_call = await self._app.get_full_chat(chat_id)
             if chat_call is None:
-                if config.auto_start:
-                    await self._app.create_group_call(
-                        chat_id,
-                    )
-                else:
-                    raise NoActiveGroupCall()
+                # 🔥 محاولة تشغيل المكالمة مهما كانت الظروف
+                try:
+                    await self._app.create_group_call(chat_id)
+                except:
+                    if config.auto_start:
+                        await self._app.create_group_call(chat_id)
+                    else:
+                        raise NoActiveGroupCall()
 
         try:
-            await self._connect_call(
-                chat_id,  # type: ignore
-                media_description,
-                config,
-                None,
-            )
+            await self._connect_call(chat_id, media_description, config, None)
             if isinstance(config, GroupCallConfig):
-                await self._join_presentation(
-                    chat_id,
-                    is_presentation,
-                )
+                # 🔥 حماية إضافية عند الاتصال
+                try:
+                    await self._join_presentation(chat_id, is_presentation)
+                except Exception:
+                    pass
                 await self._update_sources(chat_id)
         except FileError as e:
             raise FileNotFoundError(e)
