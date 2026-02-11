@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Strict Mode & Decorator Fix)
-# Fixes: UI Leak (Removed Decorators), Instant Leave (FFmpeg Flags)
+# System: Call Controller (Hybrid Engine: Hasii + AnonX + Alexa)
+# Fixes: Instant Leave (-re flag), Connection Freeze (auto_start), UI Leak
 
 import asyncio
 import os
@@ -51,7 +51,7 @@ from AnnieXMedia.utils.database import (
 from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.stream.autoclear import auto_clean
 from AnnieXMedia.utils.thumbnails import get_thumb
-# from AnnieXMedia.utils.errors import capture_internal_err # ❌ REMOVED TO FIX UI LEAK
+from AnnieXMedia.utils.errors import capture_internal_err
 
 autoend = {}
 counter = {}
@@ -85,35 +85,39 @@ async def get_direct_link(videoid: str, video: bool = False):
         return await loop.run_in_executor(None, _extract)
     except: return link
 
-def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
+def dynamic_media_stream(path: str, video: bool = False) -> MediaStream:
     if not path: path = ""
     path = str(path)
     is_url = path.startswith("http")
     
+    # Force audio flags for audio files
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
-    # 🔥 FFmpeg Flags (HasiiMusic Logic for Stability)
-    if is_url:
+    # ==============================================================================
+    # 🔥 HYBRID FFmpeg Flags (The Fix for Instant Leave)
+    # ==============================================================================
+    # 1. LOCAL FILES: Must use "-re" (Read at native frame rate). 
+    #    Without this, FFmpeg processes the file instantly and PyTgCalls closes the connection.
+    if not is_url:
+        titan_flags = (
+            "-re -threads 2 "  # The Magic Flag for Local Files
+            "-probesize 10M -analyzeduration 10M "
+            "-fflags +genpts+igndts+nobuffer -sync ext"
+        )
+    # 2. LIVE STREAMS / URLs: Aggressive buffering and reconnects
+    else:
         titan_flags = (
             "-threads 2 "
             "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
             "-probesize 10M -analyzeduration 10M "
-            "-fflags +genpts+igndts+nobuffer -sync ext "
-            "-rtbufsize 10M"
-        )
-    else:
-        titan_flags = (
-            "-re -threads 2 "
-            "-probesize 10M -analyzeduration 10M "
+            "-rtbufsize 10M "
             "-fflags +genpts+igndts+nobuffer -sync ext"
         )
-    
-    if ffmpeg_params: titan_flags += f" {ffmpeg_params}"
 
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.HIGH,
+        audio_parameters=AudioQuality.HIGH, # High is more stable than STUDIO for initial connection
         video_parameters=VideoQuality.HD_720p,
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
@@ -153,12 +157,13 @@ class Call:
 
         self.active_calls: set[int] = set()
 
+    # Wrapper to handle the "Auto Start" logic from Hasii/AnonX
     async def _play_safe(self, chat_id, stream, force_join=False):
         assistant = await group_assistant(self, chat_id)
+        # 🔥 auto_start=True handles "Join if not joined" and "Update if joined" automatically
         config = GroupCallConfig(auto_start=force_join)
         await assistant.play(chat_id, stream, config=config)
 
-    # ❌ REMOVED @capture_internal_err to allow exceptions to bubble up
     async def pause_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
         await assistant.pause(chat_id)
@@ -256,8 +261,9 @@ class Call:
             await remove_active_video_chat(chat_id)
 
     # ==========================================================
-    # 🔥 STRICT JOIN LOGIC (No Decorator -> Error Bubbles Up)
+    # 🔥 HYBRID JOIN LOGIC (Hasii Stability + Strict Errors)
     # ==========================================================
+    # No @capture_internal_err here -> allows errors to reach stream.py
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
         lang = await get_lang(chat_id)
@@ -267,6 +273,7 @@ class Call:
         vid_id = extract_video_id(str(link)) if link else None
         await _invalidate_direct_cache_for_vid(vid_id)
 
+        # Smart Link Resolution
         if link and os.path.exists(str(link)) and video and str(link).endswith((".mp3", ".m4a")):
             if vid_id:
                 try:
@@ -282,6 +289,7 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
+        # 1. Update if already active
         if chat_id in self.active_calls:
             try:
                 await self._play_safe(chat_id, stream, force_join=False)
@@ -289,12 +297,17 @@ class Call:
             except Exception:
                 pass
 
+        # 2. Join (Retry Loop like HasiiMusic)
         retries = 3
         for attempt in range(retries):
             try:
+                # Using auto_start=True (Atomically joins and plays)
                 await self._play_safe(chat_id, stream, force_join=True)
                 
+                # 🔥 Stability Wait (Prevents instant kick on some connections)
                 await asyncio.sleep(2)
+                
+                # 🔥 Audio Wakeup (Force Telegram to acknowledge stream)
                 try:
                     await assistant.mute(chat_id)
                     await asyncio.sleep(0.1)
@@ -306,7 +319,7 @@ class Call:
             except Exception as e:
                 err_str = str(e).lower()
                 
-                # 🔥 FAIL IMMEDIATELY (No Log Group Spam, Just tell the user)
+                # 🛑 STRICT ERROR HANDLING: If not admin/no call -> Fail Immediately
                 if (isinstance(e, (NoActiveGroupCall, ChatAdminRequired)) 
                     or "chat_admin_required" in err_str 
                     or "noactivegroupcall" in err_str 
@@ -315,18 +328,21 @@ class Call:
                     
                     raise AssistantErr(_["call_8"])
 
+                # Connection Glitches -> Retry
                 if attempt == retries - 1:
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
-                    elif isinstance(e, (ConnectionNotFound, TelegramServerError)):
+                    elif isinstance(e, (ConnectionNotFound, PyTgCallsError)):
                         raise AssistantErr(_["call_10"])
                     
+                    # Race Condition: Already joined
                     if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in err_str:
                         try:
                             await self._play_safe(chat_id, stream, force_join=False)
                             break
                         except: pass
                     else:
+                        # Unknown Error
                         raise AssistantErr(f"Error: {e}")
                 
                 await asyncio.sleep(1)
@@ -382,7 +398,6 @@ class Call:
             except: pass
 
     # --- Queue Handler (Auto Play Next) ---
-    # Kept @capture_internal_err here because this runs in background (user isn't waiting for a reply)
     @capture_internal_err
     async def play(self, client, chat_id: int) -> None:
         check = db.get(chat_id)
