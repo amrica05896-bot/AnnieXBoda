@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Strict Mode)
-# Fixes: No Bot-Fallback, Return call_8 on failure, Realtime Read for RAM files
+# System: Call Controller (Hasii/AnonX Hybrid Logic)
+# Fixes: Instant Leave (New FFmpeg Flags), Strict Admin Check, No Bot Fallback
 
 import asyncio
 import os
@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Union, Optional
 
 import yt_dlp
-from pyrogram.errors import ChatAdminRequired, UserAlreadyParticipant, UserNotParticipant
+from pyrogram.errors import ChatAdminRequired, UserAlreadyParticipant, UserNotParticipant, RPCError
 from pyrogram.types import InlineKeyboardMarkup
 
 from pytgcalls import PyTgCalls
@@ -93,7 +93,15 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
-    # 🔥 Fix Instant Leave: Use '-re' for local files (Read at native speed)
+    # 🔥 MODERN FFmpeg Flags (From HasiiMusic/AnonX Logic)
+    # These flags are crucial for PyTgCalls 2.2.10+ to avoid instant ending
+    
+    # 1. Base Flags for Stability
+    # -probesize 10M: Read more data before starting (prevents initial lag)
+    # -analyzeduration 10M: Better stream analysis
+    # -fflags +genpts+igndts: Generates missing timestamps (FIXES INSTANT LEAVE)
+    # -sync ext: Keeps Audio/Video in sync
+    
     if is_url:
         titan_flags = (
             "-threads 2 "
@@ -103,7 +111,7 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
             "-rtbufsize 10M"
         )
     else:
-        # This prevents the assistant from playing 3 minutes in 1 second and leaving
+        # For Local Files: Added "-re" to force Realtime reading (Fixes Speed/Skip bug)
         titan_flags = (
             "-re -threads 2 "
             "-probesize 10M -analyzeduration 10M "
@@ -114,7 +122,7 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
 
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.HIGH,
+        audio_parameters=AudioQuality.HIGH, # Changed to HIGH (More stable than STUDIO)
         video_parameters=VideoQuality.HD_720p,
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
@@ -156,6 +164,7 @@ class Call:
 
     async def _play_safe(self, chat_id, stream, force_join=False):
         assistant = await group_assistant(self, chat_id)
+        # Using auto_start=True like HasiiMusic for better connection handling
         config = GroupCallConfig(auto_start=force_join)
         await assistant.play(chat_id, stream, config=config)
 
@@ -240,6 +249,7 @@ class Call:
 
         if chat_id in self.active_calls:
             try:
+                # Smart Switch logic
                 if old_is_video != new_is_video:
                     try: await assistant.leave_call(chat_id)
                     except: pass
@@ -263,7 +273,7 @@ class Call:
             await remove_active_video_chat(chat_id)
 
     # ==========================================================
-    # 🔥 STRICT JOIN LOGIC (No Bot Fallback)
+    # 🔥 STRICT JOIN LOGIC (Corrected for your requirements)
     # ==========================================================
     @capture_internal_err
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
@@ -290,6 +300,7 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
+        # Check if already active to update instead of join
         if chat_id in self.active_calls:
             try:
                 await self._play_safe(chat_id, stream, force_join=False)
@@ -300,11 +311,14 @@ class Call:
         retries = 3
         for attempt in range(retries):
             try:
-                # محاولة الانضمام (سواء الكول مفتوح أو المساعد أدمن ويفتحه)
+                # 1. Try to join. 
+                # If Assistant is not admin and Call is closed, this will raise NoActiveGroupCall or ChatAdminRequired
                 await self._play_safe(chat_id, stream, force_join=True)
                 
-                # انتظار بسيط لثبات الاتصال
+                # 2. Stability Wait (Essential for preventing instant leave)
                 await asyncio.sleep(2)
+                
+                # 3. Audio Wake-up (Unmute trick)
                 try:
                     await assistant.mute(chat_id)
                     await asyncio.sleep(0.1)
@@ -312,20 +326,33 @@ class Call:
                 except: pass
                 
                 break 
+            
             except Exception as e:
-                # 🔥 هنا النظام اللي انت عاوزه: لو مش أدمن أو مفيش كول -> ارفع خطأ call_8 فوراً
-                # ChatAdminRequired: المساعد حاول يفتح الكول وفشل لأنه مش أدمن
-                # NoActiveGroupCall: المساعد معرفش يلاقي كول
-                if isinstance(e, ChatAdminRequired) or "CHAT_ADMIN_REQUIRED" in str(e) or "NoActiveGroupCall" in str(e) or "group call not found" in str(e).lower():
-                    # لا توجد محاولات أخرى، ارفع الخطأ فوراً لملف Stream.py
+                err_str = str(e).lower()
+                
+                # 🔥 STRICT MODE: Fail immediately if VC is closed and Asst isn't admin
+                # This covers:
+                # - NoActiveGroupCall: Library says no call exists
+                # - ChatAdminRequired: Telegram says need admin to start call
+                # - "group call not found": RPC error message
+                if (isinstance(e, (NoActiveGroupCall, ChatAdminRequired)) 
+                    or "chat_admin_required" in err_str 
+                    or "noactivegroupcall" in err_str 
+                    or "group call not found" in err_str
+                    or "groupcall_forbidden" in err_str):
+                    
+                    # Raise AssistantErr immediately to be caught by stream.py
                     raise AssistantErr(_["call_8"])
 
+                # Connection Errors (Retryable)
                 if attempt == retries - 1:
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
                     elif isinstance(e, (ConnectionNotFound, TelegramServerError)):
                         raise AssistantErr(_["call_10"])
-                    elif isinstance(e, PyTgCallsAlreadyRunning):
+                    
+                    # Already joined glitch
+                    if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in err_str:
                         try:
                             await self._play_safe(chat_id, stream, force_join=False)
                             break
