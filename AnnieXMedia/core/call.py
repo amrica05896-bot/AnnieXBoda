@@ -1,6 +1,7 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Custom Build: Play-Only Logic)
-# Facts: No ChangeStream, No JoinGroupCall. No GroupCallNotFound.
+# System: Call Controller (Custom Build: Restricted Exceptions)
+# Constraint: ONLY [NoActiveGroupCall, NoAudioSourceFound, NoVideoSourceFound, NotInCallError, PyTgCallsAlreadyRunning, PyTgCallsError]
+# Constraint: No change_stream, No join_group_call.
 
 import asyncio
 import os
@@ -18,8 +19,9 @@ from pytgcalls.exceptions import (
     NoActiveGroupCall,
     NoAudioSourceFound,
     NoVideoSourceFound,
-    NotInCallError, # Used instead of GroupCallNotFound
-    AlreadyJoinedError
+    NotInCallError,          # Used instead of GroupCallNotFound
+    PyTgCallsAlreadyRunning, # Used instead of AlreadyJoinedError
+    PyTgCallsError
 )
 from pytgcalls.types import (
     AudioQuality,
@@ -227,8 +229,7 @@ class Call:
             old_is_video = False
             check = db.get(chat_id)
             if check:
-                # Check the currently playing item (index 0 might be old one depending on when db is updated)
-                # Assuming this function is called BEFORE db pop update or checking current status
+                # Check the currently playing item
                 old_is_video = str(check[0].get("streamtype")) == "video"
         except:
             old_is_video = False
@@ -343,7 +344,7 @@ class Call:
                 await self._play_safe(chat_id, stream, force_join=True)
                 break
             except NoActiveGroupCall:
-                # SPECIFIC REQUIREMENT: Raise AssistantErr if NoActiveGroupCall found
+                # REQUIREMENT: Raise AssistantErr if NoActiveGroupCall found
                 raise AssistantErr(_["call_8"]) 
             except (NoAudioSourceFound, NoVideoSourceFound):
                 if video and attempt == retries - 1:
@@ -359,8 +360,8 @@ class Call:
                     continue
                 raise AssistantErr(_["call_10"])
             except Exception as e:
-                # If AlreadyJoinedError or similar custom error, try update
-                if "already joined" in str(e).lower() or isinstance(e, AlreadyJoinedError):
+                # Handle "AlreadyJoined" using the new Allowed Exception or String check
+                if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in str(e).lower():
                     try:
                         await self._play_safe(chat_id, stream, force_join=False)
                         break
@@ -437,7 +438,6 @@ class Call:
         # Determine current stream type before popping (for switch logic)
         old_is_video = False
         try:
-            # Check the track that just finished or is currently technically active
             if len(check) > 0:
                 old_is_video = str(check[0].get("streamtype")) == "video"
         except: pass
