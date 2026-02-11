@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Stable Switching & Skip Fix)
-# Fixes: Audio <-> Video Switching, Skip Freeze, TimeoutError
+# System: Call Controller (Seamless Skip & Stable Transition)
+# Fixes: Removes unnecessary Leave/Join on Skip, Fixes Timeout, Auto-Start Logic.
 
 import asyncio
 import os
@@ -89,12 +89,13 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
     path = str(path)
     is_url = path.startswith("http")
     
-    # 🔥 Smart Type Check: لو الملف صوتي، اقفل الفيديو إجباري لتجنب الكراش
+    # RAM Safety
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
-    # 🔥 Flags (1M) للسرعة
+    # Light Flags (1M)
     titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -fflags +genpts+igndts+nobuffer -sync ext"
+    
     if is_url:
         titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -rtbufsize 5M -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 -fflags +genpts+igndts+nobuffer -sync ext"
     
@@ -144,6 +145,10 @@ class Call:
         self.active_calls: set[int] = set()
 
     async def _play_safe(self, chat_id, stream, force_join=False):
+        """
+        force_join=True -> New Call (auto_start=True).
+        force_join=False -> Update Stream (auto_start=False).
+        """
         assistant = await group_assistant(self, chat_id)
         config = GroupCallConfig(auto_start=force_join)
         await assistant.play(chat_id, stream, config=config)
@@ -218,23 +223,33 @@ class Call:
                 except: pass
 
         new_is_video = bool(video)
+        old_is_video = False
+        try:
+            check = db.get(chat_id)
+            if check: old_is_video = str(check[0].get("streamtype")) == "video"
+        except: pass
+
         stream = dynamic_media_stream(path=final_link, video=new_is_video)
         assistant = await group_assistant(self, chat_id)
 
-        # 🔥 Fix Skip Switching: Always Leave -> Join for maximum stability
-        # هذا يضمن التبديل السليم بين الصوت والفيديو
         if chat_id in self.active_calls:
             try:
-                try: await assistant.leave_call(chat_id)
-                except: pass
-                await asyncio.sleep(0.5) # مهلة بسيطة لضمان خروج نظيف
-                await self._play_safe(chat_id, stream, force_join=True)
+                # 🔥 Smart Switching Logic:
+                # Only leave/re-join if switching between Audio <-> Video (Required by Telegram)
+                # Otherwise, just UPDATE the stream (Seamless)
+                if old_is_video != new_is_video:
+                    try: await assistant.leave_call(chat_id)
+                    except: pass
+                    await self._play_safe(chat_id, stream, force_join=True)
+                else:
+                    # Same Type (Audio->Audio or Video->Video) => Seamless Update
+                    await self._play_safe(chat_id, stream, force_join=False)
             except (NoActiveGroupCall, NotInCallError):
                 await self._play_safe(chat_id, stream, force_join=True)
             except Exception:
                 try: await self.stop_stream(chat_id)
                 except: pass
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
                 await self._play_safe(chat_id, stream, force_join=True)
         else:
             await self._play_safe(chat_id, stream, force_join=True)
@@ -309,7 +324,7 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
-        # Handle active calls (Update Only)
+        # Handle active calls (Update Only - No Rejoin)
         if chat_id in self.active_calls:
             try:
                 await self._play_safe(chat_id, stream, force_join=False)
@@ -317,7 +332,7 @@ class Call:
             except Exception:
                 pass
 
-        # Join New Call (Auto Start)
+        # Join New Call (Auto Start Logic)
         retries = 3
         for attempt in range(retries):
             try:
@@ -404,7 +419,6 @@ class Call:
             except: pass
             return
         
-        # كشف نوع الاستريم قبل الحذف
         old_is_video = False
         try:
             if len(check) > 0:
@@ -469,12 +483,17 @@ class Call:
                 
                 stream = dynamic_media_stream(path=final_link, video=new_is_video)
                 
-                # 🔥 Strict Auto-Switching: Leave -> Join for Next Track
-                # ده بيضمن إن التبديل بين الصوت والفيديو في القائمة يتم بنجاح
-                try: await client.leave_call(chat_id)
-                except: pass
-                await asyncio.sleep(0.5)
-                await self._play_safe(chat_id, stream, force_join=True)
+                # 🔥 Smart Switching Logic for Next Track (Same as Skip)
+                if old_is_video != new_is_video:
+                    try: await client.leave_call(chat_id)
+                    except: pass
+                    await self._play_safe(chat_id, stream, force_join=True)
+                else:
+                    # Seamless update if type is the same
+                    if chat_id in self.active_calls:
+                        await self._play_safe(chat_id, stream, force_join=False)
+                    else:
+                        await self._play_safe(chat_id, stream, force_join=True)
 
                 if new_is_video:
                     await add_active_video_chat(chat_id)
