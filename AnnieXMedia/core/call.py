@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Fixed Attribute Error + Smart Unmute)
-# Fixes: 'ffmpeg_parameters' Error, Listening State, Instant Leave
+# System: Call Controller (Clean Native - No Manual Mute/Unmute)
+# Strategy: Trusting Library Internal Logic with auto_start=False
 
 import asyncio
 import os
@@ -94,11 +94,10 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         video = False
 
     # ==============================================================================
-    # 🔥 STABLE FLAGS (Prevents Listening State & Instant Leave)
+    # 🔥 STABLE FLAGS (Standard Buffer)
     # ==============================================================================
     
     if is_url:
-        # Direct Link: Light Probe (1M) + Reconnects
         titan_flags = (
             "-threads 2 "
             "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
@@ -106,7 +105,7 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
             "-fflags +genpts+igndts+nobuffer -sync ext"
         )
     else:
-        # Local File: -re is Essential
+        # Local File
         titan_flags = (
             "-re -threads 2 "
             "-probesize 1M -analyzeduration 2M "
@@ -159,7 +158,7 @@ class Call:
         self.active_calls: set[int] = set()
 
     async def _send_log(self, text: str):
-        print(f"[DEBUG CALL] {text}")
+        print(f"[CALL LOG] {text}")
         if not config.LOGGER_ID: return
         try:
             await app.send_message(config.LOGGER_ID, text, disable_web_page_preview=True)
@@ -323,7 +322,7 @@ class Call:
             db[chat_id][0].update({"played": con_seconds, "dur": duration_min, "seconds": dur, "speed_path": out, "speed": speed})
 
     # ==========================================================
-    # 🔥 JOIN LOGIC: Fixed Attribute Error + Force Unmute
+    # 🔥 JOIN LOGIC: No Manual Unmute (Clean)
     # ==========================================================
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
@@ -348,7 +347,6 @@ class Call:
                 except: pass
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
-        # REMOVED LOGGING THAT CAUSED ERROR
 
         if chat_id in self.active_calls:
             try:
@@ -362,14 +360,7 @@ class Call:
             try:
                 await self._play_safe(chat_id, stream, force_join=True)
                 await self._send_log(f"✅ **Assistant Joined**: `{chat_id}`")
-                
-                # 🔥 SMART WAKE UP: Force Unmute if stuck listening
-                await asyncio.sleep(3)
-                try:
-                    await assistant.unmute(chat_id)
-                    await self._send_log(f"🔊 **Unmuted**: `{chat_id}`")
-                except: pass
-                
+                # 🔥 No manual Mute/Unmute here. Letting the library handle it.
                 break 
             except Exception as e:
                 err_str = str(e).lower()
@@ -567,7 +558,7 @@ class Call:
                 db[chat_id][0]["markup"] = "stream"
                 
                 # 🔥 Log New Song Playing
-                await self._send_log(f"🎵 **Playing**: `{chat_id}`\nTitle: {title}")
+                await self._send_log(f"🎵 **Playing Next**: `{chat_id}`\nTitle: {title}")
 
             except Exception as e:
                 LOGGER(__name__).error(f"💣 [PLAY ERROR] Chat: {chat_id}\n{traceback.format_exc()}")
