@@ -81,8 +81,10 @@ async def _ensure_active_call_or_warn(chat_id: int, mystic, _lang) -> bool:
     and returns False.
     """
     try:
+        # هنا بنفترض إن vc_users بترجع ليستة، لو فاضية يبقى محدش في الكول
         users = await StreamController.vc_users(chat_id)
     except Exception:
+        # لو حصل إكسبشن (زي إن البوت مش أدمن أو الكول مقفول تماماً) نعتبرها فاضية
         users = []
 
     if not users:
@@ -91,15 +93,11 @@ async def _ensure_active_call_or_warn(chat_id: int, mystic, _lang) -> bool:
             await _safe_delete_msg(mystic)
         except Exception:
             pass
-        # ابعت رسالة ملف اللغة بس (بدون اي نص زيادة)
+        # ابعت رسالة "المكالمة مقفولة" من ملف اللغة
         try:
             await app.send_message(chat_id=chat_id, text=_lang["call_8"])
         except Exception:
-            # لو فشل ابعتها لللوج عشان نعرف
-            try:
-                await app.send_message(chat_id=config.LOGGER_ID, text=_lang.get("play_17", "Failed to send call_8"))
-            except Exception:
-                pass
+            pass
         return False
     return True
 
@@ -136,7 +134,7 @@ async def play_command(
     if is_locked and message.from_user.id not in SUDO_USERS:
         return await message.reply_text("- البحـث مغلـق .")
 
-    # تحديد نوع الطلب من النص العربي
+    # تحديد نوع الطلب من النص العربي (Force Video Check)
     command = message.command[0] if message.command else ""
     if command in ["فيد", "فيديو"]:
         video = True
@@ -165,6 +163,10 @@ async def play_command(
     )
 
     if audio_telegram:
+        # Check Call Status Before Downloading
+        if not await _ensure_active_call_or_warn(chat_id, mystic, _):
+            return
+
         if audio_telegram.file_size > config.TG_AUDIO_FILESIZE_LIMIT:
             return await mystic.edit_text(_["play_5"])
 
@@ -197,20 +199,24 @@ async def play_command(
                     chat_id,
                     user_name,
                     message.chat.id,
+                    video=False, # Force Audio
                     streamtype=internal_type,
                     forceplay=bool(fplay),
                 )
             except Exception as e:
+                await _safe_delete_msg(mystic)
                 err = (
                     e
                     if type(e).__name__ == "AssistantErr"
                     else _["general_2"].format(type(e).__name__)
                 )
-                return await mystic.edit_text(err)
+                # نبعت رسالة الخطأ لو مش AssistantErr أو لو عايزين نظهرها
+                # بس في الغالب stream.py هيهندل العرض، هنا بنأمن نفسنا
+                return await app.send_message(chat_id, err)
 
             caption_query = message.reply_to_message.caption or "—"
             await play_logs(message, streamtype="Telegram [Audio]", query=caption_query)
-            return await mystic.delete()
+            return await _safe_delete_msg(mystic)
         return
 
     video_telegram = (
@@ -220,6 +226,10 @@ async def play_command(
     )
 
     if video_telegram:
+        # Check Call Status Before Downloading
+        if not await _ensure_active_call_or_warn(chat_id, mystic, _):
+            return
+
         if message.reply_to_message.document:
             try:
                 ext = (video_telegram.file_name or "").split(".")[-1]
@@ -257,24 +267,29 @@ async def play_command(
                     chat_id,
                     user_name,
                     message.chat.id,
-                    video=True,
+                    video=True, # Force Video
                     streamtype=internal_type,
                     forceplay=bool(fplay),
                 )
             except Exception as e:
+                await _safe_delete_msg(mystic)
                 err = (
                     e
                     if type(e).__name__ == "AssistantErr"
                     else _["general_2"].format(type(e).__name__)
                 )
-                return await mystic.edit_text(err)
+                return await app.send_message(chat_id, err)
 
             caption_query = message.reply_to_message.caption or "—"
             await play_logs(message, streamtype="Telegram [Video]", query=caption_query)
-            return await mystic.delete()
+            return await _safe_delete_msg(mystic)
         return
 
     if url:
+        # Early Call Check for URLs
+        if not await _ensure_active_call_or_warn(chat_id, mystic, _):
+            return
+
         if await YouTube.exists(url):
             if "playlist" in url:
                 try:
@@ -426,29 +441,20 @@ async def play_command(
                     forceplay=bool(fplay),
                 )
             except Exception as e:
+                await _safe_delete_msg(mystic)
                 err = (
                     e
                     if type(e).__name__ == "AssistantErr"
                     else _["general_2"].format(type(e).__name__)
                 )
-                return await mystic.edit_text(err)
+                return await app.send_message(chat_id, err)
 
             await play_logs(message, streamtype="Soundcloud")
-            return await mystic.delete()
+            return await _safe_delete_msg(mystic)
 
         else:
-            # --- تحقق من وجود مكالمة في الشات قبل المحاولة ---
-            ok = await _ensure_active_call_or_warn(chat_id, mystic, _)
-            if not ok:
-                return
-
-            # اختباري/تحضيري (كما كان stream_call) — نحاول تشغيل اختبار خفيف
-            try:
-                await StreamController.stream_call(url)
-            except Exception:
-                # لا نوقف هنا لأن stream_call مجرد محاولة اختبارية
-                pass
-
+            # --- Index / M3U8 Link ---
+            # Call check already done at top of "if url" block
             await mystic.edit_text(_["str_2"])
             try:
                 internal_type = "index"
@@ -465,28 +471,35 @@ async def play_command(
                     forceplay=bool(fplay),
                 )
             except Exception as e:
+                await _safe_delete_msg(mystic)
                 err = (
                     e
                     if type(e).__name__ == "AssistantErr"
                     else _["general_2"].format(type(e).__name__)
                 )
-                return await mystic.edit_text(err)
+                return await app.send_message(chat_id, err)
 
             return await play_logs(message, streamtype="M3U8 or Index Link")
 
     else:
+        # البحث بالاسم (Query Search)
         if len(message.command) < 2:
             buttons = botplaylist_markup(_)
             return await mystic.edit_text(
                 _["play_18"],
                 reply_markup=InlineKeyboardMarkup(buttons),
             )
+        
+        # Check Call before searching
+        if not await _ensure_active_call_or_warn(chat_id, mystic, _):
+            return
 
         slider = True
         query = message.text.split(None, 1)[1]
         if "-v" in query:
             query = query.replace("-v", "")
-
+        
+        # البحث
         try:
             details, track_id = await YouTube.track(query)
         except Exception as e:
@@ -532,14 +545,15 @@ async def play_command(
                 forceplay=bool(fplay),
             )
         except Exception as e:
+            await _safe_delete_msg(mystic)
             err = (
                 e
                 if type(e).__name__ == "AssistantErr"
                 else _["general_2"].format(type(e).__name__)
             )
-            return await mystic.edit_text(err)
+            return await app.send_message(chat_id, err)
 
-        await mystic.delete()
+        await _safe_delete_msg(mystic)
         return await play_logs(message, streamtype=log_label)
 
     else:
@@ -556,7 +570,7 @@ async def play_command(
                 "c" if channel else "g",
                 "f" if fplay else "d",
             )
-            await mystic.delete()
+            await _safe_delete_msg(mystic)
             await message.reply_photo(
                 photo=(
                     details["thumb"]
@@ -588,7 +602,7 @@ async def play_command(
                     "c" if channel else "g",
                     "f" if fplay else "d",
                 )
-                await mystic.delete()
+                await _safe_delete_msg(mystic)
                 await message.reply_photo(
                     photo=details["thumb"],
                     caption=_["play_10"].format(
@@ -607,7 +621,7 @@ async def play_command(
                     "c" if channel else "g",
                     "f" if fplay else "d",
                 )
-                await mystic.delete()
+                await _safe_delete_msg(mystic)
                 await message.reply_photo(
                     photo=details["thumb"],
                     caption=_["play_10"].format(
@@ -650,6 +664,10 @@ async def play_music(client, CallbackQuery, _):
                 CallbackQuery.message.chat.id,
                 _["play_2"].format(channel) if channel else random.choice(AYU),
             )
+        
+        # Check Call before downloading track info
+        if not await _ensure_active_call_or_warn(chat_id, mystic, _):
+            return
 
         details, track_id = await YouTube.track(vidid, videoid=vidid)
 
@@ -675,11 +693,6 @@ async def play_music(client, CallbackQuery, _):
         video = mode == "v"
         forceplay = fplay == "f"
 
-        # قبل تشغيل أي حاجة بنتحقق من وجود مكالمة (خصوصًا للحالات اللي ممكن تكون index أو direct test)
-        ok = await _ensure_active_call_or_warn(chat_id, mystic, _)
-        if not ok:
-            return
-
         await stream(
             _,
             mystic,
@@ -693,9 +706,10 @@ async def play_music(client, CallbackQuery, _):
             forceplay=bool(forceplay),
         )
 
-        await mystic.delete()
+        await _safe_delete_msg(mystic)
 
     except Exception as e:
+        await _safe_delete_msg(mystic)
         err = (
             e
             if type(e).__name__ == "AssistantErr"
@@ -750,6 +764,10 @@ async def play_playlists_command(client, CallbackQuery, _):
                 _["play_2"].format(channel) if channel else random.choice(AYU),
             )
 
+        # Check Call before loading Playlist items
+        if not await _ensure_active_call_or_warn(chat_id, mystic, _):
+            return
+
         videoid = lyrical.get(videoid)
         video = mode == "v"
         forceplay = fplay == "f"
@@ -784,11 +802,6 @@ async def play_playlists_command(client, CallbackQuery, _):
         else:
             return
 
-        # تحقق من المكالمة قبل تشغيل بلايلست كبير (لتجنب إرسال تصميم ثم يرجع الفشل)
-        ok = await _ensure_active_call_or_warn(chat_id, mystic, _)
-        if not ok:
-            return
-
         await stream(
             _,
             mystic,
@@ -804,9 +817,10 @@ async def play_playlists_command(client, CallbackQuery, _):
         )
 
         await play_logs(CallbackQuery.message, streamtype=log_label)
-        await mystic.delete()
+        await _safe_delete_msg(mystic)
 
     except Exception as e:
+        await _safe_delete_msg(mystic)
         err = (
             e
             if type(e).__name__ == "AssistantErr"
