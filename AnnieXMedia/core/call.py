@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Native Library Logic)
-# Fixes: auto_start=True (Library handles join/create), Hybrid FFmpeg, UI Leak Fix
+# System: Call Controller (Stable Entry & Auto-Create)
+# Fixes: Instant Leave (Throttled FFmpeg), Connection Handshake, Auto-Start
 
 import asyncio
 import os
@@ -91,22 +91,28 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
     path = str(path)
     is_url = path.startswith("http")
     
+    # Force audio flags if needed
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
-    # ✅ Hybrid Flags (1M Probe + -re for Local)
+    # ==============================================================================
+    # 🔥 STABLE FLAGS (The Fix for "Aggressive Entry")
+    # ==============================================================================
+    # We removed "nobuffer" and increased connection timeout to handle the handshake.
+    
     if is_url:
+        # Direct Link: Needs network resilience
         titan_flags = (
             "-threads 2 "
             "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
-            "-probesize 1M -analyzeduration 2M "  # Light Buffer
-            "-rtbufsize 5M "
-            "-fflags +genpts+igndts+nobuffer -sync ext"
+            "-probesize 1M -analyzeduration 2M " # Light probe (Fast start)
+            "-rtbufsize 5M "                     # Moderate buffer (Stability)
+            "-fflags +genpts+igndts -sync ext"   # Removed 'nobuffer' to allow handshake
         )
     else:
-        # Local File: -re prevents instant leave
+        # Local File (RAM): Needs pacing (-re)
         titan_flags = (
-            "-re -threads 2 "
+            "-re -threads 2 "                    # Mandatory for RAM files
             "-probesize 1M -analyzeduration 2M "
             "-fflags +genpts+igndts "
             "-sync ext -ss 0"
@@ -116,7 +122,7 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
 
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.HIGH,
+        audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p,
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
@@ -156,11 +162,9 @@ class Call:
 
         self.active_calls: set[int] = set()
 
-    # ✅ NATIVE LOGIC: Using auto_start=True
-    # This tells the library: "Join, and if you can, create the call"
+    # ✅ Using auto_start=True (Letting library handle Admin Create logic)
     async def _play_safe(self, chat_id, stream, force_join=False):
         assistant = await group_assistant(self, chat_id)
-        # Using auto_start=True as requested
         config = GroupCallConfig(auto_start=True if force_join else False)
         await assistant.play(chat_id, stream, config=config)
 
@@ -267,9 +271,8 @@ class Call:
             await remove_active_video_chat(chat_id)
 
     # ==========================================================
-    # 🔥 JOIN LOGIC: Native "True" Mode
+    # 🔥 JOIN LOGIC: Native + Stabilized
     # ==========================================================
-    # ❌ No Decorator here (Strict Error Bubbling)
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
         lang = await get_lang(chat_id)
@@ -304,14 +307,14 @@ class Call:
         retries = 3
         for attempt in range(retries):
             try:
-                # 🔥 HERE IT IS: Using True. 
-                # The Library should handle the logic (Join if exists, Create if Admin)
+                # 🔥 auto_start=True will allow the library to Create/Join
                 await self._play_safe(chat_id, stream, force_join=True)
                 
-                # Stability Wait
+                # 🔥 STABILITY PAUSE: This is the fix for "Entering & Leaving Instantly"
+                # Giving Telegram 2 seconds to establish the RTP handshake.
                 await asyncio.sleep(2)
                 
-                # Audio Wakeup
+                # Wake up packets
                 try:
                     await assistant.mute(chat_id)
                     await asyncio.sleep(0.1)
@@ -322,7 +325,7 @@ class Call:
             except Exception as e:
                 err_str = str(e).lower()
                 
-                # If Library Fails despite "True", we report it.
+                # Fail Immediately on critical errors (Fixes UI Leak)
                 if (isinstance(e, (NoActiveGroupCall, ChatAdminRequired)) 
                     or "chat_admin_required" in err_str 
                     or "noactivegroupcall" in err_str 
