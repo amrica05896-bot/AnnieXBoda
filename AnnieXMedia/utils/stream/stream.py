@@ -114,7 +114,7 @@ async def stream(
                         image=thumbnail,
                     )
                 except AssistantErr as e:
-                    # لو الكول مقفول، نبعت الرسالة ونوقف اللوب فوراً
+                    # لو الكول مقفول، نبعت الرسالة ونوقف اللوب والدالة فوراً
                     await mystic.edit_text(str(e))
                     return
                 except Exception as e:
@@ -225,7 +225,7 @@ async def stream(
                     image=thumbnail,
                 )
             except AssistantErr as e:
-                # 🛑 STOP UI GENERATION
+                # 🛑 STOP UI GENERATION (Critical Fix)
                 await mystic.edit_text(str(e))
                 return
             except Exception as e:
@@ -302,7 +302,8 @@ async def stream(
             except AssistantErr as e:
                 await mystic.edit_text(str(e))
                 return
-            except Exception:
+            except Exception as e:
+                await mystic.edit_text(str(e))
                 return
 
             await put_queue(
@@ -372,7 +373,8 @@ async def stream(
             except AssistantErr as e:
                 await mystic.edit_text(str(e))
                 return
-            except Exception:
+            except Exception as e:
+                await mystic.edit_text(str(e))
                 return
 
             await put_queue(
@@ -453,7 +455,8 @@ async def stream(
             except AssistantErr as e:
                 await mystic.edit_text(str(e))
                 return
-            except Exception:
+            except Exception as e:
+                await mystic.edit_text(str(e))
                 return
 
             await put_queue(
@@ -523,7 +526,8 @@ async def stream(
             except AssistantErr as e:
                 await mystic.edit_text(str(e))
                 return
-            except Exception:
+            except Exception as e:
+                await mystic.edit_text(str(e))
                 return
 
             await put_queue_index(
