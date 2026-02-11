@@ -33,7 +33,7 @@ from AnnieXMedia.utils.logger import play_logs
 from AnnieXMedia.utils.stream.stream import stream
 
 # ==========================================================
-# إعدادات قاعدة البيانات
+# إعدادات قاعدة البيانات (Database & Search Lock)
 # ==========================================================
 
 SUDO_USERS = OWNER_ID if isinstance(OWNER_ID, list) else [OWNER_ID]
@@ -63,14 +63,14 @@ async def unlock_search_cmd(client, message):
     await set_search_state(False)
     await message.reply_text("**تم فتح البحث بنجاح .**")
 
-# --- helper: safe delete message
+# --- helper: safe delete message ---
 async def _safe_delete_msg(msg):
     try:
         if msg: await msg.delete()
     except Exception: pass
 
 # ==========================================================
-# كود التشغيل الرئيسي
+# كود التشغيل الرئيسي (Main Play Logic)
 # ==========================================================
 
 @app.on_message(
@@ -97,17 +97,17 @@ async def play_command(
     url,
     fplay,
 ):
-    # التحقق من حالة قفل البحث
+    # 1. Security Check: Search Lock
     is_locked = await get_search_state()
     if is_locked and message.from_user.id not in SUDO_USERS:
         return await message.reply_text("- البحـث مغلـق .")
 
-    # تحديد نوع الطلب من النص العربي (إجبار الفيديو)
+    # 2. Input Analysis: Force Video if command implies it
     command = message.command[0] if message.command else ""
     if command in ["فيد", "فيديو", "vplay", "cvplay"]:
         video = True
     
-    # رسالة الانتظار
+    # 3. Send "Processing" Message (Mystic)
     wait_text = _["play_2"].format(channel) if channel else random.choice(AYU)
     
     try:
@@ -118,12 +118,15 @@ async def play_command(
     except RandomIdDuplicate:
         mystic = await app.send_message(message.chat.id, wait_text)
 
+    # Variables Init
     plist_id, plist_type, spotify, slider = None, None, None, None
     internal_type, log_label = None, None
     user_id = message.from_user.id
     user_name = message.from_user.first_name
 
-    # 1. التعامل مع الصوت المرفق (Reply Audio)
+    # ==========================
+    # CASE A: Reply to Audio
+    # ==========================
     audio_telegram = (
         (message.reply_to_message.audio or message.reply_to_message.voice)
         if message.reply_to_message
@@ -157,7 +160,9 @@ async def play_command(
             return await _safe_delete_msg(mystic)
         return
 
-    # 2. التعامل مع الفيديو المرفق (Reply Video)
+    # ==========================
+    # CASE B: Reply to Video
+    # ==========================
     video_telegram = (
         (message.reply_to_message.video or message.reply_to_message.document)
         if message.reply_to_message
@@ -197,7 +202,9 @@ async def play_command(
             return await _safe_delete_msg(mystic)
         return
 
-    # 3. التعامل مع الروابط (URLs)
+    # ==========================
+    # CASE C: URL Handling
+    # ==========================
     if url:
         if await YouTube.exists(url):
             if "playlist" in url:
@@ -337,7 +344,9 @@ async def play_command(
                 return await app.send_message(chat_id, _["general_2"].format(type(e).__name__))
             return await play_logs(message, streamtype="M3U8 or Index Link")
 
-    # 4. البحث بالاسم (Query Search)
+    # ==========================
+    # CASE D: Search Query
+    # ==========================
     else:
         if len(message.command) < 2:
             buttons = botplaylist_markup(_)
@@ -356,7 +365,9 @@ async def play_command(
         internal_type = "youtube"
         log_label = "Youtube Track"
 
-    # 5. التنفيذ (Direct or Slider)
+    # ==========================
+    # FINAL EXECUTION (Play or Show UI)
+    # ==========================
     if str(playmode) == "Direct":
         if not plist_type:
             if details.get("duration_min"):
@@ -382,6 +393,7 @@ async def play_command(
         return await play_logs(message, streamtype=log_label)
 
     else:
+        # Playlist or Slider UI
         if plist_type:
             ran_hash = "".join(random.choices(string.ascii_uppercase + string.digits, k=10))
             lyrical[ran_hash] = plist_id
@@ -422,6 +434,10 @@ async def play_command(
                     reply_markup=InlineKeyboardMarkup(buttons),
                 )
                 return await play_logs(message, streamtype="URL Search Inline")
+
+# ==========================
+# CALLBACK HANDLERS
+# ==========================
 
 @app.on_callback_query(filters.regex("MusicStream") & ~BANNED_USERS)
 @languageCB
