@@ -19,8 +19,8 @@ from pytgcalls.exceptions import (
     NoActiveGroupCall,
     NoAudioSourceFound,
     NoVideoSourceFound,
-    NotInCallError,          # Used instead of GroupCallNotFound
-    PyTgCallsAlreadyRunning, # Used instead of AlreadyJoinedError
+    NotInCallError,
+    PyTgCallsAlreadyRunning,
     PyTgCallsError
 )
 from pytgcalls.types import (
@@ -91,13 +91,15 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
     is_url = path.startswith("http")
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): video = False
 
-    titan_flags = "-threads 4 -probesize 10M -analyzeduration 10M -fflags +genpts+igndts+nobuffer -sync ext"
+    # FIX: Optimized flags to prevent TimeoutError during cleanup/probe
+    # Reduced probesize to 1M and analyzeduration to 2M for faster startup
+    titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -fflags +genpts+igndts+nobuffer -sync ext"
+    
     if is_url:
-        titan_flags = "-threads 4 -probesize 10M -analyzeduration 10M -rtbufsize 15M -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 -fflags +genpts+igndts+nobuffer -sync ext"
+        titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -rtbufsize 5M -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 -fflags +genpts+igndts+nobuffer -sync ext"
     
     if ffmpeg_params: titan_flags += f" {ffmpeg_params}"
 
-    # Creating MediaStream with Specific Flags for Custom Build
     return MediaStream(
         media_path=path,
         audio_parameters=AudioQuality.HIGH,
@@ -145,11 +147,10 @@ class Call:
     async def _play_safe(self, chat_id, stream, force_join=False):
         """
         Uses Play() for everything.
-        force_join=True -> auto_start=True (Creates call/Joins).
+        force_join=True -> auto_start=True (Creates call/Joins or Hard Reconnect).
         force_join=False -> auto_start=False (Updates stream only).
         """
         assistant = await group_assistant(self, chat_id)
-        # Config logic: auto_start=True for fresh join, False for update
         config = GroupCallConfig(auto_start=force_join)
         await assistant.play(chat_id, stream, config=config)
 
@@ -209,7 +210,6 @@ class Call:
         vid_id = extract_video_id(str(link))
         await _invalidate_direct_cache_for_vid(vid_id)
 
-        # Smart Link Resolving
         if os.path.exists(str(link)) and video and str(link).endswith((".mp3", ".m4a")):
             if vid_id:
                 try:
@@ -225,34 +225,31 @@ class Call:
 
         # Determine Stream Types for Switching Logic
         new_is_video = bool(video)
+        old_is_video = False
         try:
-            old_is_video = False
             check = db.get(chat_id)
             if check:
-                # Check the currently playing item
                 old_is_video = str(check[0].get("streamtype")) == "video"
-        except:
-            old_is_video = False
+        except: pass
 
         stream = dynamic_media_stream(path=final_link, video=new_is_video)
         assistant = await group_assistant(self, chat_id)
 
-        # Logic to handle Video/Audio Switch preventing lag
         if chat_id in self.active_calls:
             try:
-                # If switching type (Audio <-> Video), Force Leave & Join
+                # FIX: Strict switching logic
                 if old_is_video != new_is_video:
+                    # Type changed -> LEAVE then JOIN (auto_start=True)
                     try: await assistant.leave_call(chat_id)
                     except: pass
                     await self._play_safe(chat_id, stream, force_join=True)
                 else:
-                    # Same type, just update
+                    # Same type -> UPDATE only (auto_start=False)
                     await self._play_safe(chat_id, stream, force_join=False)
             except (NoActiveGroupCall, NotInCallError):
-                # Call died, restart it
+                # If call died, force join
                 await self._play_safe(chat_id, stream, force_join=True)
             except Exception:
-                # Fallback
                 try: await self.stop_stream(chat_id)
                 except: pass
                 await asyncio.sleep(0.2)
@@ -273,8 +270,7 @@ class Call:
         ffmpeg_params = f"-ss {to_seek} -to {duration}"
         is_video = mode == "video"
         stream = dynamic_media_stream(path=file_path, video=is_video, ffmpeg_params=ffmpeg_params)
-        
-        # Seek is an update, use auto_start=False
+        # Seek is an update
         await self._play_safe(chat_id, stream, force_join=False)
 
     @capture_internal_err
@@ -297,7 +293,6 @@ class Call:
         ffmpeg_params = f"-ss {played} -to {duration_min}"
         stream = dynamic_media_stream(path=out, video=is_video, ffmpeg_params=ffmpeg_params)
         
-        # Speed update is just a stream switch, auto_start=False
         await self._play_safe(chat_id, stream, force_join=False)
         
         if chat_id in db and db[chat_id] and db[chat_id][0].get("file") == file_path:
@@ -328,23 +323,22 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
-        # Handle active calls (Update Stream via play)
+        # Handle active calls (Update Only)
         if chat_id in self.active_calls:
             try:
-                # For safety, if joining explicitly while active, treat as update
                 await self._play_safe(chat_id, stream, force_join=False)
                 return
             except Exception:
                 pass
 
-        # Join New Call (force_join=True means auto_start=True)
+        # Join New Call (Force Join)
         retries = 3
         for attempt in range(retries):
             try:
                 await self._play_safe(chat_id, stream, force_join=True)
                 break
             except NoActiveGroupCall:
-                # REQUIREMENT: Raise AssistantErr if NoActiveGroupCall found
+                # FIX: Immediate failure if no call exists (Protection)
                 raise AssistantErr(_["call_8"]) 
             except (NoAudioSourceFound, NoVideoSourceFound):
                 if video and attempt == retries - 1:
@@ -360,7 +354,6 @@ class Call:
                     continue
                 raise AssistantErr(_["call_10"])
             except Exception as e:
-                # Handle "AlreadyJoined" using the new Allowed Exception or String check
                 if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in str(e).lower():
                     try:
                         await self._play_safe(chat_id, stream, force_join=False)
@@ -435,7 +428,6 @@ class Call:
             except: pass
             return
         
-        # Determine current stream type before popping (for switch logic)
         old_is_video = False
         try:
             if len(check) > 0:
@@ -469,7 +461,6 @@ class Call:
             streamtype = check[0].get("streamtype")
             videoid = clean_vidid(check[0].get("vidid"))
             
-            # Reset counters
             db[chat_id][0]["played"] = 0
             if (check[0]).get("old_dur"):
                 db[chat_id][0]["dur"] = check[0].get("old_dur")
@@ -501,7 +492,7 @@ class Call:
                 
                 stream = dynamic_media_stream(path=final_link, video=new_is_video)
                 
-                # Apply Video Switch Logic (Leave then Play if type changed)
+                # FIX: Queue Switching Logic
                 if old_is_video != new_is_video:
                     try: await client.leave_call(chat_id)
                     except: pass
