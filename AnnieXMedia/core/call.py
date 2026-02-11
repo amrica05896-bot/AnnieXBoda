@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Clean Native - No Manual Mute/Unmute)
-# Strategy: Trusting Library Internal Logic with auto_start=False
+# System: Call Controller (Fixed Import Error for Official Library)
+# Fixes: Removed 'PyTgCallsError' import crash
 
 import asyncio
 import os
@@ -14,13 +14,13 @@ from pyrogram.errors import ChatAdminRequired, UserAlreadyParticipant, UserNotPa
 from pyrogram.types import InlineKeyboardMarkup
 
 from pytgcalls import PyTgCalls
+# ⬇️ تم تعديل الاستدعاءات هنا لإزالة الاسم المحذوف من المكتبة الأصلية
 from pytgcalls.exceptions import (
     NoActiveGroupCall,
     NoAudioSourceFound,
     NoVideoSourceFound,
     NotInCallError,
-    PyTgCallsAlreadyRunning,
-    PyTgCallsError
+    PyTgCallsAlreadyRunning
 )
 from pytgcalls.types import (
     AudioQuality,
@@ -94,10 +94,11 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         video = False
 
     # ==============================================================================
-    # 🔥 STABLE FLAGS (Standard Buffer)
+    # 🔥 STABLE FLAGS (Official Library Compatible)
     # ==============================================================================
     
     if is_url:
+        # Direct Link: Light Probe (1M) + Reconnects
         titan_flags = (
             "-threads 2 "
             "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
@@ -322,7 +323,7 @@ class Call:
             db[chat_id][0].update({"played": con_seconds, "dur": duration_min, "seconds": dur, "speed_path": out, "speed": speed})
 
     # ==========================================================
-    # 🔥 JOIN LOGIC: No Manual Unmute (Clean)
+    # 🔥 JOIN LOGIC
     # ==========================================================
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
@@ -359,8 +360,7 @@ class Call:
         for attempt in range(retries):
             try:
                 await self._play_safe(chat_id, stream, force_join=True)
-                await self._send_log(f"✅ **Assistant Joined**: `{chat_id}`")
-                # 🔥 No manual Mute/Unmute here. Letting the library handle it.
+                await self._send_log(f"✅ **Joined**: `{chat_id}`")
                 break 
             except Exception as e:
                 err_str = str(e).lower()
@@ -374,7 +374,7 @@ class Call:
                     raise AssistantErr(_["call_8"])
 
                 if attempt == retries - 1:
-                    await self._send_log(f"❌ **FATAL Join Error**: `{chat_id}`\n{e}")
+                    await self._send_log(f"❌ **Fatal Error**: `{chat_id}`\n{e}")
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
                     elif isinstance(e, (ConnectionNotFound, TelegramServerError)):
