@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Seamless Skip & Stable Transition)
-# Fixes: Removes unnecessary Leave/Join on Skip, Fixes Timeout, Auto-Start Logic.
+# System: Call Controller (Smart Error Handling & Stable Switching)
+# Fixes: 'ChatAdminRequired' handling, Timeout, and Seamless Audio/Video Switch
 
 import asyncio
 import os
@@ -12,6 +12,7 @@ from typing import Union, Optional
 
 from ntgcalls import TelegramServerError, ConnectionNotFound
 from pyrogram import Client
+from pyrogram.errors import ChatAdminRequired, UserAlreadyParticipant, UserNotParticipant
 from pyrogram.types import InlineKeyboardMarkup
 from pytgcalls import PyTgCalls
 from pytgcalls.exceptions import (
@@ -95,7 +96,6 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
 
     # Light Flags (1M)
     titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -fflags +genpts+igndts+nobuffer -sync ext"
-    
     if is_url:
         titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -rtbufsize 5M -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 -fflags +genpts+igndts+nobuffer -sync ext"
     
@@ -145,10 +145,6 @@ class Call:
         self.active_calls: set[int] = set()
 
     async def _play_safe(self, chat_id, stream, force_join=False):
-        """
-        force_join=True -> New Call (auto_start=True).
-        force_join=False -> Update Stream (auto_start=False).
-        """
         assistant = await group_assistant(self, chat_id)
         config = GroupCallConfig(auto_start=force_join)
         await assistant.play(chat_id, stream, config=config)
@@ -234,15 +230,12 @@ class Call:
 
         if chat_id in self.active_calls:
             try:
-                # 🔥 Smart Switching Logic:
-                # Only leave/re-join if switching between Audio <-> Video (Required by Telegram)
-                # Otherwise, just UPDATE the stream (Seamless)
+                # 🔥 Smart Switching Logic
                 if old_is_video != new_is_video:
                     try: await assistant.leave_call(chat_id)
                     except: pass
                     await self._play_safe(chat_id, stream, force_join=True)
                 else:
-                    # Same Type (Audio->Audio or Video->Video) => Seamless Update
                     await self._play_safe(chat_id, stream, force_join=False)
             except (NoActiveGroupCall, NotInCallError):
                 await self._play_safe(chat_id, stream, force_join=True)
@@ -254,10 +247,8 @@ class Call:
         else:
             await self._play_safe(chat_id, stream, force_join=True)
             
-        if new_is_video:
-            await add_active_video_chat(chat_id)
-        else:
-            await remove_active_video_chat(chat_id)
+        if new_is_video: await add_active_video_chat(chat_id)
+        else: await remove_active_video_chat(chat_id)
 
     @capture_internal_err
     async def vc_users(self, chat_id: int) -> list:
@@ -324,7 +315,6 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
-        # Handle active calls (Update Only - No Rejoin)
         if chat_id in self.active_calls:
             try:
                 await self._play_safe(chat_id, stream, force_join=False)
@@ -332,28 +322,39 @@ class Call:
             except Exception:
                 pass
 
-        # Join New Call (Auto Start Logic)
+        # 🔥 Fix: Auto-Start Logic + Smart Admin Check
         retries = 3
         for attempt in range(retries):
             try:
                 await self._play_safe(chat_id, stream, force_join=True)
                 break
             except Exception as e:
+                # لو دي آخر محاولة، نفحص نوع الخطأ بدقة
                 if attempt == retries - 1:
-                    if isinstance(e, NoActiveGroupCall) or "NoActiveGroupCall" in str(e) or "group call not found" in str(e).lower():
+                    # 1. لو المساعد مش أدمن (السبب الرئيسي للمشكلة)
+                    if isinstance(e, ChatAdminRequired) or "CHAT_ADMIN_REQUIRED" in str(e) or "must be an admin" in str(e).lower():
+                        raise AssistantErr(_["call_8"]) # رجع الخطأ ده عشان stream.py يمسح الرسالة
+                    
+                    # 2. لو مفيش كول (والمساعد مش قادر يفتحه لأي سبب)
+                    elif isinstance(e, NoActiveGroupCall) or "NoActiveGroupCall" in str(e) or "group call not found" in str(e).lower():
                         raise AssistantErr(_["call_8"])
+                    
                     elif isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
+                    
                     elif isinstance(e, (ConnectionNotFound, TelegramServerError)):
                         raise AssistantErr(_["call_10"])
                     
+                    # 3. لو هو أصلاً في الكول بس مهنج (نعمل تحديث ونكمل)
                     if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in str(e).lower():
                         try:
                             await self._play_safe(chat_id, stream, force_join=False)
                             break
                         except: pass
                     else:
+                        # أي خطأ تاني غير متوقع
                         raise AssistantErr(f"Error: {e}")
+                
                 await asyncio.sleep(1)
                 continue
 
@@ -483,22 +484,24 @@ class Call:
                 
                 stream = dynamic_media_stream(path=final_link, video=new_is_video)
                 
-                # 🔥 Smart Switching Logic for Next Track (Same as Skip)
+                # 🔥 Smart Switching for Next Track
+                # لو النوع هو هو، تحديث بس. لو اختلف، خروج ودخول.
                 if old_is_video != new_is_video:
                     try: await client.leave_call(chat_id)
                     except: pass
                     await self._play_safe(chat_id, stream, force_join=True)
                 else:
-                    # Seamless update if type is the same
+                    # لو نفس النوع، بنعمل update فقط، إلا لو الكول وقع، بنفتحه تاني
                     if chat_id in self.active_calls:
-                        await self._play_safe(chat_id, stream, force_join=False)
+                        try:
+                            await self._play_safe(chat_id, stream, force_join=False)
+                        except (NoActiveGroupCall, NotInCallError):
+                            await self._play_safe(chat_id, stream, force_join=True)
                     else:
                         await self._play_safe(chat_id, stream, force_join=True)
 
-                if new_is_video:
-                    await add_active_video_chat(chat_id)
-                else:
-                    await remove_active_video_chat(chat_id)
+                if new_is_video: await add_active_video_chat(chat_id)
+                else: await remove_active_video_chat(chat_id)
 
                 img = await get_thumb(videoid)
                 button = stream_markup(_, chat_id)
