@@ -1,20 +1,22 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Fixed Import Error for Official Library)
-# Fixes: Removed 'PyTgCallsError' import crash
+# System: Call Controller (Auto-Create VC + Native Library)
+# Fixes: 'NoActiveGroupCall' (Auto-Create), 'Listening State' (Smart Unmute)
 
 import asyncio
 import os
 import re
 import traceback
+from random import randint
 from datetime import datetime, timedelta
 from typing import Union, Optional
 
 import yt_dlp
+# 🔥 Necessary imports for creating VC
+from pyrogram.raw import functions 
 from pyrogram.errors import ChatAdminRequired, UserAlreadyParticipant, UserNotParticipant
 from pyrogram.types import InlineKeyboardMarkup
 
 from pytgcalls import PyTgCalls
-# ⬇️ تم تعديل الاستدعاءات هنا لإزالة الاسم المحذوف من المكتبة الأصلية
 from pytgcalls.exceptions import (
     NoActiveGroupCall,
     NoAudioSourceFound,
@@ -94,11 +96,9 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         video = False
 
     # ==============================================================================
-    # 🔥 STABLE FLAGS (Official Library Compatible)
+    # 🔥 STABLE FLAGS
     # ==============================================================================
-    
     if is_url:
-        # Direct Link: Light Probe (1M) + Reconnects
         titan_flags = (
             "-threads 2 "
             "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
@@ -106,7 +106,6 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
             "-fflags +genpts+igndts+nobuffer -sync ext"
         )
     else:
-        # Local File
         titan_flags = (
             "-re -threads 2 "
             "-probesize 1M -analyzeduration 2M "
@@ -323,7 +322,7 @@ class Call:
             db[chat_id][0].update({"played": con_seconds, "dur": duration_min, "seconds": dur, "speed_path": out, "speed": speed})
 
     # ==========================================================
-    # 🔥 JOIN LOGIC
+    # 🔥 JOIN LOGIC: AUTO-CREATE IF NO CALL
     # ==========================================================
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
@@ -359,20 +358,37 @@ class Call:
         retries = 3
         for attempt in range(retries):
             try:
+                # 1. Try Join (Normal)
                 await self._play_safe(chat_id, stream, force_join=True)
-                await self._send_log(f"✅ **Joined**: `{chat_id}`")
-                break 
-            except Exception as e:
-                err_str = str(e).lower()
+                await self._send_log(f"✅ **Assistant Joined**: `{chat_id}`")
                 
-                if (isinstance(e, (NoActiveGroupCall, ChatAdminRequired)) 
-                    or "chat_admin_required" in err_str 
-                    or "noactivegroupcall" in err_str 
-                    or "group call not found" in err_str):
-                    
-                    await self._send_log(f"⚠️ **Join Fail (No Call)**: `{chat_id}`")
+                # Smart Unmute (Optional Fix for Listening State)
+                await asyncio.sleep(2)
+                try: await assistant.unmute(chat_id)
+                except: pass
+                
+                break 
+            
+            # 🔥 THIS IS THE FIX: CATCH 'No Call' -> CREATE IT
+            except (NoActiveGroupCall, ChatAdminRequired):
+                try:
+                    await self._send_log(f"🛠️ **Creating VC**: `{chat_id}`")
+                    await assistant.invoke(
+                        functions.phone.CreateGroupCall(
+                            peer=await assistant.resolve_peer(chat_id),
+                            random_id=randint(10000, 99999)
+                        )
+                    )
+                    await asyncio.sleep(3) # Wait for Telegram to register VC
+                    await self._send_log(f"✅ **VC Created**, Retrying Play...")
+                    await self._play_safe(chat_id, stream, force_join=True)
+                    break
+                except Exception as ex:
+                    await self._send_log(f"❌ **Failed to Create VC**: {ex}")
                     raise AssistantErr(_["call_8"])
 
+            except Exception as e:
+                err_str = str(e).lower()
                 if attempt == retries - 1:
                     await self._send_log(f"❌ **Fatal Error**: `{chat_id}`\n{e}")
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
