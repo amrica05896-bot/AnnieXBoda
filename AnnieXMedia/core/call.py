@@ -1,19 +1,20 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Your Old Logic + New Fixes)
-# Fixes: Uses your specific Join logic, Light FFmpeg Flags, Strict Error Handling
+# System: Call Controller (The Ultimate Mix: Old Logic + Winx Auto-Create + Hasii FFmpeg)
+# Fixes: Instant Leave, Auto-Create VC, UI Leak, Connection Stability
 
 import asyncio
 import os
 import re
 import traceback
-import yt_dlp
+from random import randint
 from datetime import datetime, timedelta
 from typing import Union, Optional
 
-from ntgcalls import TelegramServerError, ConnectionNotFound
-from pyrogram import Client
+import yt_dlp
+from pyrogram.raw import functions
 from pyrogram.errors import ChatAdminRequired, UserAlreadyParticipant, UserNotParticipant
 from pyrogram.types import InlineKeyboardMarkup
+
 from pytgcalls import PyTgCalls
 from pytgcalls.exceptions import (
     NoActiveGroupCall,
@@ -52,7 +53,6 @@ from AnnieXMedia.utils.database import (
 from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.stream.autoclear import auto_clean
 from AnnieXMedia.utils.thumbnails import get_thumb
-# ✅ Decorator imported but used SELECTIVELY
 from AnnieXMedia.utils.errors import capture_internal_err
 
 autoend = {}
@@ -87,25 +87,41 @@ async def get_direct_link(videoid: str, video: bool = False):
         return await loop.run_in_executor(None, _extract)
     except: return link
 
+# ==============================================================================
+# 🔥 HYBRID STREAM FLAGS (The Fix for Instant Leave)
+# ==============================================================================
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
     if not path: path = ""
     path = str(path)
     is_url = path.startswith("http")
     
+    # Force audio flags if file extension detects audio
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
-    # ✅ YOUR OLD FLAGS (1M Buffer) - Stable & Fast
-    titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -fflags +genpts+igndts+nobuffer -sync ext"
-    
+    # 1. LIVE / URL: Use aggressive buffering (Hasii Logic)
     if is_url:
-        titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -rtbufsize 5M -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 -fflags +genpts+igndts+nobuffer -sync ext"
+        titan_flags = (
+            "-threads 2 "
+            "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
+            "-probesize 5M -analyzeduration 5M "
+            "-rtbufsize 5M "
+            "-fflags +genpts+igndts+nobuffer -sync ext"
+        )
+    # 2. LOCAL FILE (RAM): Use -re (Your Old Bot Logic + Fix)
+    else:
+        titan_flags = (
+            "-re -threads 2 "
+            "-probesize 5M -analyzeduration 5M "
+            "-fflags +genpts+igndts "
+            "-sync ext -ss 0"
+        )
     
     if ffmpeg_params: titan_flags += f" {ffmpeg_params}"
 
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.HIGH,
+        audio_parameters=AudioQuality.HIGH, # High is stable
         video_parameters=VideoQuality.HD_720p,
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
@@ -145,10 +161,11 @@ class Call:
 
         self.active_calls: set[int] = set()
 
+    # Old Bot Wrapper Style
     async def _play_safe(self, chat_id, stream, force_join=False):
         assistant = await group_assistant(self, chat_id)
-        # Using auto_start logic based on force_join
-        config = GroupCallConfig(auto_start=force_join)
+        # ✅ YOUR OLD LOGIC: auto_start=False
+        config = GroupCallConfig(auto_start=False)
         await assistant.play(chat_id, stream, config=config)
 
     @capture_internal_err
@@ -253,10 +270,50 @@ class Call:
         else:
             await remove_active_video_chat(chat_id)
 
+    @capture_internal_err
+    async def vc_users(self, chat_id: int) -> list:
+        assistant = await group_assistant(self, chat_id)
+        try:
+            participants = await assistant.get_participants(chat_id)
+            return [p.user_id for p in participants if not getattr(p, "is_muted", False)]
+        except: return []
+
+    @capture_internal_err
+    async def seek_stream(self, chat_id: int, file_path: str, to_seek: str, duration: str, mode: str) -> None:
+        ffmpeg_params = f"-ss {to_seek} -to {duration}"
+        is_video = mode == "video"
+        stream = dynamic_media_stream(path=file_path, video=is_video, ffmpeg_params=ffmpeg_params)
+        await self._play_safe(chat_id, stream, force_join=False)
+
+    @capture_internal_err
+    async def speedup_stream(self, chat_id: int, file_path: str, speed: float, playing: list) -> None:
+        if not playing: raise AssistantErr("Invalid stream info")
+        assistant = await group_assistant(self, chat_id)
+        base = os.path.basename(file_path)
+        chatdir = os.path.join("playback", str(speed))
+        os.makedirs(chatdir, exist_ok=True)
+        out = os.path.join(chatdir, base)
+        if not os.path.exists(out):
+            vs = str(2.0 / float(speed))
+            cmd = f'ffmpeg -i "{file_path}" -filter:v "setpts={vs}*PTS" -filter:a atempo={speed} -y "{out}"'
+            proc = await asyncio.create_subprocess_shell(cmd, stdin=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            await proc.communicate()
+        dur = int(await asyncio.get_event_loop().run_in_executor(None, check_duration, out))
+        played, con_seconds = speed_converter(playing[0].get("played", 0), speed)
+        duration_min = seconds_to_min(dur)
+        is_video = playing[0].get("streamtype") == "video"
+        ffmpeg_params = f"-ss {played} -to {duration_min}"
+        stream = dynamic_media_stream(path=out, video=is_video, ffmpeg_params=ffmpeg_params)
+        
+        await self._play_safe(chat_id, stream, force_join=False)
+        
+        if chat_id in db and db[chat_id] and db[chat_id][0].get("file") == file_path:
+            db[chat_id][0].update({"played": con_seconds, "dur": duration_min, "seconds": dur, "speed_path": out, "speed": speed})
+
     # ==========================================================
-    # 🔥 YOUR OLD JOIN LOGIC (Applied Here)
+    # 🔥 ULTIMATE JOIN: Old Logic + Auto Create (Winx Style)
     # ==========================================================
-    # No @capture_internal_err here to solve UI Leak
+    # ❌ No @capture_internal_err here -> Fixes UI Leak
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
         lang = await get_lang(chat_id)
@@ -281,19 +338,36 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
         
-        # ✅ YOUR LOGIC: auto_start=False
+        # ✅ YOUR OLD LOGIC: auto_start=False
         ksk = GroupCallConfig(auto_start=False)
 
         try:
+            # 1. Try to Join normally (Using Old Bot Logic)
             await assistant.play(chat_id, stream, config=ksk)
-        except NoActiveGroupCall:
-            # ✅ Raise error immediately to stop UI in stream.py
-            raise AssistantErr(_["call_8"])
+        
+        except (NoActiveGroupCall, ChatAdminRequired):
+            # 2. 🔥 WINX LOGIC: If No Call, FORCE CREATE IT
+            try:
+                await assistant.invoke(
+                    functions.phone.CreateGroupCall(
+                        peer=await assistant.resolve_peer(chat_id),
+                        random_id=randint(10000, 99999)
+                    )
+                )
+                # Wait for VC to open
+                await asyncio.sleep(3) 
+                # Retry Joining
+                await assistant.play(chat_id, stream, config=ksk)
+            except Exception as e:
+                # If creating failed (Assistant not admin), stop everything
+                raise AssistantErr(_["call_8"])
+        
         except (NoAudioSourceFound, NoVideoSourceFound):
             raise AssistantErr(_["call_11"])
         except (ConnectionNotFound, TelegramServerError):
             raise AssistantErr(_["call_10"])
         except AttributeError:
+             # Retry for NoneType errors (Old Bot Logic)
              try:
                  await assistant.leave_call(chat_id)
                  await asyncio.sleep(1)
@@ -301,13 +375,16 @@ class Call:
              except:
                  raise AssistantErr("حدث خطأ في الاتصال، يرجى إعادة المحاولة.")
         except Exception as e:
-            # Generic error handling with retry
-            try:
-                 await asyncio.sleep(1)
-                 await assistant.play(chat_id, stream, config=ksk)
-            except:
-                 # If retry fails, stop UI
-                 raise AssistantErr(f"Unable to join call: {e}")
+            # Final Catch
+            raise AssistantErr(f"Unable to join call: {e}")
+
+        # Post-Join: Mute/Unmute trick for packets
+        try:
+            await asyncio.sleep(1)
+            await assistant.mute(chat_id)
+            await asyncio.sleep(0.1)
+            await assistant.unmute(chat_id)
+        except: pass
 
         self.active_calls.add(chat_id)
         await add_active_chat(chat_id)
