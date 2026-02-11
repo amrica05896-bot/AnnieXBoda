@@ -1,10 +1,11 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Clean Native Mode + Full Logging System)
-# Fixes: Instant Leave (-re), Connection Stability, Detailed Logger Monitoring
+# System: Call Controller (Debug Mode: Extreme Logging)
+# Fixes: Listening State, Instant Leave, Invisible Errors
 
 import asyncio
 import os
 import re
+import sys
 import traceback
 from datetime import datetime, timedelta
 from typing import Union, Optional
@@ -51,7 +52,6 @@ from AnnieXMedia.utils.database import (
 from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.stream.autoclear import auto_clean
 from AnnieXMedia.utils.thumbnails import get_thumb
-# ✅ Decorator imported but used SELECTIVELY
 from AnnieXMedia.utils.errors import capture_internal_err
 
 autoend = {}
@@ -95,20 +95,21 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         video = False
 
     # ==============================================================================
-    # 🔥 CLEAN FFmpeg FLAGS
+    # 🔥 DEBUG BUFFER FLAGS
     # ==============================================================================
     
     if is_url:
         titan_flags = (
             "-threads 2 "
             "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
-            "-probesize 1M -analyzeduration 2M "
+            "-probesize 10M -analyzeduration 10M " 
+            "-rtbufsize 10M "
             "-fflags +genpts+igndts+nobuffer -sync ext"
         )
     else:
         titan_flags = (
             "-re -threads 2 "
-            "-probesize 1M -analyzeduration 2M "
+            "-probesize 10M -analyzeduration 10M " 
             "-fflags +genpts+igndts "
             "-sync ext -ss 0"
         )
@@ -157,31 +158,38 @@ class Call:
 
         self.active_calls: set[int] = set()
 
-    # 🔥 Helper to Send Logs to Logger Group
+    # 🔥 ULTRA LOGGING SYSTEM
     async def _send_log(self, text: str):
+        # 1. Print to System Console (Fly Logs)
+        print(f"[DEBUG CALL] {text}")
+        LOGGER(__name__).info(text)
+        
+        # 2. Send to Telegram Logger
         if not config.LOGGER_ID: return
         try:
-            await app.send_message(config.LOGGER_ID, text, disable_web_page_preview=True)
-        except: pass
+            await app.send_message(config.LOGGER_ID, f"`[DEBUG]` {text}", disable_web_page_preview=True)
+        except Exception as e:
+            print(f"[LOG ERROR] Failed to send log to TG: {e}")
 
-    # ✅ Clean Wrapper with Logging
     async def _play_safe(self, chat_id, stream, force_join=False):
         assistant = await group_assistant(self, chat_id)
         config = GroupCallConfig(auto_start=False)
+        await self._send_log(f"⚡ Invoking assistant.play() for {chat_id} | AutoStart=False")
         await assistant.play(chat_id, stream, config=config)
+        await self._send_log(f"✅ assistant.play() command sent for {chat_id}")
 
     @capture_internal_err
     async def pause_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
         await assistant.pause(chat_id)
-        await self._send_log(f"⏸️ **تم الإيقاف المؤقت** في الشات: `{chat_id}`")
+        await self._send_log(f"⏸️ Paused Stream: `{chat_id}`")
 
     @capture_internal_err
     async def resume_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
         try: await assistant.resume(chat_id)
         except: await assistant.unmute(chat_id)
-        await self._send_log(f"▶️ **تم استئناف التشغيل** في الشات: `{chat_id}`")
+        await self._send_log(f"▶️ Resumed Stream: `{chat_id}`")
 
     @capture_internal_err
     async def mute_stream(self, chat_id: int) -> None:
@@ -199,8 +207,9 @@ class Call:
         await _clear_(chat_id)
         try: 
             await assistant.leave_call(chat_id)
-            await self._send_log(f"⏹️ **تم إيقاف التشغيل** ومغادرة الشات: `{chat_id}`")
-        except: pass
+            await self._send_log(f"⏹️ Stopped & Left: `{chat_id}`")
+        except Exception as e: 
+            await self._send_log(f"⚠️ Stop Error: {e}")
         finally: self.active_calls.discard(chat_id)
 
     @capture_internal_err
@@ -215,7 +224,7 @@ class Call:
         await _clear_(chat_id)
         try: 
             await assistant.leave_call(chat_id)
-            await self._send_log(f"⛔ **تم الإيقاف الإجباري** في الشات: `{chat_id}`")
+            await self._send_log(f"⛔ Forced Stop: `{chat_id}`")
         except: pass
         finally: self.active_calls.discard(chat_id)
 
@@ -264,11 +273,11 @@ class Call:
                 else:
                     await self._play_safe(chat_id, stream, force_join=False)
                 
-                await self._send_log(f"⏭️ **تم تخطي الأغنية** في الشات: `{chat_id}`")
+                await self._send_log(f"⏭️ Skipped Track: `{chat_id}`")
             except (NoActiveGroupCall, NotInCallError):
                 await self._play_safe(chat_id, stream, force_join=True)
             except Exception as e:
-                await self._send_log(f"⚠️ **خطأ في التخطي** `{chat_id}`: {e}")
+                await self._send_log(f"⚠️ Skip Error `{chat_id}`: {e}")
                 try: await self.stop_stream(chat_id)
                 except: pass
                 await asyncio.sleep(0.2)
@@ -295,7 +304,7 @@ class Call:
         is_video = mode == "video"
         stream = dynamic_media_stream(path=file_path, video=is_video, ffmpeg_params=ffmpeg_params)
         await self._play_safe(chat_id, stream, force_join=False)
-        await self._send_log(f"⏩ **تقديم/تأخير** في الشات: `{chat_id}`")
+        await self._send_log(f"⏩ Seeked Stream: `{chat_id}`")
 
     @capture_internal_err
     async def speedup_stream(self, chat_id: int, file_path: str, speed: float, playing: list) -> None:
@@ -318,16 +327,18 @@ class Call:
         stream = dynamic_media_stream(path=out, video=is_video, ffmpeg_params=ffmpeg_params)
         
         await self._play_safe(chat_id, stream, force_join=False)
-        await self._send_log(f"⚡ **تغيير السرعة ({speed}x)** في الشات: `{chat_id}`")
+        await self._send_log(f"⚡ Speedup ({speed}x): `{chat_id}`")
         
         if chat_id in db and db[chat_id] and db[chat_id][0].get("file") == file_path:
             db[chat_id][0].update({"played": con_seconds, "dur": duration_min, "seconds": dur, "speed_path": out, "speed": speed})
 
     # ==========================================================
-    # 🔥 JOIN LOGIC: With Error Logging
+    # 🔥 DEBUG JOIN LOGIC
     # ==========================================================
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
+        await self._send_log(f"🟢 **Attempting to Join Call**\nChat: `{chat_id}`\nLink: `{link[:50]}...`")
+        
         lang = await get_lang(chat_id)
         _ = get_string(lang)
 
@@ -349,36 +360,47 @@ class Call:
                 except: pass
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
+        await self._send_log(f"📼 **Stream Built**\nPath: `{final_link[:30]}...`\nFFmpeg: `{stream.ffmpeg_parameters}`")
 
         if chat_id in self.active_calls:
             try:
                 await self._play_safe(chat_id, stream, force_join=False)
+                await self._send_log(f"🔄 **Call Updated** (Already Active): `{chat_id}`")
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                await self._send_log(f"⚠️ Failed to update active call: {e}")
 
-        # Retry Logic with Logging
+        # Retry Logic
         retries = 3
         for attempt in range(retries):
             try:
+                await self._send_log(f"🔁 **Try Join ({attempt+1}/{retries})**...")
                 await self._play_safe(chat_id, stream, force_join=True)
-                await self._send_log(f"✅ **انضمام المساعد** بنجاح للشات: `{chat_id}`")
+                await self._send_log(f"✅ **Assistant Joined** Successfully: `{chat_id}`")
+                
+                # 🔥 SMART WAKE UP WITH LOGS
+                await asyncio.sleep(3)
+                try:
+                    await self._send_log(f"🔊 **Attempting Unmute** for Assistant...")
+                    await assistant.unmute(chat_id)
+                    await self._send_log(f"🔊 **Unmute Command Sent**")
+                except Exception as e:
+                    await self._send_log(f"⚠️ Unmute Warning: {e}")
+                
                 break 
             except Exception as e:
                 err_str = str(e).lower()
                 
-                # Critical Errors (Log and Fail)
                 if (isinstance(e, (NoActiveGroupCall, ChatAdminRequired)) 
                     or "chat_admin_required" in err_str 
                     or "noactivegroupcall" in err_str 
                     or "group call not found" in err_str):
                     
-                    await self._send_log(f"⚠️ **فشل الانضمام (لا يوجد كول/مشرف)** في الشات: `{chat_id}`\nالسبب: {e}")
+                    await self._send_log(f"❌ **Join Failed (No Call/Admin)**: `{chat_id}`")
                     raise AssistantErr(_["call_8"])
 
-                # Retryable Errors
                 if attempt == retries - 1:
-                    await self._send_log(f"❌ **فشل الانضمام نهائياً** في الشات: `{chat_id}`\nالخطأ: {e}")
+                    await self._send_log(f"❌ **FATAL Join Error**: `{chat_id}`\nTrace: `{traceback.format_exc()}`")
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
                     elif isinstance(e, (ConnectionNotFound, TelegramServerError)):
@@ -392,6 +414,7 @@ class Call:
                     else:
                         raise AssistantErr(f"Error: {e}")
                 
+                await self._send_log(f"⚠️ Join Error (Retrying in 1s): {e}")
                 await asyncio.sleep(1)
                 continue
 
@@ -432,32 +455,26 @@ class Call:
         assistants = list(filter(None, [self.one, self.two, self.three, self.four, self.five]))
         
         async def unified_update_handler(client, update: Update) -> None:
-            # 🔥 Log Stream End / Auto-Next
             if isinstance(update, StreamEnded):
                 if update.stream_type == StreamEnded.Type.AUDIO:
                     chat_id = update.chat_id
-                    await self._send_log(f"🔄 **انتهاء المقطع** في الشات: `{chat_id}`")
+                    await self._send_log(f"🔄 **Stream Ended (Auto-Next)**: `{chat_id}`")
                     assistant = await group_assistant(self, chat_id)
                     await self.play(assistant, chat_id)
             
-            # 🔥 Log Critical Updates (Leave, Kick, Close)
             elif isinstance(update, ChatUpdate):
                 chat_id = update.chat_id
                 status = update.status
                 
                 if status & ChatUpdate.Status.LEFT_CALL:
-                    await self._send_log(f"🚪 **المساعد غادر** الكول في الشات: `{chat_id}`")
+                    await self._send_log(f"🚪 **Assistant LEFT Call**: `{chat_id}`")
                     await self.stop_stream(chat_id)
                 elif status & ChatUpdate.Status.KICKED:
-                    await self._send_log(f"🚫 **المساعد طُرد** من الكول في الشات: `{chat_id}`")
+                    await self._send_log(f"🚫 **Assistant KICKED**: `{chat_id}`")
                     await self.stop_stream(chat_id)
                 elif status & ChatUpdate.Status.CLOSED_VOICE_CHAT:
-                    await self._send_log(f"🛑 **المكالمة أُغلقت** في الشات: `{chat_id}`")
+                    await self._send_log(f"🛑 **VC CLOSED by User**: `{chat_id}`")
                     await self.stop_stream(chat_id)
-                elif status & ChatUpdate.Status.PLAYING:
-                    # Optional: Log when playing starts successfully
-                    # await self._send_log(f"🎶 **بدأ البث** في الشات: `{chat_id}`")
-                    pass
 
         for assistant in assistants:
             try: assistant.on_update()(unified_update_handler)
@@ -567,12 +584,11 @@ class Call:
                 db[chat_id][0]["mystic"] = run
                 db[chat_id][0]["markup"] = "stream"
                 
-                # 🔥 Log New Song Playing
-                await self._send_log(f"🎵 **تشغيل تالي** في الشات: `{chat_id}`\nالعنوان: {title}")
+                await self._send_log(f"🎵 **Playing Next**: `{chat_id}`\nTitle: {title}")
 
             except Exception as e:
                 LOGGER(__name__).error(f"💣 [PLAY ERROR] Chat: {chat_id}\n{traceback.format_exc()}")
-                await self._send_log(f"❌ **خطأ في التشغيل** في الشات: `{chat_id}`\n{e}")
+                await self._send_log(f"❌ **Play Error**: `{chat_id}`\n{e}")
                 await _clear_(chat_id)
                 try: await client.leave_call(chat_id)
                 except: pass
