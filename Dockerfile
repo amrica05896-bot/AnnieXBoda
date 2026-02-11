@@ -1,4 +1,4 @@
-# ط§ط³طھط®ط¯ط§ظ… ط£ط­ط¯ط« ظˆط£ط®ظپ ظ†ط³ط®ط© ظ…ط³طھظ‚ط±ط©
+# استخدام أحدث وأخف نسخة مستقرة
 FROM python:3.13-slim
 
 # ===============================
@@ -25,7 +25,7 @@ RUN apt-get update && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
     \
-    # Deno (YouTube Cipher Engine 2 â€“ ظ…ظ‡ظ… ط¬ط¯ظ‹ط§ 2026)
+    # Deno (YouTube Cipher Engine 2 – مهم جدًا 2026)
     curl -fsSL https://deno.land/install.sh | sh && \
     \
     apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -45,12 +45,12 @@ COPY pytgcalls /app/pytgcalls
 # ===============================
 COPY requirements.txt .
 
-# ط§ط³طھط¨ط¹ط§ط¯ pytgcalls / py-tgcalls ظ„ظ…ظ†ط¹ ط§ظ„طھط¹ط§ط±ط¶
+# استبعاد pytgcalls / py-tgcalls لمنع التعارض
 RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
     pip install --no-cache-dir -r filtered.txt
 
 # ===============================
-# ًں”¥ UVLOOP + Network Boost
+# 🔥 UVLOOP + Network Boost
 # ===============================
 RUN pip install --no-cache-dir \
     uvloop \
@@ -69,6 +69,6 @@ RUN mkdir -p /etc/yt-dlp && \
 COPY . .
 
 # ===============================
-# Launch ًںڑ€
+# Launch 🚀
 # ===============================
 CMD ["python3", "run.py"]
