@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Based on StreamMethods introspection)
-# Fact: No ChangeStream, No JoinGroupCall. PLAY is the only method.
+# System: Call Controller (Custom Build: Play-Only Logic)
+# Facts: No ChangeStream, No JoinGroupCall. No GroupCallNotFound.
 
 import asyncio
 import os
@@ -18,7 +18,8 @@ from pytgcalls.exceptions import (
     NoActiveGroupCall,
     NoAudioSourceFound,
     NoVideoSourceFound,
-    GroupCallNotFound
+    NotInCallError, # Used instead of GroupCallNotFound
+    AlreadyJoinedError
 )
 from pytgcalls.types import (
     AudioQuality,
@@ -94,23 +95,15 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
     
     if ffmpeg_params: titan_flags += f" {ffmpeg_params}"
 
-    # Creating MediaStream compatible with your version
-    try:
-        return MediaStream(
-            media_path=path,
-            audio_parameters=AudioQuality.HIGH,
-            video_parameters=VideoQuality.HD_720p,
-            video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
-            audio_flags=MediaStream.Flags.REQUIRED,
-            ffmpeg_parameters=titan_flags,
-        )
-    except TypeError:
-        return MediaStream(
-            path,
-            audio_quality=AudioQuality.HIGH,
-            video_quality=VideoQuality.HD_720p if video else None,
-            ffmpeg_parameters=titan_flags,
-        )
+    # Creating MediaStream with Specific Flags for Custom Build
+    return MediaStream(
+        media_path=path,
+        audio_parameters=AudioQuality.HIGH,
+        video_parameters=VideoQuality.HD_720p,
+        video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
+        audio_flags=MediaStream.Flags.REQUIRED,
+        ffmpeg_parameters=titan_flags,
+    )
 
 async def _clear_(chat_id: int) -> None:
     popped = db.pop(chat_id, None)
@@ -146,14 +139,15 @@ class Call:
 
         self.active_calls: set[int] = set()
 
-    # --- Wrapper to replace change_stream logic ---
+    # --- Wrapper for Safe Play/Update ---
     async def _play_safe(self, chat_id, stream, force_join=False):
         """
         Uses Play() for everything.
-        force_join=True -> auto_start=True (Create call if missing)
-        force_join=False -> auto_start=False (Update stream only, raise if no call)
+        force_join=True -> auto_start=True (Creates call/Joins).
+        force_join=False -> auto_start=False (Updates stream only).
         """
         assistant = await group_assistant(self, chat_id)
+        # Config logic: auto_start=True for fresh join, False for update
         config = GroupCallConfig(auto_start=force_join)
         await assistant.play(chat_id, stream, config=config)
 
@@ -227,17 +221,37 @@ class Call:
                     if direct: final_link = direct
                 except: pass
 
-        stream = dynamic_media_stream(path=final_link, video=bool(video))
+        # Determine Stream Types for Switching Logic
+        new_is_video = bool(video)
+        try:
+            old_is_video = False
+            check = db.get(chat_id)
+            if check:
+                # Check the currently playing item (index 0 might be old one depending on when db is updated)
+                # Assuming this function is called BEFORE db pop update or checking current status
+                old_is_video = str(check[0].get("streamtype")) == "video"
+        except:
+            old_is_video = False
 
+        stream = dynamic_media_stream(path=final_link, video=new_is_video)
+        assistant = await group_assistant(self, chat_id)
+
+        # Logic to handle Video/Audio Switch preventing lag
         if chat_id in self.active_calls:
-            # Update stream using play() with auto_start=False
             try:
-                await self._play_safe(chat_id, stream, force_join=False)
-            except (NoActiveGroupCall, GroupCallNotFound):
+                # If switching type (Audio <-> Video), Force Leave & Join
+                if old_is_video != new_is_video:
+                    try: await assistant.leave_call(chat_id)
+                    except: pass
+                    await self._play_safe(chat_id, stream, force_join=True)
+                else:
+                    # Same type, just update
+                    await self._play_safe(chat_id, stream, force_join=False)
+            except (NoActiveGroupCall, NotInCallError):
                 # Call died, restart it
                 await self._play_safe(chat_id, stream, force_join=True)
             except Exception:
-                # Force restart as fallback
+                # Fallback
                 try: await self.stop_stream(chat_id)
                 except: pass
                 await asyncio.sleep(0.2)
@@ -258,7 +272,8 @@ class Call:
         ffmpeg_params = f"-ss {to_seek} -to {duration}"
         is_video = mode == "video"
         stream = dynamic_media_stream(path=file_path, video=is_video, ffmpeg_params=ffmpeg_params)
-        # Using play() to update the stream with new ffmpeg params
+        
+        # Seek is an update, use auto_start=False
         await self._play_safe(chat_id, stream, force_join=False)
 
     @capture_internal_err
@@ -281,7 +296,7 @@ class Call:
         ffmpeg_params = f"-ss {played} -to {duration_min}"
         stream = dynamic_media_stream(path=out, video=is_video, ffmpeg_params=ffmpeg_params)
         
-        # Using play() to update
+        # Speed update is just a stream switch, auto_start=False
         await self._play_safe(chat_id, stream, force_join=False)
         
         if chat_id in db and db[chat_id] and db[chat_id][0].get("file") == file_path:
@@ -315,6 +330,7 @@ class Call:
         # Handle active calls (Update Stream via play)
         if chat_id in self.active_calls:
             try:
+                # For safety, if joining explicitly while active, treat as update
                 await self._play_safe(chat_id, stream, force_join=False)
                 return
             except Exception:
@@ -326,10 +342,8 @@ class Call:
             try:
                 await self._play_safe(chat_id, stream, force_join=True)
                 break
-            except (NoActiveGroupCall, GroupCallNotFound):
-                # Only explicitly raise if we tried to start and it failed on TG side, 
-                # but auto_start=True usually avoids this unless chat is restricted.
-                # However, for stream.py logic, we usually want to know if it failed.
+            except NoActiveGroupCall:
+                # SPECIFIC REQUIREMENT: Raise AssistantErr if NoActiveGroupCall found
                 raise AssistantErr(_["call_8"]) 
             except (NoAudioSourceFound, NoVideoSourceFound):
                 if video and attempt == retries - 1:
@@ -345,8 +359,8 @@ class Call:
                     continue
                 raise AssistantErr(_["call_10"])
             except Exception as e:
-                # If error says "active call" or similar, try update
-                if "already joined" in str(e).lower() or "active call" in str(e).lower():
+                # If AlreadyJoinedError or similar custom error, try update
+                if "already joined" in str(e).lower() or isinstance(e, AlreadyJoinedError):
                     try:
                         await self._play_safe(chat_id, stream, force_join=False)
                         break
@@ -369,7 +383,6 @@ class Call:
                     autoend[chat_id] = datetime.now() + timedelta(minutes=1)
             except: pass
 
-    # ... Methods like start, ping, decorators remain identical to previous ...
     @capture_internal_err
     async def start(self) -> None:
         LOGGER(__name__).info("Starting PyTgCalls Clients...")
@@ -397,7 +410,6 @@ class Call:
             try:
                 if isinstance(update, StreamEnded):
                     try:
-                         # Using getattr/hasattr to stay safe
                          st = getattr(update, "stream_type", None)
                          if st and (st == "audio" or str(st) == "StreamEnded.Type.AUDIO" or getattr(st, "name", "") == "AUDIO"):
                             assistant = await group_assistant(self, update.chat_id)
@@ -412,7 +424,7 @@ class Call:
             try: assistant.on_update()(unified_update_handler)
             except: pass
 
-    # Re-integrate play logic from previous msg
+    # --- Queue Handler (Auto Play Next) ---
     @capture_internal_err
     async def play(self, client, chat_id: int) -> None:
         check = db.get(chat_id)
@@ -421,6 +433,15 @@ class Call:
             try: await client.leave_call(chat_id)
             except: pass
             return
+        
+        # Determine current stream type before popping (for switch logic)
+        old_is_video = False
+        try:
+            # Check the track that just finished or is currently technically active
+            if len(check) > 0:
+                old_is_video = str(check[0].get("streamtype")) == "video"
+        except: pass
+
         popped = None
         loop = await get_loop(chat_id)
         try:
@@ -447,19 +468,22 @@ class Call:
             original_chat_id = check[0].get("chat_id")
             streamtype = check[0].get("streamtype")
             videoid = clean_vidid(check[0].get("vidid"))
+            
+            # Reset counters
             db[chat_id][0]["played"] = 0
             if (check[0]).get("old_dur"):
                 db[chat_id][0]["dur"] = check[0].get("old_dur")
                 db[chat_id][0]["seconds"] = check[0].get("old_second")
                 db[chat_id][0]["speed_path"] = None
                 db[chat_id][0]["speed"] = 1.0
-            video = True if str(streamtype) == "video" else False
+            
+            new_is_video = True if str(streamtype) == "video" else False
             
             try:
                 final_link = queued
                 vid_id = extract_video_id(str(queued)) or videoid
                 await _invalidate_direct_cache_for_vid(vid_id)
-                if queued and os.path.exists(str(queued)) and video and str(queued).endswith((".mp3", ".m4a")):
+                if queued and os.path.exists(str(queued)) and new_is_video and str(queued).endswith((".mp3", ".m4a")):
                      if vid_id:
                         try:
                             direct = await get_direct_link(vid_id, video=True)
@@ -468,20 +492,25 @@ class Call:
                 if queued and ("live_" in str(queued) or "vid_" in str(queued) or "index_" in str(queued)):
                     try:
                         if vid_id:
-                            direct_url = await get_direct_link(vid_id, video=video)
+                            direct_url = await get_direct_link(vid_id, video=new_is_video)
                             if direct_url: final_link = direct_url
                             else:
-                                path, direct = await YouTube.download(vid_id, None, video=video, videoid=vid_id)
+                                path, direct = await YouTube.download(vid_id, None, video=new_is_video, videoid=vid_id)
                                 if path: final_link = path
                     except: pass
                 
-                stream = dynamic_media_stream(path=final_link, video=video)
+                stream = dynamic_media_stream(path=final_link, video=new_is_video)
                 
-                # Use safe play update
-                if chat_id in self.active_calls:
-                     await self._play_safe(chat_id, stream, force_join=False)
+                # Apply Video Switch Logic (Leave then Play if type changed)
+                if old_is_video != new_is_video:
+                    try: await client.leave_call(chat_id)
+                    except: pass
+                    await self._play_safe(chat_id, stream, force_join=True)
                 else:
-                     await self._play_safe(chat_id, stream, force_join=True)
+                    if chat_id in self.active_calls:
+                        await self._play_safe(chat_id, stream, force_join=False)
+                    else:
+                        await self._play_safe(chat_id, stream, force_join=True)
 
                 img = await get_thumb(videoid)
                 button = stream_markup(_, chat_id)
