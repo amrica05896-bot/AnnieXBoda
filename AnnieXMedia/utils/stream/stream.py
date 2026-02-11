@@ -113,7 +113,7 @@ async def stream(
                         image=thumbnail,
                     )
                 except AssistantErr as e:
-                    # 🛑 STOP HERE - No UI if Join Fails
+                    # 🛑 STOP HERE - Strict Logic (No UI)
                     await safe_delete(mystic)
                     await app.send_message(original_chat_id, text=str(e))
                     return
@@ -216,7 +216,7 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            # 🔥 Strict Join Check
+            # 🔥 CRITICAL FIX: Stop execution if Join fails
             try:
                 await StreamController.join_call(
                     chat_id,
@@ -226,7 +226,7 @@ async def stream(
                     image=thumbnail,
                 )
             except AssistantErr as e:
-                # 🛑 HALT EXECUTION - Do NOT send UI
+                # 🛑 HALT EXECUTION
                 await safe_delete(mystic)
                 await app.send_message(original_chat_id, text=str(e))
                 return
