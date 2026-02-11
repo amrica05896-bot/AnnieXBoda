@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: Stream Controller (Logic & Queue Handler)
-# Fixes: RAM Cache Mismatch (Video Force), UI Leak, and Call Check Logic
+# Fixes: UI Leak (Stop Execution on Error), Call Check Logic
 
 import asyncio
 import os
@@ -51,12 +51,9 @@ async def stream(
     forceplay = bool(forceplay)
     is_video = bool(video)
 
-    # Force Stop Logic
     if forceplay:
         await StreamController.force_stop_stream(chat_id)
 
-    # 🔥 FIX: Anti-Cache Logic (RAM Trick)
-    # Appends "_v" to video IDs so YouTube.py doesn't return a cached Audio file from RAM
     def get_download_id(vid):
         return f"{vid}_v" if is_video else vid
 
@@ -107,7 +104,6 @@ async def stream(
                 
                 if not file_path: continue
 
-                # 🔥 CRITICAL FIX: Strict Join Check
                 try:
                     await StreamController.join_call(
                         chat_id,
@@ -117,7 +113,7 @@ async def stream(
                         image=thumbnail,
                     )
                 except AssistantErr as e:
-                    # 🛑 STOP UI GENERATION IF JOIN FAILS
+                    # 🛑 STOP HERE - No UI if Join Fails
                     await safe_delete(mystic)
                     await app.send_message(original_chat_id, text=str(e))
                     return
@@ -220,7 +216,7 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            # 🔥 CRITICAL FIX: Strict Join Check
+            # 🔥 Strict Join Check
             try:
                 await StreamController.join_call(
                     chat_id,
