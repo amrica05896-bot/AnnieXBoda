@@ -24,7 +24,7 @@ from AnnieXMedia.utils.stream.queue import put_queue, put_queue_index
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
-# دالة الحذف الآمن لرسائل الانتظار
+# --- Helper: Safe Message Deletion ---
 async def safe_delete(message):
     try:
         if message: await message.delete()
@@ -51,13 +51,12 @@ async def stream(
     forceplay = bool(forceplay)
     is_video = bool(video)
 
-    # لو تشغيل إجباري، نوقف اللي شغال فوراً
+    # Force Stop Logic
     if forceplay:
         await StreamController.force_stop_stream(chat_id)
 
-    # 🔥 FIX: Anti-Cache Logic (خدعة الرام)
-    # الدالة دي بتغير اسم الـ ID لو الطلب فيديو، عشان ملف Youtube.py ميعرفش يلاقي ملف الصوت في الرام
-    # فيضطر ينزل ملف جديد فيديو. دي الطريقة الوحيدة لحل المشكلة من غير تعديل Youtube.py
+    # 🔥 FIX: Anti-Cache Logic (RAM Trick)
+    # Appends "_v" to video IDs so YouTube.py doesn't return a cached Audio file from RAM
     def get_download_id(vid):
         return f"{vid}_v" if is_video else vid
 
@@ -104,12 +103,11 @@ async def stream(
                         vidid, mystic, video=is_video, videoid=get_download_id(vidid)
                     )
                 except Exception:
-                    # لو فشل التحميل، نرجع بس مش هنقفل الدنيا، هنكمل في اللي بعده
                     continue
                 
                 if not file_path: continue
 
-                # 🔥 FIX: Strict Join Check for Playlist
+                # 🔥 CRITICAL FIX: Strict Join Check
                 try:
                     await StreamController.join_call(
                         chat_id,
@@ -119,7 +117,7 @@ async def stream(
                         image=thumbnail,
                     )
                 except AssistantErr as e:
-                    # لو الكول مقفول، نبعت الرسالة ونوقف اللوب والدالة فوراً
+                    # 🛑 STOP UI GENERATION IF JOIN FAILS
                     await safe_delete(mystic)
                     await app.send_message(original_chat_id, text=str(e))
                     return
@@ -179,7 +177,7 @@ async def stream(
         )
 
     # ==========================
-    # 2. YOUTUBE MODE
+    # 2. YOUTUBE MODE (Single Track)
     # ==========================
     elif streamtype == "youtube":
         link = result["link"]
@@ -222,7 +220,7 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            # 🔥 FIX: Strict Join Check
+            # 🔥 CRITICAL FIX: Strict Join Check
             try:
                 await StreamController.join_call(
                     chat_id,
@@ -232,7 +230,7 @@ async def stream(
                     image=thumbnail,
                 )
             except AssistantErr as e:
-                # 🛑 STOP UI GENERATION (Critical Fix)
+                # 🛑 HALT EXECUTION - Do NOT send UI
                 await safe_delete(mystic)
                 await app.send_message(original_chat_id, text=str(e))
                 return
@@ -305,7 +303,6 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            # 🔥 FIX: Strict Join Check
             try:
                 await StreamController.join_call(chat_id, original_chat_id, file_path, video=False)
             except AssistantErr as e:
@@ -378,7 +375,6 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            # 🔥 FIX: Strict Join Check
             try:
                 await StreamController.join_call(chat_id, original_chat_id, file_path, video=is_video)
             except AssistantErr as e:
@@ -456,7 +452,6 @@ async def stream(
             if not file_path:
                 raise AssistantErr(_["play_14"])
 
-            # 🔥 FIX: Strict Join Check
             try:
                 await StreamController.join_call(
                     chat_id,
@@ -530,7 +525,6 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            # 🔥 FIX: Strict Join Check
             try:
                 await StreamController.join_call(
                     chat_id,
