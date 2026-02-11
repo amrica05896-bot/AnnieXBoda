@@ -19,8 +19,7 @@ from pytgcalls.exceptions import (
     NoAudioSourceFound,
     NoVideoSourceFound,
     NotInCallError,
-    PyTgCallsAlreadyRunning,
-    PyTgCallsError
+    PyTgCallsAlreadyRunning
 )
 from pytgcalls.types import (
     AudioQuality,
@@ -52,6 +51,7 @@ from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.stream.autoclear import auto_clean
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
+from ntgcalls import ConnectionNotFound, TelegramServerError
 
 autoend = {}
 counter = {}
@@ -94,13 +94,12 @@ def dynamic_media_stream(path: str, video: bool = False) -> MediaStream:
         video = False
 
     # 🔥 Optimized FFmpeg for Instant Playback & Stability
-    # We use minimal buffering to start fast, but enough to prevent cut-offs.
     if not is_url:
         # Local Files
-        titan_flags = "-threads 2 -probesize 1M -analyzeduration 1M -fflags +genpts+igndts+nobuffer -sync ext"
+        titan_flags = "-re -threads 4 -probesize 1M -analyzeduration 1M -fflags +genpts+igndts+nobuffer -sync ext"
     else:
         # Live Streams
-        titan_flags = "-threads 2 -probesize 1M -analyzeduration 1M -rtbufsize 5M -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 2 -fflags +genpts+igndts+nobuffer -sync ext"
+        titan_flags = "-threads 4 -probesize 1M -analyzeduration 1M -rtbufsize 5M -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 2 -fflags +genpts+igndts+nobuffer -sync ext"
 
     return MediaStream(
         media_path=path,
@@ -303,19 +302,6 @@ class Call:
         vid_id = extract_video_id(str(link)) if link else None
         await _invalidate_direct_cache_for_vid(vid_id)
 
-        if link and os.path.exists(str(link)) and video and str(link).endswith((".mp3", ".m4a")):
-            if vid_id:
-                try:
-                    direct = await get_direct_link(vid_id, video=True)
-                    if direct: final_link = direct
-                except: pass
-        elif link and ("youtube" in str(link) or "http" in str(link)):
-            if vid_id:
-                try:
-                    direct = await get_direct_link(vid_id, video=bool(video))
-                    if direct: final_link = direct
-                except: pass
-
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
         # 1. Update if already active
@@ -362,6 +348,9 @@ class Call:
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
                     
+                    if isinstance(e, (ConnectionNotFound, TelegramServerError)):
+                        raise AssistantErr(_["call_10"])
+
                     if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in err_str:
                         try:
                             await self._play_safe(chat_id, stream, force_join=False)
