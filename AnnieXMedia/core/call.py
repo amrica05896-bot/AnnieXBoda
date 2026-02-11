@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Hybrid Engine: Hasii + AnonX + Alexa)
-# Fixes: Instant Leave (-re flag), Connection Freeze (auto_start), UI Leak
+# System: Call Controller (Smart Admin & Auto-Start Engine)
+# Fixes: Admin Call Creation, ChatAdminRequired handling, and Permission Intelligence
 
 import asyncio
 import os
@@ -90,34 +90,21 @@ def dynamic_media_stream(path: str, video: bool = False) -> MediaStream:
     path = str(path)
     is_url = path.startswith("http")
     
-    # Force audio flags for audio files
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
-    # ==============================================================================
-    # 🔥 HYBRID FFmpeg Flags (The Fix for Instant Leave)
-    # ==============================================================================
-    # 1. LOCAL FILES: Must use "-re" (Read at native frame rate). 
-    #    Without this, FFmpeg processes the file instantly and PyTgCalls closes the connection.
+    # 🔥 Optimized FFmpeg for Instant Playback & Stability
+    # We use minimal buffering to start fast, but enough to prevent cut-offs.
     if not is_url:
-        titan_flags = (
-            "-re -threads 2 "  # The Magic Flag for Local Files
-            "-probesize 10M -analyzeduration 10M "
-            "-fflags +genpts+igndts+nobuffer -sync ext"
-        )
-    # 2. LIVE STREAMS / URLs: Aggressive buffering and reconnects
+        # Local Files
+        titan_flags = "-threads 2 -probesize 1M -analyzeduration 1M -fflags +genpts+igndts+nobuffer -sync ext"
     else:
-        titan_flags = (
-            "-threads 2 "
-            "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
-            "-probesize 10M -analyzeduration 10M "
-            "-rtbufsize 10M "
-            "-fflags +genpts+igndts+nobuffer -sync ext"
-        )
+        # Live Streams
+        titan_flags = "-threads 2 -probesize 1M -analyzeduration 1M -rtbufsize 5M -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 2 -fflags +genpts+igndts+nobuffer -sync ext"
 
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.HIGH, # High is more stable than STUDIO for initial connection
+        audio_parameters=AudioQuality.HIGH,
         video_parameters=VideoQuality.HD_720p,
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
@@ -157,10 +144,8 @@ class Call:
 
         self.active_calls: set[int] = set()
 
-    # Wrapper to handle the "Auto Start" logic from Hasii/AnonX
     async def _play_safe(self, chat_id, stream, force_join=False):
         assistant = await group_assistant(self, chat_id)
-        # 🔥 auto_start=True handles "Join if not joined" and "Update if joined" automatically
         config = GroupCallConfig(auto_start=force_join)
         await assistant.play(chat_id, stream, config=config)
 
@@ -238,6 +223,7 @@ class Call:
 
         if chat_id in self.active_calls:
             try:
+                # If switching type, we must leave first to prevent FFmpeg sync issues
                 if old_is_video != new_is_video:
                     try: await assistant.leave_call(chat_id)
                     except: pass
@@ -260,20 +246,63 @@ class Call:
         else:
             await remove_active_video_chat(chat_id)
 
+    @capture_internal_err
+    async def vc_users(self, chat_id: int) -> list:
+        assistant = await group_assistant(self, chat_id)
+        try:
+            participants = await assistant.get_participants(chat_id)
+            return [p.user_id for p in participants if not getattr(p, "is_muted", False)]
+        except: return []
+
+    @capture_internal_err
+    async def seek_stream(self, chat_id: int, file_path: str, to_seek: str, duration: str, mode: str) -> None:
+        ffmpeg_params = f"-ss {to_seek} -to {duration}"
+        is_video = mode == "video"
+        stream = dynamic_media_stream(path=file_path, video=is_video) # Removed custom params handling in dynamic_media_stream for simplicity, add back if needed
+        # Re-adding params specifically for seek
+        titan_flags = "-threads 2 -probesize 1M -analyzeduration 1M -fflags +genpts+igndts+nobuffer -sync ext " + ffmpeg_params
+        stream.ffmpeg_parameters = titan_flags
+        await self._play_safe(chat_id, stream, force_join=False)
+
+    @capture_internal_err
+    async def speedup_stream(self, chat_id: int, file_path: str, speed: float, playing: list) -> None:
+        if not playing: raise AssistantErr("Invalid stream info")
+        assistant = await group_assistant(self, chat_id)
+        base = os.path.basename(file_path)
+        chatdir = os.path.join("playback", str(speed))
+        os.makedirs(chatdir, exist_ok=True)
+        out = os.path.join(chatdir, base)
+        if not os.path.exists(out):
+            vs = str(2.0 / float(speed))
+            cmd = f'ffmpeg -i "{file_path}" -filter:v "setpts={vs}*PTS" -filter:a atempo={speed} -y "{out}"'
+            proc = await asyncio.create_subprocess_shell(cmd, stdin=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            await proc.communicate()
+        dur = int(await asyncio.get_event_loop().run_in_executor(None, check_duration, out))
+        played, con_seconds = speed_converter(playing[0].get("played", 0), speed)
+        duration_min = seconds_to_min(dur)
+        is_video = playing[0].get("streamtype") == "video"
+        
+        # Custom stream for speedup
+        titan_flags = f"-threads 2 -probesize 1M -analyzeduration 1M -fflags +genpts+igndts+nobuffer -sync ext -ss {played} -to {duration_min}"
+        stream = MediaStream(media_path=out, audio_parameters=AudioQuality.HIGH, video_parameters=VideoQuality.HD_720p, video_flags=MediaStream.Flags.REQUIRED if is_video else MediaStream.Flags.IGNORE, audio_flags=MediaStream.Flags.REQUIRED, ffmpeg_parameters=titan_flags)
+        
+        await self._play_safe(chat_id, stream, force_join=False)
+        
+        if chat_id in db and db[chat_id] and db[chat_id][0].get("file") == file_path:
+            db[chat_id][0].update({"played": con_seconds, "dur": duration_min, "seconds": dur, "speed_path": out, "speed": speed})
+
     # ==========================================================
-    # 🔥 HYBRID JOIN LOGIC (Hasii Stability + Strict Errors)
+    # 🔥 SMART JOIN LOGIC (The Admin Fix)
     # ==========================================================
-    # No @capture_internal_err here -> allows errors to reach stream.py
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
         lang = await get_lang(chat_id)
         _ = get_string(lang)
-
+        
         final_link = link
         vid_id = extract_video_id(str(link)) if link else None
         await _invalidate_direct_cache_for_vid(vid_id)
 
-        # Smart Link Resolution
         if link and os.path.exists(str(link)) and video and str(link).endswith((".mp3", ".m4a")):
             if vid_id:
                 try:
@@ -294,59 +323,54 @@ class Call:
             try:
                 await self._play_safe(chat_id, stream, force_join=False)
                 return
-            except Exception:
-                pass
+            except Exception: pass
 
-        # 2. Join (Retry Loop like HasiiMusic)
+        # 2. Join (Attempt to Create Call if Admin)
         retries = 3
         for attempt in range(retries):
             try:
-                # Using auto_start=True (Atomically joins and plays)
                 await self._play_safe(chat_id, stream, force_join=True)
-                
-                # 🔥 Stability Wait (Prevents instant kick on some connections)
-                await asyncio.sleep(2)
-                
-                # 🔥 Audio Wakeup (Force Telegram to acknowledge stream)
-                try:
-                    await assistant.mute(chat_id)
-                    await asyncio.sleep(0.1)
-                    await assistant.unmute(chat_id)
-                except: pass
-                
                 break 
             
             except Exception as e:
                 err_str = str(e).lower()
                 
-                # 🛑 STRICT ERROR HANDLING: If not admin/no call -> Fail Immediately
-                if (isinstance(e, (NoActiveGroupCall, ChatAdminRequired)) 
-                    or "chat_admin_required" in err_str 
-                    or "noactivegroupcall" in err_str 
-                    or "group call not found" in err_str
-                    or "groupcall_forbidden" in err_str):
-                    
+                # 🛑 Smart Check: If Telegram specifically says "Admin Required", 
+                # then we know we tried to start it and failed. Raise call_8.
+                if isinstance(e, ChatAdminRequired) or "chat_admin_required" in err_str:
                     raise AssistantErr(_["call_8"])
 
-                # Connection Glitches -> Retry
+                # If User Not In Chat -> Auto Join
+                if isinstance(e, UserNotParticipant) or "user_not_participant" in err_str:
+                    try:
+                        invitelink = await app.export_chat_invite_link(chat_id)
+                        await assistant.join_chat(invitelink)
+                    except:
+                        try: await assistant.join_chat(chat_id)
+                        except: pass
+                    continue
+
+                # If "No Active Group Call" -> This means force_join=True failed to create it (likely not admin)
+                # But we give it retries just in case of lag. On last retry, we confirm failure.
+                if isinstance(e, NoActiveGroupCall) or "noactivegroupcall" in err_str or "group call not found" in err_str:
+                    if attempt == retries - 1:
+                        raise AssistantErr(_["call_8"])
+                    await asyncio.sleep(1)
+                    continue
+
                 if attempt == retries - 1:
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
-                    elif isinstance(e, (ConnectionNotFound, PyTgCallsError)):
-                        raise AssistantErr(_["call_10"])
                     
-                    # Race Condition: Already joined
                     if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in err_str:
                         try:
                             await self._play_safe(chat_id, stream, force_join=False)
                             break
                         except: pass
                     else:
-                        # Unknown Error
                         raise AssistantErr(f"Error: {e}")
                 
                 await asyncio.sleep(1)
-                continue
 
         self.active_calls.add(chat_id)
         await add_active_chat(chat_id)
@@ -474,6 +498,7 @@ class Call:
                 if old_is_video != new_is_video:
                     try: await client.leave_call(chat_id)
                     except: pass
+                    await asyncio.sleep(0.5)
                     await self._play_safe(chat_id, stream, force_join=True)
                 else:
                     if chat_id in self.active_calls:
