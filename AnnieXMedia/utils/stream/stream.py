@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: Stream Controller (Logic & Queue Handler)
-# Optimized for: AnnieXBoda Custom Library & Nuclear Call System
+# Fixes: UI sends even if call is closed (Strict Return Logic)
 
 import asyncio
 import os
@@ -24,7 +24,7 @@ from AnnieXMedia.utils.stream.queue import put_queue, put_queue_index
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
-# دالة الحذف الآمن (عشان لو الرسالة اتمسحت قبل كدة ميعملش Error)
+# دالة الحذف الآمن
 async def safe_delete(message):
     try:
         await message.delete()
@@ -99,12 +99,12 @@ async def stream(
                         vidid, mystic, video=is_video, videoid=vidid
                     )
                 except Exception:
-                    raise AssistantErr(_["play_14"])
+                    # لو فشل التحميل، نرجع بس مش هنقفل الدنيا، هنكمل في اللي بعده
+                    continue
                 
-                if not file_path:
-                     raise AssistantErr(_["play_14"])
+                if not file_path: continue
 
-                # 🔥 الانضمام الآمن
+                # 🔥 FIX: Strict Join Check for Playlist
                 try:
                     await StreamController.join_call(
                         chat_id,
@@ -113,8 +113,12 @@ async def stream(
                         video=is_video,
                         image=thumbnail,
                     )
+                except AssistantErr as e:
+                    # لو الكول مقفول، نبعت الرسالة ونوقف اللوب فوراً
+                    await mystic.edit_text(str(e))
+                    return
                 except Exception as e:
-                    # لو فشل الانضمام نوقف ونرجع الخطأ
+                    await mystic.edit_text(f"Error: {e}")
                     return
 
                 await put_queue(
@@ -132,8 +136,6 @@ async def stream(
                 
                 img = await get_thumb(vidid)
                 button = stream_markup(_, chat_id)
-                
-                # استخدام الحذف الآمن
                 await safe_delete(mystic)
 
                 run = await app.send_photo(
@@ -213,7 +215,7 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            # 🔥 الانضمام
+            # 🔥 FIX: Strict Join Check
             try:
                 await StreamController.join_call(
                     chat_id,
@@ -222,7 +224,12 @@ async def stream(
                     video=is_video,
                     image=thumbnail,
                 )
-            except Exception:
+            except AssistantErr as e:
+                # 🛑 STOP UI GENERATION
+                await mystic.edit_text(str(e))
+                return
+            except Exception as e:
+                await mystic.edit_text(f"Error: {e}")
                 return
 
             await put_queue(
@@ -289,9 +296,12 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            # 🔥 الانضمام
+            # 🔥 FIX: Strict Join Check
             try:
                 await StreamController.join_call(chat_id, original_chat_id, file_path, video=False)
+            except AssistantErr as e:
+                await mystic.edit_text(str(e))
+                return
             except Exception:
                 return
 
@@ -356,9 +366,12 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            # 🔥 الانضمام
+            # 🔥 FIX: Strict Join Check
             try:
                 await StreamController.join_call(chat_id, original_chat_id, file_path, video=is_video)
+            except AssistantErr as e:
+                await mystic.edit_text(str(e))
+                return
             except Exception:
                 return
 
@@ -428,7 +441,7 @@ async def stream(
             if not file_path:
                 raise AssistantErr(_["play_14"])
 
-            # 🔥 الانضمام
+            # 🔥 FIX: Strict Join Check
             try:
                 await StreamController.join_call(
                     chat_id,
@@ -437,6 +450,9 @@ async def stream(
                     video=is_video,
                     image=thumbnail or None,
                 )
+            except AssistantErr as e:
+                await mystic.edit_text(str(e))
+                return
             except Exception:
                 return
 
@@ -496,7 +512,7 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            # 🔥 الانضمام
+            # 🔥 FIX: Strict Join Check
             try:
                 await StreamController.join_call(
                     chat_id,
@@ -504,6 +520,9 @@ async def stream(
                     link,
                     video=is_video,
                 )
+            except AssistantErr as e:
+                await mystic.edit_text(str(e))
+                return
             except Exception:
                 return
 
@@ -519,8 +538,6 @@ async def stream(
                 forceplay=forceplay,
             )
             button = stream_markup(_, chat_id)
-            
-            # استخدام الحذف الآمن
             await safe_delete(mystic)
 
             run = await app.send_photo(
