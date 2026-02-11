@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Smart Error Handling & Stable Switching)
-# Fixes: 'ChatAdminRequired' handling, Timeout, and Seamless Audio/Video Switch
+# System: Call Controller (Stable & Fast)
+# Fixes: TimeoutError, RAM Mismatch, Auto-Start, and Admin Rights Check
 
 import asyncio
 import os
@@ -90,12 +90,13 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
     path = str(path)
     is_url = path.startswith("http")
     
-    # RAM Safety
+    # 🔥 RAM Cache Safety: Force Audio if file is audio to prevent crash
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
-    # Light Flags (1M)
+    # 🔥 FIX TIMEOUT ERROR: Light Flags (1M)
     titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -fflags +genpts+igndts+nobuffer -sync ext"
+    
     if is_url:
         titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -rtbufsize 5M -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 -fflags +genpts+igndts+nobuffer -sync ext"
     
@@ -144,6 +145,7 @@ class Call:
 
         self.active_calls: set[int] = set()
 
+    # --- Wrapper for Safe Play/Update ---
     async def _play_safe(self, chat_id, stream, force_join=False):
         assistant = await group_assistant(self, chat_id)
         config = GroupCallConfig(auto_start=force_join)
@@ -230,10 +232,11 @@ class Call:
 
         if chat_id in self.active_calls:
             try:
-                # 🔥 Smart Switching Logic
+                # 🔥 Smart Switch: If Type Changed, Re-Join
                 if old_is_video != new_is_video:
                     try: await assistant.leave_call(chat_id)
                     except: pass
+                    await asyncio.sleep(0.5)
                     await self._play_safe(chat_id, stream, force_join=True)
                 else:
                     await self._play_safe(chat_id, stream, force_join=False)
@@ -247,8 +250,10 @@ class Call:
         else:
             await self._play_safe(chat_id, stream, force_join=True)
             
-        if new_is_video: await add_active_video_chat(chat_id)
-        else: await remove_active_video_chat(chat_id)
+        if new_is_video:
+            await add_active_video_chat(chat_id)
+        else:
+            await remove_active_video_chat(chat_id)
 
     @capture_internal_err
     async def vc_users(self, chat_id: int) -> list:
@@ -315,6 +320,7 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
+        # Handle active calls (Update Only)
         if chat_id in self.active_calls:
             try:
                 await self._play_safe(chat_id, stream, force_join=False)
@@ -484,14 +490,13 @@ class Call:
                 
                 stream = dynamic_media_stream(path=final_link, video=new_is_video)
                 
-                # 🔥 Smart Switching for Next Track
-                # لو النوع هو هو، تحديث بس. لو اختلف، خروج ودخول.
+                # 🔥 Smart Switching Logic for Next Track (Same as Skip)
                 if old_is_video != new_is_video:
                     try: await client.leave_call(chat_id)
                     except: pass
                     await self._play_safe(chat_id, stream, force_join=True)
                 else:
-                    # لو نفس النوع، بنعمل update فقط، إلا لو الكول وقع، بنفتحه تاني
+                    # Seamless update if type is the same
                     if chat_id in self.active_calls:
                         try:
                             await self._play_safe(chat_id, stream, force_join=False)
