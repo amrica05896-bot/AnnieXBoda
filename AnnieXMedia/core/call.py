@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Your Old Logic + Auto-Create Injection)
-# Fixes: Keeps auto_start=False (Stability) BUT Force Opens VC if closed.
+# System: Call Controller (Golden Build: Old Logic + Winx Auto-Create + Hybrid FFmpeg)
+# Fixes: Instant Leave (-re), Connection Freeze (auto_start=False), Auto-Create VC, UI Leak.
 
 import asyncio
 import os
@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from typing import Union, Optional
 
 import yt_dlp
-# 🔥 Important Import for Auto-Creating VC
+# 🔥 Critical Import for Force-Creating VC
 from pyrogram.raw import functions
 from pyrogram.errors import ChatAdminRequired, UserAlreadyParticipant, UserNotParticipant
 from pyrogram.types import InlineKeyboardMarkup
@@ -54,13 +54,14 @@ from AnnieXMedia.utils.database import (
 from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.stream.autoclear import auto_clean
 from AnnieXMedia.utils.thumbnails import get_thumb
+# ✅ Decorator imported but used SELECTIVELY (Not on join_call)
 from AnnieXMedia.utils.errors import capture_internal_err
 
 autoend = {}
 counter = {}
 
 # ===============================
-# Helpers
+# Helpers & FFmpeg Logic
 # ===============================
 
 def clean_vidid(vid):
@@ -93,21 +94,39 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
     path = str(path)
     is_url = path.startswith("http")
     
+    # Force audio flags for audio files
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
-    # ✅ YOUR OLD FLAGS (Modified with -re for Local Files to prevent instant leave)
+    # ==============================================================================
+    # 🔥 HYBRID FFmpeg FLAGS (The Fix for Instant Leave)
+    # ==============================================================================
+    
     if is_url:
-        titan_flags = "-threads 2 -probesize 1M -analyzeduration 2M -rtbufsize 5M -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 -fflags +genpts+igndts+nobuffer -sync ext"
+        # 1. LIVE / URL: Use aggressive buffering (Hasii/Modern Logic)
+        titan_flags = (
+            "-threads 2 "
+            "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
+            "-probesize 5M -analyzeduration 5M "
+            "-rtbufsize 5M "
+            "-fflags +genpts+igndts+nobuffer -sync ext"
+        )
     else:
-        # 🔥 Added -re here to solve the "Enter & Leave in 1 second" issue
-        titan_flags = "-re -threads 2 -probesize 1M -analyzeduration 2M -fflags +genpts+igndts+nobuffer -sync ext"
+        # 2. LOCAL FILES (RAM): Use -re (Your Old Bot Logic + Fix)
+        # 🔥 MUST USE "-re" here! Forces FFmpeg to read at native speed (1x)
+        # preventing the bot from finishing the file in 1 second.
+        titan_flags = (
+            "-re -threads 2 "
+            "-probesize 5M -analyzeduration 5M "
+            "-fflags +genpts+igndts "
+            "-sync ext -ss 0"
+        )
     
     if ffmpeg_params: titan_flags += f" {ffmpeg_params}"
 
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.HIGH,
+        audio_parameters=AudioQuality.HIGH, # High is stable
         video_parameters=VideoQuality.HD_720p,
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
@@ -131,6 +150,10 @@ async def _invalidate_direct_cache_for_vid(videoid: Optional[str]) -> None:
             if asyncio.iscoroutine(maybe): await maybe
     except: pass
 
+# ===============================
+# Call Controller Class
+# ===============================
+
 class Call:
     def __init__(self):
         self.userbot1 = getattr(userbot, "one", None)
@@ -147,10 +170,11 @@ class Call:
 
         self.active_calls: set[int] = set()
 
-    # Old Bot Wrapper (with auto_start=False as requested)
+    # Wrapper using your Old Bot Style (auto_start=False)
     async def _play_safe(self, chat_id, stream, force_join=False):
         assistant = await group_assistant(self, chat_id)
-        # ✅ Keeping auto_start=False for stability
+        # ✅ YOUR OLD LOGIC: auto_start=False
+        # This forces a clean Join first, then Play.
         config = GroupCallConfig(auto_start=False)
         await assistant.play(chat_id, stream, config=config)
 
@@ -297,9 +321,9 @@ class Call:
             db[chat_id][0].update({"played": con_seconds, "dur": duration_min, "seconds": dur, "speed_path": out, "speed": speed})
 
     # ==========================================================
-    # 🔥 JOIN LOGIC: (Old Stability + Winx/Alexa Auto-Create)
+    # 🔥 ULTIMATE JOIN: (Auto-Start=False + Force Create)
     # ==========================================================
-    # ❌ No @capture_internal_err -> Fixes UI Leak
+    # ❌ Decorator REMOVED to Fix UI Leak
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
         lang = await get_lang(chat_id)
@@ -323,22 +347,16 @@ class Call:
                 except: pass
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
-
-        # Update if active
-        if chat_id in self.active_calls:
-            try:
-                await self._play_safe(chat_id, stream, force_join=False)
-                return
-            except Exception:
-                pass
+        
+        # ✅ YOUR OLD LOGIC: auto_start=False
+        ksk = GroupCallConfig(auto_start=False)
 
         try:
-            # 1. Try joining normally (auto_start=False)
-            # This will FAIL if VC is closed because auto_start=False doesn't create it.
-            await self._play_safe(chat_id, stream, force_join=True)
+            # 1. Try to Join normally
+            await assistant.play(chat_id, stream, config=ksk)
         
         except (NoActiveGroupCall, ChatAdminRequired):
-            # 2. 🔥 HERE IS THE MAGIC: If join failed, CREATE IT manually
+            # 2. 🔥 WINX LOGIC: If No Call, FORCE CREATE IT
             try:
                 await assistant.invoke(
                     functions.phone.CreateGroupCall(
@@ -346,8 +364,10 @@ class Call:
                         random_id=randint(10000, 99999)
                     )
                 )
-                await asyncio.sleep(3) # Wait for Telegram to register the call
-                await self._play_safe(chat_id, stream, force_join=True) # Join again
+                # Wait for VC to open
+                await asyncio.sleep(3) 
+                # Retry Joining
+                await assistant.play(chat_id, stream, config=ksk)
             except Exception as e:
                 # If creating failed (Assistant not admin), stop everything
                 raise AssistantErr(_["call_8"])
@@ -361,11 +381,11 @@ class Call:
              try:
                  await assistant.leave_call(chat_id)
                  await asyncio.sleep(1)
-                 await self._play_safe(chat_id, stream, force_join=True)
+                 await assistant.play(chat_id, stream, config=ksk)
              except:
                  raise AssistantErr("حدث خطأ في الاتصال، يرجى إعادة المحاولة.")
         except Exception as e:
-            # Final catch
+            # Final Catch
             raise AssistantErr(f"Unable to join call: {e}")
 
         # Post-Join: Mute/Unmute trick for packets flow
