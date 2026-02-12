@@ -179,21 +179,8 @@ def build_command(
 
     ffmpeg_command: List = [name]
 
-    # 🔥🔥 INJECTED GOLDEN FLAGS (حقن الأعلام الذهبية هنا) 🔥🔥
-    # هذا التعديل يجبر المكتبة على استخدام إعدادات السرعة القصوى مع خوادم 2026
-    if name == 'ffmpeg':
-        ffmpeg_command += [
-            '-flush_packets', '1',        # إرسال فوري للحزم
-            '-probesize', '32',           # إلغاء وقت الفحص
-            '-analyzeduration', '0',      # إلغاء تحليل المدة
-            '-fflags', '+nobuffer+fastseek', # إلغاء التخزين المؤقت
-            '-flags', '+low_delay',       # وضع التأخير المنخفض
-            '-thread_queue_size', '512'   # تحسين الصفوف
-        ]
-
     ffmpeg_command += command['start']
 
-    # منطق إعادة الاتصال (Reconnect)
     if not os.path.exists(path) \
             and not is_livestream\
             and name == 'ffmpeg':
