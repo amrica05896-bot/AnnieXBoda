@@ -6,8 +6,8 @@ from typing import Union
 from ntgcalls import FileError
 from ntgcalls import StreamMode
 
-# 🔥 Added Pyrogram Errors Import
-from pyrogram.errors import ChatAdminRequired, GroupCallForbidden
+# 🔥 التعديل: استبدال GroupCallForbidden بـ RPCError (لأنها تشمل كل الأخطاء)
+from pyrogram.errors import ChatAdminRequired, RPCError
 
 from ...exceptions import NoActiveGroupCall
 from ...media_devices.input_device import InputDevice
@@ -73,20 +73,20 @@ class Play(Scaffold):
                 chat_id,
             )
             
-            # 🔥🔥🔥 THE FIX IS HERE 🔥🔥🔥
+            # 🔥🔥🔥 المنطق الذكي لإنشاء الكول 🔥🔥🔥
             if chat_call is None:
                 if config.auto_start:
                     try:
-                        # Try to create the call
+                        # محاولة إنشاء الكول
                         await self._app.create_group_call(
                             chat_id,
                         )
-                    except (ChatAdminRequired, GroupCallForbidden):
-                        # If failed due to permissions, raise NoActiveGroupCall
-                        # This triggers 'call_8' in your bot
-                        raise NoActiveGroupCall("Not Admin or Permission Missing")
+                    except (ChatAdminRequired, RPCError):
+                        # التقاط RPCError يغطي أي خطأ منع أو رفض من تيليجرام
+                        # نرفع NoActiveGroupCall عشان البوت يفهم ويرسل رسالة call_8
+                        raise NoActiveGroupCall("Permission missing or Call Failed")
                     except Exception as e:
-                        # Any other error? Still raise NoActiveGroupCall
+                        # الأخطاء البرمجية الأخرى
                         py_logger.error(f"Failed to auto-start call: {e}")
                         raise NoActiveGroupCall(str(e))
                 else:
