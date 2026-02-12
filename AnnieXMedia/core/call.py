@@ -14,6 +14,7 @@ from pyrogram.errors import ChatAdminRequired, UserAlreadyParticipant, UserNotPa
 from pyrogram.types import InlineKeyboardMarkup
 
 # 🔥 FIX IMPORT CRASH: Safe Import for PyTgCalls & ntgcalls
+# This ensures compatibility with both old and new versions (2.2.11+)
 try:
     from pytgcalls import PyTgCalls
     from pytgcalls.exceptions import (
@@ -23,7 +24,7 @@ try:
         NotInCallError,
         PyTgCallsAlreadyRunning
     )
-    # Check for PyTgCallsError specifically
+    # Check for PyTgCallsError specifically (Removed in some versions)
     try:
         from pytgcalls.exceptions import PyTgCallsError
     except ImportError:
@@ -39,7 +40,7 @@ try:
         GroupCallConfig,
     )
 except ImportError:
-    # Fallback if library is totally missing/broken
+    # Emergency Fallback if library is totally broken
     class PyTgCalls: pass
     class PyTgCallsError(Exception): pass
     class GroupCallConfig:
@@ -74,7 +75,7 @@ from AnnieXMedia.utils.stream.autoclear import auto_clean
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 # ✅ Added Missing Import
-from AnnieXMedia.utils.inline import stream_markup
+from AnnieXMedia.utils.inline.play import stream_markup
 
 autoend = {}
 counter = {}
@@ -131,7 +132,7 @@ def dynamic_media_stream(path: str, video: bool = False) -> MediaStream:
         # Local File
         titan_flags = f"{common_flags}" 
     else:
-        # Live Stream (Your requirement)
+        # Live Stream
         titan_flags = (
             f"{common_flags} "
             "-rtbufsize 5M "
@@ -295,7 +296,10 @@ class Call:
         ffmpeg_params = f"-ss {to_seek} -to {duration}"
         is_video = mode == "video"
         stream = dynamic_media_stream(path=file_path, video=is_video)
-        base_flags = stream.ffmpeg_parameters
+        # Note: Depending on library version, you might need to append to existing params
+        # But for direct seek on 2.2.11, creating new stream usually preferred.
+        # We append flags for safety:
+        base_flags = getattr(stream, "ffmpeg_parameters", "")
         stream.ffmpeg_parameters = f"{base_flags} {ffmpeg_params}"
         await self._play_safe(chat_id, stream, force_join=False)
 
@@ -319,7 +323,9 @@ class Call:
         
         stream = dynamic_media_stream(path=out, video=is_video)
         speed_flags = f"-ss {played} -to {duration_min}"
-        stream.ffmpeg_parameters = f"{stream.ffmpeg_parameters} {speed_flags}"
+        # Append safe flags
+        base_flags = getattr(stream, "ffmpeg_parameters", "")
+        stream.ffmpeg_parameters = f"{base_flags} {speed_flags}"
         
         await self._play_safe(chat_id, stream, force_join=False)
         
@@ -330,6 +336,9 @@ class Call:
     # 🔥 SMART JOIN LOGIC (Admin & Force Wakeup)
     # ==========================================================
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
+        """
+        تفتح المكالمة تلقائياً وتبدأ البث مع معالجة الصمت والتهنيج.
+        """
         assistant = await group_assistant(self, chat_id)
         lang = await get_lang(chat_id)
         _ = get_string(lang)
@@ -338,77 +347,73 @@ class Call:
         vid_id = extract_video_id(str(link)) if link else None
         await _invalidate_direct_cache_for_vid(vid_id)
 
+        # 🔥 أولاً: تأمين وجود المساعد
+        try:
+            await assistant.join_chat(chat_id)
+        except UserAlreadyParticipant:
+            pass
+        except Exception:
+            # Try via invite link if possible, else ignore
+            try:
+                invitelink = await app.export_chat_invite_link(chat_id)
+                await assistant.join_chat(invitelink)
+            except: pass
+
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
-        # 1. Update if active (Quick Switch)
-        if chat_id in self.active_calls:
-            try:
-                await self._play_safe(chat_id, stream, force_join=False)
-                return
-            except Exception: pass
-
-        # 2. Join (Retry & Wakeup)
+        # 🔥 ثانياً: حلقة المحاولات لفتح الكول (Hasii Logic)
         retries = 3
         for attempt in range(retries):
             try:
-                # 🔥 auto_start=True -> This will CREATE the call if closed (and user is admin)
-                await self._play_safe(chat_id, stream, force_join=True)
+                # auto_start=True تجبر المكتبة على فتح الكول لو المساعد أدمن
+                config = GroupCallConfig(auto_start=True)
+                await assistant.play(chat_id, stream, config=config)
                 
-                # 🔥 THE MAGIC FIX: Force Unmute & Wake Up
-                # This breaks the silence for initial joins
-                await asyncio.sleep(2)
+                # 🔥 ثالثاً: كسر الصمت (Audio Wakeup)
+                await asyncio.sleep(1.2)
                 try:
                     await assistant.mute(chat_id)
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.2)
                     await assistant.unmute(chat_id)
                 except: pass
                 
-                break 
-            
+                break # نجح التشغيل، اخرج من اللوب
+
             except Exception as e:
                 err_str = str(e).lower()
                 
-                # Check for explicit Admin rights error
+                # لو المساعد مش أدمن والكول مقفول
                 if isinstance(e, ChatAdminRequired) or "chat_admin_required" in err_str:
                     raise AssistantErr(_["call_8"])
 
-                # Auto-Join Group if not participant
-                if isinstance(e, UserNotParticipant) or "user_not_participant" in err_str:
-                    try:
-                        invitelink = await app.export_chat_invite_link(chat_id)
-                        await assistant.join_chat(invitelink)
-                    except:
-                        try: await assistant.join_chat(chat_id)
-                        except: pass
-                    continue
-
-                # If "No Active Group Call" persists even with auto_start=True, it failed to create.
+                # لو تليجرام أخد وقت في الفتح
                 if isinstance(e, NoActiveGroupCall) or "noactivegroupcall" in err_str:
                     if attempt == retries - 1:
                         raise AssistantErr(_["call_8"])
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(1.5)
                     continue
-
+                
+                # خطأ انضمام عام
                 if attempt == retries - 1:
+                    # Ignore if already joined, just update
+                    if "already joined" in err_str:
+                        break
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
-                    # ✅ Added Safe Error Checking
-                    if isinstance(e, (ConnectionNotFound, TelegramServerError, PyTgCallsError)):
+                    if isinstance(e, (ConnectionNotFound, TelegramServerError)):
                         raise AssistantErr(_["call_10"])
-                    if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in err_str:
-                        try:
-                            await self._play_safe(chat_id, stream, force_join=False)
-                            break
-                        except: pass
+                    
                     raise AssistantErr(f"Error: {e}")
                 
                 await asyncio.sleep(1)
 
+        # تحديث قاعدة البيانات
         self.active_calls.add(chat_id)
         await add_active_chat(chat_id)
         await music_on(chat_id)
         if video: await add_active_video_chat(chat_id)
 
+        # Auto-End Logic
         if await is_autoend():
             counter[chat_id] = {}
             try:
@@ -471,6 +476,7 @@ class Call:
         videoid = clean_vidid(check[0].get("vidid"))
         new_is_video = str(check[0].get("streamtype")) == "video"
         
+        # Prepare stream for next track
         stream = dynamic_media_stream(path=queued, video=new_is_video)
         
         try:
