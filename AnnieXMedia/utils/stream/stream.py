@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Stream Controller (Ultimate Mix - Fixes All Bugs)
-# Fixes: Missing UI after Join, Proper 'call_8' Propagation, Auto-Start Logic
+# System: Stream Controller (Logic & Queue Handler)
+# Fixes: UI Leak (Stop Execution on Error), Call Check Logic
 
 import asyncio
 import os
@@ -112,14 +112,15 @@ async def stream(
                         video=is_video,
                         image=thumbnail,
                     )
-                # 🔥 FIX: Catch AssistantErr explicitly to show call_8
                 except AssistantErr as e:
+                    # 🛑 STOP HERE - Strict Logic (No UI)
                     await safe_delete(mystic)
                     await app.send_message(original_chat_id, text=str(e))
                     return
-                # 🔥 FIX: Don't stop execution for generic errors, just log
                 except Exception as e:
-                    pass
+                    await safe_delete(mystic)
+                    await app.send_message(original_chat_id, text=f"Error: {e}")
+                    return
 
                 await put_queue(
                     chat_id,
@@ -215,7 +216,7 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            # 🔥 CRITICAL FIX: Error Handling & Flow Control
+            # 🔥 CRITICAL FIX: Stop execution if Join fails
             try:
                 await StreamController.join_call(
                     chat_id,
@@ -225,15 +226,15 @@ async def stream(
                     image=thumbnail,
                 )
             except AssistantErr as e:
-                # 🛑 STOP HERE if call_8 or known error
+                # 🛑 HALT EXECUTION
                 await safe_delete(mystic)
                 await app.send_message(original_chat_id, text=str(e))
                 return
             except Exception as e:
-                # For unknown errors, raise generic error
-                raise AssistantErr(_["play_14"])
+                await safe_delete(mystic)
+                await app.send_message(original_chat_id, text=f"Error: {e}")
+                return
 
-            # ✅ If join_call succeeds (or is auto-started), continue here:
             await put_queue(
                 chat_id,
                 original_chat_id,
@@ -304,8 +305,10 @@ async def stream(
                 await safe_delete(mystic)
                 await app.send_message(original_chat_id, text=str(e))
                 return
-            except Exception:
-                raise AssistantErr(_["play_14"])
+            except Exception as e:
+                await safe_delete(mystic)
+                await app.send_message(original_chat_id, text=str(e))
+                return
 
             await put_queue(
                 chat_id,
@@ -374,8 +377,10 @@ async def stream(
                 await safe_delete(mystic)
                 await app.send_message(original_chat_id, text=str(e))
                 return
-            except Exception:
-                raise AssistantErr(_["play_14"])
+            except Exception as e:
+                await safe_delete(mystic)
+                await app.send_message(original_chat_id, text=str(e))
+                return
 
             await put_queue(
                 chat_id,
@@ -455,8 +460,10 @@ async def stream(
                 await safe_delete(mystic)
                 await app.send_message(original_chat_id, text=str(e))
                 return
-            except Exception:
-                raise AssistantErr(_["play_14"])
+            except Exception as e:
+                await safe_delete(mystic)
+                await app.send_message(original_chat_id, text=str(e))
+                return
 
             await put_queue(
                 chat_id,
@@ -490,7 +497,7 @@ async def stream(
 
     elif streamtype == "index":
         link = result
-        title = "Index URL"
+        title = "ɪɴᴅᴇx ᴏʀ ᴍ3ᴜ8 ʟɪɴᴋ"
         duration_min = "00:00"
 
         if await is_active_chat(chat_id):
@@ -525,10 +532,12 @@ async def stream(
                 await safe_delete(mystic)
                 await app.send_message(original_chat_id, text=str(e))
                 return
-            except Exception:
-                raise AssistantErr(_["play_14"])
+            except Exception as e:
+                await safe_delete(mystic)
+                await app.send_message(original_chat_id, text=str(e))
+                return
 
-            await put_queue_index(
+            await put_queue(
                 chat_id,
                 original_chat_id,
                 "index_url",
