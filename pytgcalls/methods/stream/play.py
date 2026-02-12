@@ -1,14 +1,10 @@
 import logging
-import asyncio # ✅ ضروري للتوقيت
 from pathlib import Path
 from typing import Optional
 from typing import Union
 
 from ntgcalls import FileError
 from ntgcalls import StreamMode
-
-# 🔥 استيراد شامل للأخطاء لضمان عدم الانهيار
-from pyrogram.errors import ChatAdminRequired, RPCError
 
 from ...exceptions import NoActiveGroupCall
 from ...media_devices.input_device import InputDevice
@@ -73,25 +69,11 @@ class Play(Scaffold):
             chat_call = await self._app.get_full_chat(
                 chat_id,
             )
-            
-            # 🔥 التطوير هنا: التعامل الذكي مع Auto-Start 🔥
             if chat_call is None:
                 if config.auto_start:
-                    try:
-                        # 1. إنشاء الكول
-                        await self._app.create_group_call(
-                            chat_id,
-                        )
-                        # 2. 🛑 الانتظار لثانيتين لضمان استقرار الاتصال بالسيرفر
-                        # هذا يحل مشكلة "ظهور الأزرار بدون دخول المساعد"
-                        await asyncio.sleep(2)
-                        
-                    except (ChatAdminRequired, RPCError):
-                        # لو فشل بسبب الصلاحيات، نرفع الخطأ اللي البوت بيفهمه (call_8)
-                        raise NoActiveGroupCall("Permission missing or Call Failed")
-                    except Exception as e:
-                        py_logger.error(f"Failed to auto-start call: {e}")
-                        raise NoActiveGroupCall(str(e))
+                    await self._app.create_group_call(
+                        chat_id,
+                    )
                 else:
                     raise NoActiveGroupCall()
 
