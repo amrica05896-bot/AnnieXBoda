@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Final Fixed Version)
-# Fixes: NameError _clear_, NameError re, call_8 logic, Assistant Join
+# System: Call Controller (Final Fixed Version - No NameErrors)
+# Fixes: NameError _TGCALLS, NameError _clear_, call_8 logic, Assistant Join
 
 import asyncio
 import os
@@ -61,6 +61,7 @@ except Exception:
         Update = getattr(ntg, "Update", object)
         TCALLS_BACKEND = "ntgcalls"
     except Exception:
+        # Fallback to prevent crash during import
         PyTgCalls = object
         NoActiveGroupCall = Exception
         NoAudioSourceFound = Exception
@@ -204,7 +205,7 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: Optional
         "ffmpeg": titan_flags,
     }
 
-# ✅ تم إضافة الدالة الناقصة _clear_ هنا
+# ✅ دالة التنظيف (مهمة جداً لمنع خطأ NameError)
 async def _clear_(chat_id: int) -> None:
     try:
         if popped := db.pop(chat_id, None):
@@ -227,7 +228,8 @@ class Call:
         self.userbot4 = getattr(userbot, "four", None)
         self.userbot5 = getattr(userbot, "five", None)
 
-        PT = _TGCALLS.get("PyTgCalls", PyTgCalls) if TCALLS_BACKEND != "none" else None
+        # ✅ Fix: Use the globally defined PyTgCalls class, not a dictionary lookup
+        PT = PyTgCalls if TCALLS_BACKEND != "none" else None
         
         self.one = PT(self.userbot1, cache_duration=100) if (PT and self.userbot1) else None
         self.two = PT(self.userbot2, cache_duration=100) if (PT and self.userbot2) else None
@@ -294,6 +296,7 @@ class Call:
         except: pass
         await remove_active_video_chat(chat_id)
         await remove_active_chat(chat_id)
+        # ✅ Fix: Ensure _clear_ is called correctly
         await _clear_(chat_id)
         try:
             await assistant.leave_call(chat_id)
@@ -394,6 +397,7 @@ class Call:
             except Exception as e:
                 err_str = str(e).lower()
                 
+                # 🛑 FIX: Identify Permission/Call Errors & Prioritize call_8
                 is_permission_error = (
                     isinstance(e, ChatAdminRequired) 
                     or "chat_admin_required" in err_str 
@@ -423,6 +427,7 @@ class Call:
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
                     
+                    # 🔥 FIX: Double check msg for call_8 keywords before defaulting to call_10
                     if "admin" in err_str or "forbidden" in err_str or "found" in err_str:
                         raise AssistantErr(_["call_8"])
                         
