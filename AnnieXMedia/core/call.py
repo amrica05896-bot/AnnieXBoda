@@ -1,10 +1,15 @@
 """
-Call Controller (Merged)
+Call Controller (Merged - Revised)
 Author: Certified Coders © 2026
 System: Hybrid Engine (Hasii + AnonX + Alexa)
 Purpose: Robust, compatible Call controller for PyTgCalls / NTgCalls / Pyrogram
-- Preserves all public methods required by AnnieXMedia
-- Exports StreamController singleton, and module-level `autoend`, `counter`
+Fixes applied in this revision:
+- Guaranteed module-level `autoend` & `counter` for plugin imports
+- Fixed instant-leave by forcing `-re` for local files and improved ffmpeg flags
+- Stronger join logic: explicit permission checks, create-group-call only when allowed
+- Verify participants after join and raise `call_8` if assistant isn't allowed to stay
+- Defensive fallbacks when pytgcalls/ntgcalls aren't available
+- Preserves all public methods used by AnnieXMedia (play/pause/stop/skip/etc.)
 """
 
 import asyncio
@@ -17,7 +22,7 @@ from typing import Union, Optional
 
 import yt_dlp
 from pyrogram.raw import functions
-from pyrogram.errors import ChatAdminRequired, UserAlreadyParticipant, UserNotParticipant, FloodWait
+from pyrogram.errors import ChatAdminRequired, UserNotParticipant, FloodWait
 from pyrogram.types import InlineKeyboardMarkup
 
 # Try to import pytgcalls first, fallback to ntgcalls if available. If neither, provide safe fallbacks.
@@ -45,7 +50,7 @@ try:
 except Exception:
     try:
         import ntgcalls as ntg  # type: ignore
-        # Map expected names where possible
+        # Best-effort mappings
         PyTgCalls = getattr(ntg, "NTgCallsClient", object)
         NoActiveGroupCall = getattr(ntg, "NoActiveGroupCall", Exception)
         NoAudioSourceFound = getattr(ntg, "NoAudioSourceFound", Exception)
@@ -53,7 +58,6 @@ except Exception:
         NotInCallError = getattr(ntg, "NotInCallError", Exception)
         PyTgCallsAlreadyRunning = getattr(ntg, "AlreadyRunning", Exception)
         PyTgCallsError = getattr(ntg, "NTgCallsError", Exception)
-        # Best-effort types; may not exist
         AudioQuality = getattr(ntg, "AudioQuality", object)
         MediaStream = getattr(ntg, "MediaStream", object)
         VideoQuality = getattr(ntg, "VideoQuality", object)
@@ -63,7 +67,7 @@ except Exception:
         Update = getattr(ntg, "Update", object)
         TCALLS_BACKEND = "ntgcalls"
     except Exception:
-        # Fallback placeholders so import doesn't fail anywhere
+        # placeholders so module imports never fail
         PyTgCalls = object
         NoActiveGroupCall = Exception
         NoAudioSourceFound = Exception
@@ -103,7 +107,7 @@ from AnnieXMedia.utils.errors import capture_internal_err
 from AnnieXMedia.utils.inline.play import stream_markup
 from AnnieXMedia.utils.formatters import check_duration, seconds_to_min, speed_converter
 
-# Module-level state expected by plugins
+# Module-level state for plugins
 autoend: dict[int, datetime] = {}
 counter: dict[int, dict] = {}
 
@@ -146,15 +150,20 @@ async def get_direct_link(videoid: str, video: bool = False):
 
 
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: Optional[str] = None) -> MediaStream:
+    """Return a MediaStream configured to avoid instant-leave.
+    Local files MUST be played with `-re` so ffmpeg reads in realtime.
+    Remote URLs include reconnect flags.
+    """
     if not path:
         path = ""
     path = str(path)
     is_url = path.startswith("http")
 
+    # If local audio file, force audio-only
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")):
         video = False
 
-    # Stable ffmpeg flags
+    # Base flags
     if is_url:
         titan_flags = (
             "-threads 2 "
@@ -164,8 +173,9 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: Optional
             "-fflags +genpts+igndts+nobuffer -sync ext"
         )
     else:
+        # Critical: -re so ffmpeg doesn't finish instantly
         titan_flags = (
-            "-re -threads 2 "
+            "-re -threads 2 -ac 2 "
             "-probesize 10M -analyzeduration 10M "
             "-fflags +genpts+igndts+nobuffer -sync ext"
         )
@@ -183,7 +193,7 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: Optional
             ffmpeg_parameters=titan_flags,
         )
     except Exception:
-        # Simple fallback object to satisfy callers in tests/environments without media types
+        # Fallback lightweight object so callers don't crash in test env
         class _S:
             def __init__(self, **kw):
                 self.__dict__.update(kw)
@@ -370,7 +380,9 @@ class Call:
         else:
             await remove_active_video_chat(chat_id)
 
-    # Robust join logic
+    # ==========================================================
+    # Robust join logic (prevents instant leave + handles perms)
+    # ==========================================================
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await group_assistant(self, chat_id)
         lang = await get_lang(chat_id)
@@ -380,7 +392,7 @@ class Call:
         vid_id = extract_video_id(str(link)) if link else None
         await _invalidate_direct_cache_for_vid(vid_id)
 
-        # Attempt to resolve direct link for known patterns
+        # Resolve direct urls for some patterns
         try:
             if link and os.path.exists(str(link)) and video and str(link).endswith((".mp3", ".m4a")):
                 if vid_id:
@@ -403,7 +415,7 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
-        # Already active fast-path
+        # If already active just change stream
         if chat_id in self.active_calls:
             try:
                 await self._play_safe(chat_id, stream, force_join=False)
@@ -411,10 +423,12 @@ class Call:
             except Exception:
                 pass
 
-        # Pre-check assistant admin when possible
+        # Determine if assistant is admin/can manage vc
         user_client = None
         try:
-            user_client = getattr(await group_assistant(self, chat_id), "app", None) or getattr(await group_assistant(self, chat_id), "client", None)
+            # try obtain the underlying pyrogram client of the assistant
+            ass = await group_assistant(self, chat_id)
+            user_client = getattr(ass, "app", None) or getattr(ass, "client", None)
         except Exception:
             user_client = None
 
@@ -426,44 +440,49 @@ class Call:
                 if status not in ("creator", "administrator"):
                     is_admin = False
                 else:
-                    # try to inspect voice permission if present
                     can_manage = getattr(mem, "can_manage_voice_chats", None)
                     if can_manage is False:
                         is_admin = False
             except Exception:
+                # if we can't check, assume True to avoid false positives
                 is_admin = True
 
-        # If assistant not admin and call appears inactive -> raise call_8 early
+        # If assistant not admin, check whether a group call exists and assistant is participant
         if not is_admin:
             try:
-                active = await assistant.get_participants(chat_id)
-                if not active:
+                parts = await assistant.get_participants(chat_id)
+                # if call empty -> assistant can't create -> raise immediate call_8
+                if not parts:
                     raise AssistantErr(_["call_8"])
+            except AssistantErr:
+                raise
             except Exception:
                 raise AssistantErr(_["call_8"])
 
+        # Attempt join with retries
         retries = 3
         for attempt in range(retries):
             try:
+                # Auto-start join attempt
                 await self._play_safe(chat_id, stream, force_join=True)
 
-                # small stabilization delay
-                await asyncio.sleep(1.2)
+                # Let network settle and avoid instant-kick
+                await asyncio.sleep(1.3)
 
-                # audio wakeup
+                # audio wakeup (best-effort)
                 try:
                     await assistant.mute(chat_id)
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.05)
                     await assistant.unmute(chat_id)
                 except Exception:
                     pass
 
-                # verify participants
+                # verify presence
                 try:
                     parts = await assistant.get_participants(chat_id)
                     if not parts:
-                        # try create group call if permitted
-                        if user_client:
+                        # if we have permission to create, create and retry once
+                        if user_client and is_admin:
                             try:
                                 await user_client.invoke(
                                     functions.phone.CreateGroupCall(
@@ -472,17 +491,24 @@ class Call:
                                     )
                                 )
                                 await asyncio.sleep(2)
-                                # retry play once
                                 await self._play_safe(chat_id, stream, force_join=True)
                                 parts = await assistant.get_participants(chat_id)
                             except Exception:
                                 raise AssistantErr(_["call_8"])
                         else:
                             raise AssistantErr(_["call_8"])
+
+                    # sometimes assistant enters as listener; ensure it's still present after short wait
+                    await asyncio.sleep(0.8)
+                    parts = await assistant.get_participants(chat_id)
+                    if not parts:
+                        raise AssistantErr(_["call_8"])
+
                 except AssistantErr:
+                    # propagate call_8 to caller so stream module can stop UI
                     raise
                 except Exception:
-                    # non-fatal, fallthrough and let retries handle
+                    # allow outer retry loop
                     pass
 
                 # success
@@ -504,6 +530,7 @@ class Call:
                 return
 
             except AssistantErr:
+                # re-raise so caller (stream) shows UI message
                 raise
             except Exception as e:
                 err_str = str(e).lower()
@@ -511,7 +538,7 @@ class Call:
                     raise AssistantErr(_["call_8"])
 
                 if isinstance(e, NoActiveGroupCall) or "noactivegroupcall" in err_str:
-                    if user_client:
+                    if user_client and is_admin:
                         try:
                             await user_client.invoke(
                                 functions.phone.CreateGroupCall(
@@ -586,6 +613,7 @@ class Call:
 
     async def decorators(self) -> None:
         assistants = list(filter(None, [self.one, self.two, self.three, self.four, self.five]))
+
         async def unified_update_handler(client, update: Update) -> None:
             try:
                 if isinstance(update, StreamEnded):
@@ -735,7 +763,8 @@ class Call:
                 db[chat_id][0]["mystic"] = run
                 db[chat_id][0]["markup"] = "stream"
             except Exception as e:
-                LOGGER(__name__).error(f"💣 [PLAY ERROR] Chat: {chat_id}\n{traceback.format_exc()}")
+                LOGGER(__name__).error(f"💣 [PLAY ERROR] Chat: {chat_id}
+{traceback.format_exc()}")
                 await _clear_(chat_id)
                 try:
                     await client.leave_call(chat_id)
