@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Zero-Error Architecture - PyTgCalls 2.2.11)
-# Optimization: Hybrid Engine (ntgcalls + asyncio), Smart Buffer, Auto-Healing
+# System: Call Controller (Fixed for Real-Time Environment)
+# Fixes: ImportError 'GroupCallNotFoundError', 'InvalidStreamMode'
 
 import asyncio
 import os
@@ -21,8 +21,8 @@ from pytgcalls.exceptions import (
     NotInCallError,
     PyTgCallsAlreadyRunning,
     PyTgCallsError,
-    GroupCallNotFoundError,
-    InvalidStreamMode
+    # GroupCallNotFoundError Removed - Not in lib
+    # InvalidStreamMode Removed - Not in lib
 )
 from pytgcalls.types import (
     AudioQuality,
@@ -61,7 +61,7 @@ autoend = {}
 counter = {}
 
 # ===============================
-# 2026 Standard Helpers
+# Helpers
 # ===============================
 
 def clean_vidid(vid):
@@ -90,30 +90,20 @@ async def get_direct_link(videoid: str, video: bool = False):
     except: return link
 
 def dynamic_media_stream(path: str, video: bool = False) -> MediaStream:
-    """
-    Generates a MediaStream object optimized for PyTgCalls 2.2.11
-    Handles FFmpeg flags based on source type (Local vs URL).
-    """
     if not path: path = ""
     path = str(path)
     is_url = path.startswith("http")
     
-    # Force audio flags logic
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
-    # ==============================================================================
-    # 🔥 FFmpeg Optimization (Report Chapter 4.1)
-    # ==============================================================================
     if not is_url:
-        # Local Files: -re is mandatory to match playback speed with real-time
         ffmpeg_flags = (
             "-re -threads 2 "
             "-probesize 10M -analyzeduration 10M "
             "-fflags +genpts+igndts+nobuffer -sync ext"
         )
     else:
-        # Live/URLs: Aggressive buffering and reconnection logic
         ffmpeg_flags = (
             "-threads 2 "
             "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
@@ -121,14 +111,10 @@ def dynamic_media_stream(path: str, video: bool = False) -> MediaStream:
             "-rtbufsize 10M "
             "-fflags +genpts+igndts+nobuffer -sync ext"
         )
-
-    # Using specific classes based on PyTgCalls 2.2.11 standards
-    # Note: We wrap them in MediaStream for compatibility with the generic handler
-    # assuming the updated library supports the MediaStream wrapper for Piped types.
     
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.HIGH, # Optimized for stability
+        audio_parameters=AudioQuality.HIGH,
         video_parameters=VideoQuality.HD_720p,
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
@@ -164,9 +150,9 @@ class Call:
         self.userbot4 = getattr(userbot, "four", None)
         self.userbot5 = getattr(userbot, "five", None)
 
-        # PyTgCalls 2.2.11 Config: overload_quiet_mode=True
-        # Prevents log flooding during high CPU usage
-        client_config = {"cache_duration": 100, "overload_quiet_mode": True}
+        # Removed 'overload_quiet_mode' as it might also not be in your version
+        # Kept cache_duration which is standard
+        client_config = {"cache_duration": 100}
 
         self.one = PyTgCalls(self.userbot1, **client_config) if self.userbot1 else None
         self.two = PyTgCalls(self.userbot2, **client_config) if self.userbot2 else None
@@ -177,32 +163,32 @@ class Call:
         self.active_calls: set[int] = set()
 
     async def _play_safe(self, chat_id, stream, force_join=False):
-        """
-        Core player logic utilizing GroupCallConfig(auto_start=True).
-        This handles joining automatically if not connected.
-        """
         assistant = await group_assistant(self, chat_id)
-        
-        # 2.2.11 Feature: auto_start=True
-        # This eliminates the need for manual join checks in most cases
         config = GroupCallConfig(auto_start=force_join)
         
         try:
             await assistant.play(chat_id, stream, config=config)
-        except GroupCallNotFoundError:
-            # Self-Healing: Create call if not exists
+        except NoActiveGroupCall:
+            # Replaces GroupCallNotFoundError logic
             try:
                 await self.create_call(assistant, chat_id)
                 await assistant.play(chat_id, stream, config=config)
             except Exception as e:
                 LOGGER(__name__).error(f"Failed to auto-create call: {e}")
                 raise e
+        except Exception as e:
+            # Fallback for other "Not Found" errors that might come as generic exceptions
+            if "group call not found" in str(e).lower() or "no active group call" in str(e).lower():
+                try:
+                    await self.create_call(assistant, chat_id)
+                    await assistant.play(chat_id, stream, config=config)
+                except Exception as ex:
+                    raise ex
+            else:
+                raise e
 
     async def create_call(self, client, chat_id):
-        """Helper to create a group call via MTProto"""
         from pyrogram.raw.functions.phone import CreateGroupCall
-        
-        # Access the underlying Pyrogram client
         user_app = client._app 
         peer = await user_app.resolve_peer(chat_id)
         await user_app.invoke(
@@ -233,7 +219,6 @@ class Call:
         assistant = await group_assistant(self, chat_id)
         await _clear_(chat_id)
         try: 
-            # Graceful leave
             await assistant.leave_call(chat_id)
         except: pass
         finally: self.active_calls.discard(chat_id)
@@ -263,7 +248,6 @@ class Call:
         vid_id = extract_video_id(str(link))
         await _invalidate_direct_cache_for_vid(vid_id)
 
-        # Smart Link Logic
         if os.path.exists(str(link)) and video and str(link).endswith((".mp3", ".m4a")):
             if vid_id:
                 try:
@@ -290,14 +274,13 @@ class Call:
         if chat_id in self.active_calls:
             try:
                 if old_is_video != new_is_video:
-                    # Mode change requires rejoin logic sometimes, but we try play first
                     try: await assistant.leave_call(chat_id)
                     except: pass
                     await asyncio.sleep(0.5)
                     await self._play_safe(chat_id, stream, force_join=True)
                 else:
                     await self._play_safe(chat_id, stream, force_join=False)
-            except (NoActiveGroupCall, NotInCallError, GroupCallNotFoundError):
+            except (NoActiveGroupCall, NotInCallError):
                 await self._play_safe(chat_id, stream, force_join=True)
             except Exception:
                 try: await self.stop_stream(chat_id)
@@ -336,7 +319,6 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
-        # 1. Update if already active
         if chat_id in self.active_calls:
             try:
                 await self._play_safe(chat_id, stream, force_join=False)
@@ -344,41 +326,27 @@ class Call:
             except Exception:
                 pass
 
-        # 2. Join with Retry & Zero-Error philosophy
         retries = 3
         for attempt in range(retries):
             try:
-                # auto_start=True inside _play_safe handles the mechanics
                 await self._play_safe(chat_id, stream, force_join=True)
-                
-                # Stability Wait
                 await asyncio.sleep(2)
-                
-                # Audio Wakeup
                 try:
                     await assistant.mute(chat_id)
                     await asyncio.sleep(0.1)
                     await assistant.unmute(chat_id)
                 except: pass
-                
                 break 
             
             except Exception as e:
                 err_str = str(e).lower()
                 
-                # Strict Admin/Permission Check
                 if (isinstance(e, (ChatAdminRequired)) 
                     or "chat_admin_required" in err_str 
                     or "groupcall_forbidden" in err_str):
                     raise AssistantErr(_["call_8"])
                 
-                # If call not found and we failed to create it
-                if "noactivegroupcall" in err_str or "group call not found" in err_str:
-                     # Wait before retry
-                     pass
-
                 if attempt == retries - 1:
-                    # Detailed Error Mapping for User
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
                     elif isinstance(e, (PyTgCallsError)):
@@ -409,7 +377,7 @@ class Call:
             except: pass
 
     async def start(self) -> None:
-        LOGGER(__name__).info("Starting PyTgCalls Clients (v2.2.11 Mode)...")
+        LOGGER(__name__).info("Starting PyTgCalls Clients...")
         if self.one and config.STRING1: await self.one.start()
         if self.two and config.STRING2: await self.two.start()
         if self.three and config.STRING3: await self.three.start()
@@ -427,7 +395,6 @@ class Call:
 
     async def decorators(self) -> None:
         assistants = list(filter(None, [self.one, self.two, self.three, self.four, self.five]))
-        # Critical events that require stream stop
         CRITICAL = (ChatUpdate.Status.KICKED | ChatUpdate.Status.LEFT_GROUP | ChatUpdate.Status.CLOSED_VOICE_CHAT)
         
         async def unified_update_handler(client, update: Update) -> None:
@@ -447,7 +414,6 @@ class Call:
             try: assistant.on_update()(unified_update_handler)
             except: pass
 
-    # --- Queue Handler ---
     @capture_internal_err
     async def play(self, client, chat_id: int) -> None:
         check = db.get(chat_id)
