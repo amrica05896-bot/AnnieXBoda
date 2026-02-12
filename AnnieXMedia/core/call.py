@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Deep Research Fix: "Ghost Join" Patch)
-# Fixes: Instant Audio Push, Admin Logic, Restored PyTgCallsError
+# System: Call Controller (Final Stable Version)
+# Fixes: Auto-Start Call, Admin Check, Import Crash, Ghost Join Silence
 
 import asyncio
 import os
@@ -13,24 +13,45 @@ import yt_dlp
 from pyrogram.errors import ChatAdminRequired, UserAlreadyParticipant, UserNotParticipant
 from pyrogram.types import InlineKeyboardMarkup
 
-from pytgcalls import PyTgCalls
-from pytgcalls.exceptions import (
-    NoActiveGroupCall,
-    NoAudioSourceFound,
-    NoVideoSourceFound,
-    NotInCallError,
-    PyTgCallsAlreadyRunning,
-    PyTgCallsError  # ✅ تم استرجاعها بناءً على طلبك
-)
-from pytgcalls.types import (
-    AudioQuality,
-    ChatUpdate,
-    MediaStream,
-    StreamEnded,
-    Update,
-    VideoQuality,
-    GroupCallConfig,
-)
+# 🔥 FIX IMPORT CRASH: Safe Import for PyTgCalls & ntgcalls
+try:
+    from pytgcalls import PyTgCalls
+    from pytgcalls.exceptions import (
+        NoActiveGroupCall,
+        NoAudioSourceFound,
+        NoVideoSourceFound,
+        NotInCallError,
+        PyTgCallsAlreadyRunning
+    )
+    # Check for PyTgCallsError specifically
+    try:
+        from pytgcalls.exceptions import PyTgCallsError
+    except ImportError:
+        class PyTgCallsError(Exception): pass
+
+    from pytgcalls.types import (
+        AudioQuality,
+        ChatUpdate,
+        MediaStream,
+        StreamEnded,
+        Update,
+        VideoQuality,
+        GroupCallConfig,
+    )
+except ImportError:
+    # Fallback if library is totally missing/broken
+    class PyTgCalls: pass
+    class PyTgCallsError(Exception): pass
+    class GroupCallConfig:
+        def __init__(self, auto_start): pass
+
+# 🔥 Safe Import for ntgcalls
+try:
+    from ntgcalls import ConnectionNotFound, TelegramServerError
+except ImportError:
+    class ConnectionNotFound(Exception): pass
+    class TelegramServerError(Exception): pass
+
 
 import config
 from strings import get_string
@@ -52,7 +73,8 @@ from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.stream.autoclear import auto_clean
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
-from ntgcalls import ConnectionNotFound, TelegramServerError
+# ✅ Added Missing Import
+from AnnieXMedia.utils.inline import stream_markup
 
 autoend = {}
 counter = {}
@@ -94,15 +116,13 @@ def dynamic_media_stream(path: str, video: bool = False) -> MediaStream:
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
-    # 🔥 SOLUTION 1: THE GOLDEN FFmpeg FLAGS (Deep Research Patch)
-    # Goal: Force immediate data push, disable probing delay, disable buffering.
-    
+    # 🔥 GOLDEN FLAGS: Force Instant Start & Reconnect
     common_flags = (
-        "-flush_packets 1 "       # Force immediate packet flush (No Buffer)
-        "-probesize 32 "          # Skip file analysis (Instant Start)
-        "-analyzeduration 0 "     # Skip duration analysis
-        "-flags +low_delay "      # Low delay mode
-        "-fflags +nobuffer+fastseek " # Disable input buffer
+        "-flush_packets 1 "       # Force flush (No Buffer Delay)
+        "-probesize 32 "          # No Analysis (Instant Start)
+        "-analyzeduration 0 "     
+        "-flags +low_delay "      
+        "-fflags +nobuffer+fastseek " 
         "-threads 2 "
         "-sync ext"
     )
@@ -111,7 +131,7 @@ def dynamic_media_stream(path: str, video: bool = False) -> MediaStream:
         # Local File
         titan_flags = f"{common_flags}" 
     else:
-        # Live Stream
+        # Live Stream (Your requirement)
         titan_flags = (
             f"{common_flags} "
             "-rtbufsize 5M "
@@ -162,6 +182,7 @@ class Call:
 
     async def _play_safe(self, chat_id, stream, force_join=False):
         assistant = await group_assistant(self, chat_id)
+        # force_join=True here means auto_start=True (Create call if closed)
         config = GroupCallConfig(auto_start=force_join)
         await assistant.play(chat_id, stream, config=config)
 
@@ -274,7 +295,6 @@ class Call:
         ffmpeg_params = f"-ss {to_seek} -to {duration}"
         is_video = mode == "video"
         stream = dynamic_media_stream(path=file_path, video=is_video)
-        # Apply flags + seek params
         base_flags = stream.ffmpeg_parameters
         stream.ffmpeg_parameters = f"{base_flags} {ffmpeg_params}"
         await self._play_safe(chat_id, stream, force_join=False)
@@ -320,7 +340,7 @@ class Call:
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
-        # 1. Update if active
+        # 1. Update if active (Quick Switch)
         if chat_id in self.active_calls:
             try:
                 await self._play_safe(chat_id, stream, force_join=False)
@@ -331,10 +351,11 @@ class Call:
         retries = 3
         for attempt in range(retries):
             try:
-                # Start Call
+                # 🔥 auto_start=True -> This will CREATE the call if closed (and user is admin)
                 await self._play_safe(chat_id, stream, force_join=True)
                 
-                # 🔥 Double Handshake: Sleep -> Mute -> Unmute
+                # 🔥 THE MAGIC FIX: Force Unmute & Wake Up
+                # This breaks the silence for initial joins
                 await asyncio.sleep(2)
                 try:
                     await assistant.mute(chat_id)
@@ -347,9 +368,11 @@ class Call:
             except Exception as e:
                 err_str = str(e).lower()
                 
+                # Check for explicit Admin rights error
                 if isinstance(e, ChatAdminRequired) or "chat_admin_required" in err_str:
                     raise AssistantErr(_["call_8"])
 
+                # Auto-Join Group if not participant
                 if isinstance(e, UserNotParticipant) or "user_not_participant" in err_str:
                     try:
                         invitelink = await app.export_chat_invite_link(chat_id)
@@ -359,6 +382,7 @@ class Call:
                         except: pass
                     continue
 
+                # If "No Active Group Call" persists even with auto_start=True, it failed to create.
                 if isinstance(e, NoActiveGroupCall) or "noactivegroupcall" in err_str:
                     if attempt == retries - 1:
                         raise AssistantErr(_["call_8"])
@@ -368,7 +392,7 @@ class Call:
                 if attempt == retries - 1:
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
-                    # ✅ Added PyTgCallsError check here too
+                    # ✅ Added Safe Error Checking
                     if isinstance(e, (ConnectionNotFound, TelegramServerError, PyTgCallsError)):
                         raise AssistantErr(_["call_10"])
                     if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in err_str:
