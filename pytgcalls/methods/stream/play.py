@@ -6,6 +6,9 @@ from typing import Union
 from ntgcalls import FileError
 from ntgcalls import StreamMode
 
+# 🔥 Added Pyrogram Errors Import
+from pyrogram.errors import ChatAdminRequired, GroupCallForbidden
+
 from ...exceptions import NoActiveGroupCall
 from ...media_devices.input_device import InputDevice
 from ...mtproto_required import mtproto_required
@@ -69,11 +72,23 @@ class Play(Scaffold):
             chat_call = await self._app.get_full_chat(
                 chat_id,
             )
+            
+            # 🔥🔥🔥 THE FIX IS HERE 🔥🔥🔥
             if chat_call is None:
                 if config.auto_start:
-                    await self._app.create_group_call(
-                        chat_id,
-                    )
+                    try:
+                        # Try to create the call
+                        await self._app.create_group_call(
+                            chat_id,
+                        )
+                    except (ChatAdminRequired, GroupCallForbidden):
+                        # If failed due to permissions, raise NoActiveGroupCall
+                        # This triggers 'call_8' in your bot
+                        raise NoActiveGroupCall("Not Admin or Permission Missing")
+                    except Exception as e:
+                        # Any other error? Still raise NoActiveGroupCall
+                        py_logger.error(f"Failed to auto-start call: {e}")
+                        raise NoActiveGroupCall(str(e))
                 else:
                     raise NoActiveGroupCall()
 
