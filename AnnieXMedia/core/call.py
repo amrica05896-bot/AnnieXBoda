@@ -1,21 +1,23 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Hybrid: Modern Structure + Legacy Join Logic)
-# Fixes: Instant Leave (Added -re), Ghost Join
+# System: Call Controller (Legacy Logic + Fixed Imports)
+# Fixes: ImportError NoActiveGroupCall, Instant Leave
 
 import asyncio
 import os
 import traceback
 from datetime import datetime, timedelta
 from typing import Union
-
-from pyrogram.errors import ChatAdminRequired, UserNotParticipant, NoActiveGroupCall
-from pyrogram.types import InlineKeyboardMarkup
-from pyrogram.raw import functions
 from random import randint
 
-# استيراد المكتبة (كما في الكود القديم)
+# ✅ تصحيح الاستيرادات (السبب في الكراش)
+from pyrogram.errors import ChatAdminRequired, UserNotParticipant
+from pyrogram.raw import functions
+from pyrogram.types import InlineKeyboardMarkup
+
+# ✅ استيراد NoActiveGroupCall من مكانها الصحيح
 from pytgcalls import PyTgCalls
 from pytgcalls.exceptions import (
+    NoActiveGroupCall,  # <-- هنا مكانها الصح
     NoAudioSourceFound,
     NoVideoSourceFound,
     NotInCallError,
@@ -31,7 +33,6 @@ from pytgcalls.types import (
     GroupCallConfig,
 )
 
-# محاولة استيراد أخطاء ntgcalls لو موجودة
 try:
     from ntgcalls import ConnectionNotFound, TelegramServerError
 except ImportError:
@@ -66,20 +67,18 @@ autoend = {}
 counter = {}
 
 # -----------------------------------------------------------------------------
-# 1. إعدادات البث (منطق الكود القديم + حل الخروج الفوري)
+# 1. إعدادات البث (مع حل الخروج الفوري)
 # -----------------------------------------------------------------------------
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
     path = str(path)
     is_url = path.startswith("http")
     
-    # 🔥 الإضافة الوحيدة هنا هي -re للملفات المحلية لمنع الخروج
-    # باقي الإعدادات مطابقة للكود القديم
     titan_flags = "-threads 2 -ac 2 -probesize 10M -analyzeduration 10M"
     
     if is_url:
         titan_flags += " -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
     else:
-        # هذا هو السطر الذي يمنع الخروج في نفس الثانية
+        # 🔥 الحل السحري: -re تمنع قراءة الملف المحلي بسرعة وتجبره على الوقت الحقيقي
         titan_flags = f"-re {titan_flags}"
     
     if ffmpeg_params:
@@ -126,7 +125,6 @@ class Call:
 
         self.active_calls: set[int] = set()
 
-    # --- نفس دوال الكود القديم للتحكم ---
     @capture_internal_err
     async def pause_stream(self, chat_id: int):
         assistant = await group_assistant(self, chat_id)
@@ -173,7 +171,6 @@ class Call:
     @capture_internal_err
     async def skip_stream(self, chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None):
         assistant = await group_assistant(self, chat_id)
-        # نفس منطق القديم: auto_start=False
         ksk = GroupCallConfig(auto_start=False)
         stream = dynamic_media_stream(path=link, video=bool(video))
         await assistant.play(chat_id, stream, config=ksk)
@@ -211,7 +208,7 @@ class Call:
             })
 
     # --------------------------------------------------------------------------
-    # 🔥🔥🔥 أهم دالة: Join Call (نسخ لصق من القديم مع تحسين الإنشاء) 🔥🔥🔥
+    # 🔥 Join Call (منطق الإنشاء اليدوي المفضل لديك)
     # --------------------------------------------------------------------------
     @capture_internal_err
     async def join_call(
@@ -226,19 +223,15 @@ class Call:
         lang = await get_lang(chat_id)
         _ = get_string(lang)
         
-        # 1. تجهيز الاستريم
         stream = dynamic_media_stream(path=link, video=bool(video))
-        
-        # 2. الكونفج من الكود القديم
         ksk = GroupCallConfig(auto_start=False)
 
         try:
-            # 3. محاولة الدخول (زي القديم بالظبط)
+            # المحاولة الأولى: انضمام عادي
             await assistant.play(chat_id, stream, config=ksk)
             
         except NoActiveGroupCall:
-            # 🔥 هنا الإضافة: لو مفيش كول، ننشئه يدوياً بدل ما نبعت رسالة خطأ
-            # لأن المستخدمين بيشتكوا إن المساعد مش بيدخل
+            # لو فشل عشان مفيش كول، ننشئه يدوياً
             try:
                 user_client = getattr(assistant, "app", getattr(assistant, "client", None))
                 if user_client:
@@ -248,7 +241,7 @@ class Call:
                             random_id=randint(10000, 99999)
                         )
                     )
-                    await asyncio.sleep(2) # انتظار تيليجرام
+                    await asyncio.sleep(2)
                     await assistant.play(chat_id, stream, config=ksk)
                 else:
                     raise AssistantErr(_["call_8"])
@@ -260,7 +253,6 @@ class Call:
         except (ConnectionNotFound, TelegramServerError):
             raise AssistantErr(_["call_10"])
         except Exception as e:
-            # محاولة أخيرة (Retry)
             try:
                  await assistant.leave_call(chat_id)
                  await asyncio.sleep(1)
@@ -312,8 +304,7 @@ class Call:
                 except: pass
             
             elif isinstance(update, ChatUpdate):
-                status = update.status
-                if (status & ChatUpdate.Status.LEFT_CALL) or (status & CRITICAL):
+                if (update.status & ChatUpdate.Status.LEFT_CALL) or (update.status & CRITICAL):
                     await self.stop_stream(update.chat_id)
 
         for assistant in assistants:
@@ -364,11 +355,10 @@ class Call:
 
         is_video = str(streamtype) == "video"
 
-        # Helper to resolve links
+        # Link Resolver
         async def resolve_link(vid, vid_id_val):
             if not vid: return None
             try:
-                # Direct link logic
                 link = f"https://www.youtube.com/watch?v={vid_id_val}"
                 fmt = "best[ext=mp4]/best" if is_video else "bestaudio/best"
                 opts = {"format": fmt, "quiet": True, "nocheckcertificate": True}
@@ -376,9 +366,7 @@ class Call:
                 return await loop_run.run_in_executor(None, lambda: yt_dlp.YoutubeDL(opts).extract_info(link, download=False).get("url"))
             except: return vid
 
-        # Determine Stream Path
         final_stream_path = queued
-        # Try resolving if it's a youtube ID and local file doesn't exist
         if not os.path.exists(str(queued)) and videoid:
              res = await resolve_link(queued, videoid)
              if res: final_stream_path = res
