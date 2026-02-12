@@ -6,17 +6,9 @@ from ..logging import LOGGER
 assistants = []
 assistantids = []
 
-GROUPS_TO_JOIN = [
-    "CertifiedDiscussion",
-    "CertifiedCoders",
-    "CertifiedCodes",
-    "CertifiedDevs",
-    "CertifiedNetwork",
-]
-
 class Userbot:
     def __init__(self):
-        # كل العملاء مع no_updates=True عشان يتابع المكالمات فقط
+        # تم ضبط no_updates=False عشان المساعد يشوف تحديثات الكول كويس
         self.one = Client(
             "AnnieAssis1",
             config.API_ID,
@@ -67,12 +59,8 @@ class Userbot:
 
         try:
             await client.start()
-            # الانضمام للجروبات الأساسية
-            for group in GROUPS_TO_JOIN:
-                try:
-                    await client.join_chat(group)
-                except Exception:
-                    pass
+            
+            # ❌ تم حذف كود الانضمام التلقائي للجروبات من هنا
 
             assistants.append(index)
 
@@ -85,8 +73,7 @@ class Userbot:
                 LOGGER(__name__).error(
                     f"💝 المساعد {index} لا يمكنه الوصول لجروب السجل.. تحقق من الأذونات!"
                 )
-                exit()
-
+                
             me = await client.get_me()
             client.id, client.name, client.username = me.id, me.first_name, me.username
             assistantids.append(me.id)
@@ -98,11 +85,11 @@ class Userbot:
 
     async def start(self):
         LOGGER(__name__).info("💝 جارٍ بدء تشغيل حسابات المساعدين...")
-        await self.start_assistant(self.one, 1)
-        await self.start_assistant(self.two, 2)
-        await self.start_assistant(self.three, 3)
-        await self.start_assistant(self.four, 4)
-        await self.start_assistant(self.five, 5)
+        if config.STRING1: await self.start_assistant(self.one, 1)
+        if config.STRING2: await self.start_assistant(self.two, 2)
+        if config.STRING3: await self.start_assistant(self.three, 3)
+        if config.STRING4: await self.start_assistant(self.four, 4)
+        if config.STRING5: await self.start_assistant(self.five, 5)
 
     async def stop(self):
         LOGGER(__name__).info("☔ جارٍ إيقاف المساعدين...")
