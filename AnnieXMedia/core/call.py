@@ -1,20 +1,27 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Final Stable Version)
-# Fixes: Auto-Start Call, Admin Check, Import Crash, Ghost Join Silence
+# System: Call Controller (Hasii Logic Integrated)
+# Fixes: Auto-Join Group, Auto-Create VC, 5-Sec Listener Bug
 
 import asyncio
 import os
 import re
 import traceback
+from random import randint
 from datetime import datetime, timedelta
 from typing import Union, Optional
 
 import yt_dlp
-from pyrogram.errors import ChatAdminRequired, UserAlreadyParticipant, UserNotParticipant
+# 🔥 Imports for creating VC manually
+from pyrogram.raw import functions 
+from pyrogram.errors import (
+    ChatAdminRequired, 
+    UserAlreadyParticipant, 
+    UserNotParticipant,
+    InviteRequestSent
+)
 from pyrogram.types import InlineKeyboardMarkup
 
-# 🔥 FIX IMPORT CRASH: Safe Import for PyTgCalls & ntgcalls
-# This ensures compatibility with both old and new versions (2.2.11+)
+# 🔥 Safe Import for PyTgCalls (2.2.11 Compatible)
 try:
     from pytgcalls import PyTgCalls
     from pytgcalls.exceptions import (
@@ -24,7 +31,6 @@ try:
         NotInCallError,
         PyTgCallsAlreadyRunning
     )
-    # Check for PyTgCallsError specifically (Removed in some versions)
     try:
         from pytgcalls.exceptions import PyTgCallsError
     except ImportError:
@@ -40,13 +46,11 @@ try:
         GroupCallConfig,
     )
 except ImportError:
-    # Emergency Fallback if library is totally broken
     class PyTgCalls: pass
     class PyTgCallsError(Exception): pass
     class GroupCallConfig:
         def __init__(self, auto_start): pass
 
-# 🔥 Safe Import for ntgcalls
 try:
     from ntgcalls import ConnectionNotFound, TelegramServerError
 except ImportError:
@@ -74,14 +78,13 @@ from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.stream.autoclear import auto_clean
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
-# ✅ Added Missing Import
 from AnnieXMedia.utils.inline.play import stream_markup
 
 autoend = {}
 counter = {}
 
 # ===============================
-# Helpers
+# Helpers & FFmpeg Logic
 # ===============================
 
 def clean_vidid(vid):
@@ -117,27 +120,24 @@ def dynamic_media_stream(path: str, video: bool = False) -> MediaStream:
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
-    # 🔥 GOLDEN FLAGS: Force Instant Start & Reconnect
+    # 🔥 Hasii Optimized Flags
     common_flags = (
-        "-flush_packets 1 "       # Force flush (No Buffer Delay)
-        "-probesize 32 "          # No Analysis (Instant Start)
-        "-analyzeduration 0 "     
-        "-flags +low_delay "      
-        "-fflags +nobuffer+fastseek " 
+        "-flush_packets 1 "       
+        "-probesize 10M "          
+        "-analyzeduration 5M "     
+        "-fflags +nobuffer+fastseek+genpts+igndts " 
         "-threads 2 "
         "-sync ext"
     )
 
-    if not is_url:
-        # Local File
-        titan_flags = f"{common_flags}" 
-    else:
-        # Live Stream
+    if is_url:
         titan_flags = (
             f"{common_flags} "
             "-rtbufsize 5M "
             "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 2"
         )
+    else:
+        titan_flags = common_flags
 
     return MediaStream(
         media_path=path,
@@ -181,36 +181,52 @@ class Call:
 
         self.active_calls: set[int] = set()
 
+    async def _send_log(self, text: str):
+        print(f"[CALL LOG] {text}")
+        if not config.LOGGER_ID: return
+        try:
+            await app.send_message(config.LOGGER_ID, text, disable_web_page_preview=True)
+        except: pass
+
     async def _play_safe(self, chat_id, stream, force_join=False):
         assistant = await group_assistant(self, chat_id)
-        # force_join=True here means auto_start=True (Create call if closed)
         config = GroupCallConfig(auto_start=force_join)
         await assistant.play(chat_id, stream, config=config)
 
+    @capture_internal_err
     async def pause_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
         await assistant.pause(chat_id)
+        await self._send_log(f"⏸️ **Paused**: `{chat_id}`")
 
+    @capture_internal_err
     async def resume_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
         try: await assistant.resume(chat_id)
         except: await assistant.unmute(chat_id)
+        await self._send_log(f"▶️ **Resumed**: `{chat_id}`")
 
+    @capture_internal_err
     async def mute_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
         await assistant.mute(chat_id)
 
+    @capture_internal_err
     async def unmute_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
         await assistant.unmute(chat_id)
 
+    @capture_internal_err
     async def stop_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
         await _clear_(chat_id)
-        try: await assistant.leave_call(chat_id)
+        try: 
+            await assistant.leave_call(chat_id)
+            await self._send_log(f"⏹️ **Stopped**: `{chat_id}`")
         except: pass
         finally: self.active_calls.discard(chat_id)
 
+    @capture_internal_err
     async def force_stop_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
         try:
@@ -220,10 +236,13 @@ class Call:
         await remove_active_video_chat(chat_id)
         await remove_active_chat(chat_id)
         await _clear_(chat_id)
-        try: await assistant.leave_call(chat_id)
+        try: 
+            await assistant.leave_call(chat_id)
+            await self._send_log(f"⛔ **Force Stopped**: `{chat_id}`")
         except: pass
         finally: self.active_calls.discard(chat_id)
 
+    @capture_internal_err
     async def skip_stream(self, chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         if not link:
             try:
@@ -264,13 +283,14 @@ class Call:
                 if old_is_video != new_is_video:
                     try: await assistant.leave_call(chat_id)
                     except: pass
-                    await asyncio.sleep(0.5)
                     await self._play_safe(chat_id, stream, force_join=True)
                 else:
                     await self._play_safe(chat_id, stream, force_join=False)
+                await self._send_log(f"⏭️ **Skipped**: `{chat_id}`")
             except (NoActiveGroupCall, NotInCallError):
                 await self._play_safe(chat_id, stream, force_join=True)
-            except Exception:
+            except Exception as e:
+                await self._send_log(f"⚠️ **Skip Error**: {e}")
                 try: await self.stop_stream(chat_id)
                 except: pass
                 await asyncio.sleep(0.2)
@@ -296,12 +316,10 @@ class Call:
         ffmpeg_params = f"-ss {to_seek} -to {duration}"
         is_video = mode == "video"
         stream = dynamic_media_stream(path=file_path, video=is_video)
-        # Note: Depending on library version, you might need to append to existing params
-        # But for direct seek on 2.2.11, creating new stream usually preferred.
-        # We append flags for safety:
         base_flags = getattr(stream, "ffmpeg_parameters", "")
         stream.ffmpeg_parameters = f"{base_flags} {ffmpeg_params}"
         await self._play_safe(chat_id, stream, force_join=False)
+        await self._send_log(f"⏩ **Seeked**: `{chat_id}`")
 
     @capture_internal_err
     async def speedup_stream(self, chat_id: int, file_path: str, speed: float, playing: list) -> None:
@@ -323,23 +341,25 @@ class Call:
         
         stream = dynamic_media_stream(path=out, video=is_video)
         speed_flags = f"-ss {played} -to {duration_min}"
-        # Append safe flags
         base_flags = getattr(stream, "ffmpeg_parameters", "")
         stream.ffmpeg_parameters = f"{base_flags} {speed_flags}"
         
         await self._play_safe(chat_id, stream, force_join=False)
+        await self._send_log(f"⚡ **Speed ({speed}x)**: `{chat_id}`")
         
         if chat_id in db and db[chat_id] and db[chat_id][0].get("file") == file_path:
             db[chat_id][0].update({"played": con_seconds, "dur": duration_min, "seconds": dur, "speed_path": out, "speed": speed})
 
     # ==========================================================
-    # 🔥 SMART JOIN LOGIC (Admin & Force Wakeup)
+    # 🔥 ULTIMATE JOIN LOGIC (HASII STYLE + FORCE CREATE)
     # ==========================================================
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
-        """
-        تفتح المكالمة تلقائياً وتبدأ البث مع معالجة الصمت والتهنيج.
-        """
         assistant = await group_assistant(self, chat_id)
+        # 🔥 FIX: Get the underlying Pyrogram client properly
+        # assistant is PyTgCalls wrapper. 
+        # In PyTgCalls 2.x+, .app or .client usually holds the Pyrogram client
+        user_client = getattr(assistant, "app", getattr(assistant, "client", None))
+        
         lang = await get_lang(chat_id)
         _ = get_string(lang)
         
@@ -347,73 +367,105 @@ class Call:
         vid_id = extract_video_id(str(link)) if link else None
         await _invalidate_direct_cache_for_vid(vid_id)
 
-        # 🔥 أولاً: تأمين وجود المساعد
+        # 🔥 STEP 1: Ensure Assistant is in Group (Hasii Logic _play.py)
         try:
-            await assistant.join_chat(chat_id)
-        except UserAlreadyParticipant:
-            pass
+            chat = await user_client.get_chat(chat_id)
+            # If username exists, try to resolve/join via username (safer)
+            if chat.username:
+                try: await user_client.join_chat(chat.username)
+                except: pass
+            else:
+                # If private/no username, check membership
+                try:
+                    await user_client.get_chat_member(chat_id, "me")
+                except UserNotParticipant:
+                    # Not a member, try to join via invite link
+                    try:
+                        invitelink = await app.export_chat_invite_link(chat_id)
+                        if invitelink.startswith("https://t.me/+"):
+                            await user_client.join_chat(invitelink)
+                            await asyncio.sleep(1) # Wait for join to process
+                    except Exception as e:
+                        await self._send_log(f"⚠️ **Assistant Join Error**: {e}")
         except Exception:
-            # Try via invite link if possible, else ignore
-            try:
-                invitelink = await app.export_chat_invite_link(chat_id)
-                await assistant.join_chat(invitelink)
-            except: pass
+            pass
 
         stream = dynamic_media_stream(path=final_link, video=bool(video))
 
-        # 🔥 ثانياً: حلقة المحاولات لفتح الكول (Hasii Logic)
+        if chat_id in self.active_calls:
+            try:
+                await self._play_safe(chat_id, stream, force_join=False)
+                return
+            except Exception: pass
+
         retries = 3
         for attempt in range(retries):
             try:
-                # auto_start=True تجبر المكتبة على فتح الكول لو المساعد أدمن
-                config = GroupCallConfig(auto_start=True)
-                await assistant.play(chat_id, stream, config=config)
+                # Try standard join
+                await self._play_safe(chat_id, stream, force_join=True)
+                await self._send_log(f"✅ **Assistant Joined**: `{chat_id}`")
                 
-                # 🔥 ثالثاً: كسر الصمت (Audio Wakeup)
-                await asyncio.sleep(1.2)
+                # 🔥 STEP 3: The Wake-Up Slap (Mute/Unmute)
+                await asyncio.sleep(2)
                 try:
                     await assistant.mute(chat_id)
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.3)
                     await assistant.unmute(chat_id)
                 except: pass
                 
-                break # نجح التشغيل، اخرج من اللوب
-
-            except Exception as e:
-                err_str = str(e).lower()
-                
-                # لو المساعد مش أدمن والكول مقفول
-                if isinstance(e, ChatAdminRequired) or "chat_admin_required" in err_str:
+                break 
+            
+            # 🔥 STEP 2: Force Create VC if Missing (Hasii Logic + Manual Fix)
+            except (NoActiveGroupCall, ChatAdminRequired):
+                try:
+                    await self._send_log(f"🛠️ **Creating VC...**")
+                    
+                    # Manual Create using raw functions
+                    if user_client:
+                        await user_client.invoke(
+                            functions.phone.CreateGroupCall(
+                                peer=await user_client.resolve_peer(chat_id),
+                                random_id=randint(10000, 99999)
+                            )
+                        )
+                        # 🔥 CRITICAL: Wait 5s for Telegram to wake up
+                        await self._send_log(f"⏳ **Waiting for Telegram...**")
+                        await asyncio.sleep(5)
+                        
+                        # Now join
+                        await self._play_safe(chat_id, stream, force_join=True)
+                        await self._send_log(f"✅ **Created & Joined**")
+                        
+                        # Wake up again to be safe
+                        await asyncio.sleep(1)
+                        try: await assistant.unmute(chat_id)
+                        except: pass
+                        break
+                    else:
+                        raise AssistantErr("UserClient not found")
+                        
+                except Exception as ex:
+                    await self._send_log(f"❌ **Create Failed**: {ex}")
                     raise AssistantErr(_["call_8"])
 
-                # لو تليجرام أخد وقت في الفتح
-                if isinstance(e, NoActiveGroupCall) or "noactivegroupcall" in err_str:
-                    if attempt == retries - 1:
-                        raise AssistantErr(_["call_8"])
-                    await asyncio.sleep(1.5)
-                    continue
-                
-                # خطأ انضمام عام
+            except Exception as e:
                 if attempt == retries - 1:
-                    # Ignore if already joined, just update
-                    if "already joined" in err_str:
+                    await self._send_log(f"❌ **Fatal Error**: {e}")
+                    # Special handling for "already joined"
+                    if "already joined" in str(e).lower():
                         break
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
-                    if isinstance(e, (ConnectionNotFound, TelegramServerError)):
-                        raise AssistantErr(_["call_10"])
-                    
-                    raise AssistantErr(f"Error: {e}")
+                    raise AssistantErr(_["call_10"])
                 
                 await asyncio.sleep(1)
+                continue
 
-        # تحديث قاعدة البيانات
         self.active_calls.add(chat_id)
         await add_active_chat(chat_id)
         await music_on(chat_id)
         if video: await add_active_video_chat(chat_id)
 
-        # Auto-End Logic
         if await is_autoend():
             counter[chat_id] = {}
             try:
@@ -422,6 +474,7 @@ class Call:
                     autoend[chat_id] = datetime.now() + timedelta(minutes=1)
             except: pass
 
+    @capture_internal_err
     async def start(self) -> None:
         LOGGER(__name__).info("Starting PyTgCalls Clients...")
         if self.one and config.STRING1: await self.one.start()
@@ -430,6 +483,7 @@ class Call:
         if self.four and config.STRING4: await self.four.start()
         if self.five and config.STRING5: await self.five.start()
 
+    @capture_internal_err
     async def ping(self) -> str:
         pings = []
         if self.one and config.STRING1: pings.append(self.one.ping)
@@ -439,6 +493,7 @@ class Call:
         if self.five and config.STRING5: pings.append(self.five.ping)
         return str(round(sum(pings) / len(pings), 3)) if pings else "0.0"
 
+    @capture_internal_err
     async def decorators(self) -> None:
         assistants = list(filter(None, [self.one, self.two, self.three, self.four, self.five]))
         async def handler(client, update: Update):
@@ -476,7 +531,6 @@ class Call:
         videoid = clean_vidid(check[0].get("vidid"))
         new_is_video = str(check[0].get("streamtype")) == "video"
         
-        # Prepare stream for next track
         stream = dynamic_media_stream(path=queued, video=new_is_video)
         
         try:
@@ -494,23 +548,10 @@ class Call:
                 reply_markup=InlineKeyboardMarkup(stream_markup(_, chat_id)),
             )
             db[chat_id][0]["mystic"] = run
-        except:
+            
+            await self._send_log(f"🎵 **Playing Next**: `{chat_id}`")
+        except Exception as e:
+            await self._send_log(f"❌ **Auto-Play Error**: {e}")
             await _clear_(chat_id)
-
-    @capture_internal_err
-    async def decorators(self) -> None:
-        assistants = list(filter(None, [self.one, self.two, self.three, self.four, self.five]))
-        async def handler(client, update: Update):
-            if isinstance(update, StreamEnded):
-                try:
-                    assistant = await group_assistant(self, update.chat_id)
-                    await self.play(assistant, update.chat_id)
-                except: pass
-            elif isinstance(update, ChatUpdate):
-                if update.status & (ChatUpdate.Status.LEFT_CALL | ChatUpdate.Status.CLOSED_VOICE_CHAT):
-                    await self.stop_stream(update.chat_id)
-        for assistant in assistants:
-            try: assistant.on_update()(handler)
-            except: pass
 
 StreamController = Call()
