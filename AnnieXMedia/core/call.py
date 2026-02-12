@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Fixed for Real-Time Environment)
-# Fixes: ImportError 'GroupCallNotFoundError', 'InvalidStreamMode'
+# System: Call Controller (MediaStream Only - Fixed for Latest PyTgCalls)
+# Fixes: ImportError 'AudioPiped' (Removed completely)
 
 import asyncio
 import os
@@ -21,9 +21,8 @@ from pytgcalls.exceptions import (
     NotInCallError,
     PyTgCallsAlreadyRunning,
     PyTgCallsError,
-    # GroupCallNotFoundError Removed - Not in lib
-    # InvalidStreamMode Removed - Not in lib
 )
+# 🔥 FIXED IMPORTS: Only importing what exists in your __init__.py
 from pytgcalls.types import (
     AudioQuality,
     ChatUpdate,
@@ -32,8 +31,6 @@ from pytgcalls.types import (
     Update,
     VideoQuality,
     GroupCallConfig,
-    AudioPiped,
-    AudioVideoPiped
 )
 
 import config
@@ -61,7 +58,7 @@ autoend = {}
 counter = {}
 
 # ===============================
-# Helpers
+# Helpers (MediaStream Logic)
 # ===============================
 
 def clean_vidid(vid):
@@ -90,20 +87,28 @@ async def get_direct_link(videoid: str, video: bool = False):
     except: return link
 
 def dynamic_media_stream(path: str, video: bool = False) -> MediaStream:
+    """
+    Creates a MediaStream object.
+    Since AudioPiped is gone, we configure MediaStream manually for Audio vs Video.
+    """
     if not path: path = ""
     path = str(path)
     is_url = path.startswith("http")
     
+    # Check extension for local files to decide if it's audio-only
     if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")): 
         video = False
 
+    # FFmpeg Optimization Flags
     if not is_url:
+        # Local File Flags
         ffmpeg_flags = (
             "-re -threads 2 "
             "-probesize 10M -analyzeduration 10M "
             "-fflags +genpts+igndts+nobuffer -sync ext"
         )
     else:
+        # Live/URL Flags
         ffmpeg_flags = (
             "-threads 2 "
             "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
@@ -112,10 +117,12 @@ def dynamic_media_stream(path: str, video: bool = False) -> MediaStream:
             "-fflags +genpts+igndts+nobuffer -sync ext"
         )
     
+    # Return generic MediaStream configured for the specific type
     return MediaStream(
         media_path=path,
         audio_parameters=AudioQuality.HIGH,
         video_parameters=VideoQuality.HD_720p,
+        # Only enable video flags if video is requested
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
         ffmpeg_parameters=ffmpeg_flags,
@@ -139,7 +146,7 @@ async def _invalidate_direct_cache_for_vid(videoid: Optional[str]) -> None:
     except: pass
 
 # ===============================
-# The Controller Class (MusicPlayer)
+# The Controller Class
 # ===============================
 
 class Call:
@@ -150,8 +157,6 @@ class Call:
         self.userbot4 = getattr(userbot, "four", None)
         self.userbot5 = getattr(userbot, "five", None)
 
-        # Removed 'overload_quiet_mode' as it might also not be in your version
-        # Kept cache_duration which is standard
         client_config = {"cache_duration": 100}
 
         self.one = PyTgCalls(self.userbot1, **client_config) if self.userbot1 else None
@@ -164,12 +169,13 @@ class Call:
 
     async def _play_safe(self, chat_id, stream, force_join=False):
         assistant = await group_assistant(self, chat_id)
+        # Using GroupCallConfig with auto_start
         config = GroupCallConfig(auto_start=force_join)
         
         try:
             await assistant.play(chat_id, stream, config=config)
         except NoActiveGroupCall:
-            # Replaces GroupCallNotFoundError logic
+            # Self-healing: create call if missing
             try:
                 await self.create_call(assistant, chat_id)
                 await assistant.play(chat_id, stream, config=config)
@@ -177,7 +183,7 @@ class Call:
                 LOGGER(__name__).error(f"Failed to auto-create call: {e}")
                 raise e
         except Exception as e:
-            # Fallback for other "Not Found" errors that might come as generic exceptions
+            # Fallback for generic errors
             if "group call not found" in str(e).lower() or "no active group call" in str(e).lower():
                 try:
                     await self.create_call(assistant, chat_id)
@@ -268,6 +274,7 @@ class Call:
             if check: old_is_video = str(check[0].get("streamtype")) == "video"
         except: pass
 
+        # Using dynamic_media_stream which returns MediaStream
         stream = dynamic_media_stream(path=final_link, video=new_is_video)
         assistant = await group_assistant(self, chat_id)
 
