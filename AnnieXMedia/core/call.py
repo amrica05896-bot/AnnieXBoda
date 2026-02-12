@@ -1,13 +1,11 @@
 # Authored By Certified Coders © 2026
-# System: Call Controller (Final Fixed Version - No NameErrors)
-# Fixes: NameError _TGCALLS, NameError _clear_, call_8 logic, Assistant Join
+# System: Call Controller (Final Complete Version)
+# Fixes: All NameErrors, call_8 Logic, Manual VC Creation, Stability
 
 import asyncio
 import os
 import re
 import traceback
-import importlib
-import logging
 from datetime import datetime, timedelta
 from random import randint
 from typing import Union, Optional, Dict, Any
@@ -18,7 +16,7 @@ from pyrogram.errors import ChatAdminRequired, UserAlreadyParticipant, UserNotPa
 from pyrogram.types import InlineKeyboardMarkup
 
 # -----------------------------------------------------------------------------
-# 1. Dynamic Import & Compatibility Layer
+# 1. طبقة التوافق والاستيراد (Compatibility Layer)
 # -----------------------------------------------------------------------------
 TCALLS_BACKEND = "none"
 try:
@@ -41,7 +39,7 @@ try:
         GroupCallConfig,
     )
     TCALLS_BACKEND = "pytgcalls"
-except Exception:
+except ImportError:
     try:
         import ntgcalls as ntg
         PyTgCalls = getattr(ntg, "NTgCallsClient", object)
@@ -61,21 +59,13 @@ except Exception:
         Update = getattr(ntg, "Update", object)
         TCALLS_BACKEND = "ntgcalls"
     except Exception:
-        # Fallback to prevent crash during import
+        # Fallback to avoid crash
         PyTgCalls = object
         NoActiveGroupCall = Exception
-        NoAudioSourceFound = Exception
-        NoVideoSourceFound = Exception
-        NotInCallError = Exception
-        PyTgCallsAlreadyRunning = Exception
-        PyTgCallsError = Exception
-        AudioQuality = object
-        MediaStream = object
-        VideoQuality = object
         GroupCallConfig = object
-        ChatUpdate = object
-        StreamEnded = object
-        Update = object
+        MediaStream = object
+        AudioQuality = object
+        VideoQuality = object
         TCALLS_BACKEND = "none"
 
 try:
@@ -85,7 +75,7 @@ except ImportError:
     class TelegramServerError(Exception): pass
 
 # -----------------------------------------------------------------------------
-# 2. Project Imports
+# 2. استيرادات المشروع
 # -----------------------------------------------------------------------------
 import config
 from strings import get_string
@@ -110,30 +100,26 @@ from AnnieXMedia.utils.errors import capture_internal_err
 from AnnieXMedia.utils.inline.play import stream_markup
 from AnnieXMedia.utils.formatters import check_duration, seconds_to_min, speed_converter
 
-# Global state for plugins
 autoend: Dict[int, datetime] = {}
 counter: Dict[int, dict] = {}
 
 # -----------------------------------------------------------------------------
-# 3. Helpers & FFmpeg Configuration
+# 3. الدوال المساعدة (Helpers)
 # -----------------------------------------------------------------------------
 
 def clean_vidid(vid):
-    if vid is None or vid is True or vid is False:
-        return None
+    if vid is None or vid is True or vid is False: return None
     return str(vid)
 
 def extract_video_id(url: str) -> Union[str, None]:
-    if not url or not isinstance(url, str):
-        return None
+    if not url or not isinstance(url, str): return None
     pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)'
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
 async def get_direct_link(videoid: str, video: bool = False):
     clean_id = clean_vidid(videoid)
-    if not clean_id or len(clean_id) != 11:
-        return None
+    if not clean_id or len(clean_id) != 11: return None
     link = f"https://www.youtube.com/watch?v={clean_id}"
     fmt = "best[ext=mp4]/best" if video else "bestaudio/best"
     opts = {"format": fmt, "quiet": True, "no_warnings": True, "geo_bypass": True, "nocheckcertificate": True}
@@ -144,8 +130,7 @@ async def get_direct_link(videoid: str, video: bool = False):
                 info = ydl.extract_info(link, download=False)
                 return info.get("url")
         return await loop.run_in_executor(None, _extract)
-    except Exception:
-        return link
+    except Exception: return link
 
 async def _invalidate_direct_cache_for_vid(videoid: Optional[str]) -> None:
     if not videoid: return
@@ -178,12 +163,8 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: Optional
         video_quality = getattr(VideoQuality, "HD_720p", VideoQuality)
         
         MediaStreamFlags = getattr(MediaStream, "Flags", None)
-        if MediaStreamFlags:
-            v_flag = MediaStreamFlags.REQUIRED if video else MediaStreamFlags.IGNORE
-            a_flag = MediaStreamFlags.REQUIRED
-        else:
-            v_flag = None
-            a_flag = None
+        v_flag = MediaStreamFlags.REQUIRED if (MediaStreamFlags and video) else (MediaStreamFlags.IGNORE if MediaStreamFlags else None)
+        a_flag = MediaStreamFlags.REQUIRED if MediaStreamFlags else None
 
         if MediaStream is not object:
             return MediaStream(
@@ -197,6 +178,7 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: Optional
     except Exception:
         pass
     
+    # Fallback Dict
     return {
         "media_path": path,
         "audio_parameters": audio_quality,
@@ -205,7 +187,7 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: Optional
         "ffmpeg": titan_flags,
     }
 
-# ✅ دالة التنظيف (مهمة جداً لمنع خطأ NameError)
+# ✅ دالة التنظيف (مهمة جداً)
 async def _clear_(chat_id: int) -> None:
     try:
         if popped := db.pop(chat_id, None):
@@ -214,11 +196,10 @@ async def _clear_(chat_id: int) -> None:
         await remove_active_video_chat(chat_id)
         await remove_active_chat(chat_id)
         await set_loop(chat_id, 0)
-    except:
-        pass
+    except: pass
 
 # -----------------------------------------------------------------------------
-# 4. Call Controller Class
+# 4. متحكم المكالمات (Call Controller)
 # -----------------------------------------------------------------------------
 class Call:
     def __init__(self):
@@ -228,7 +209,6 @@ class Call:
         self.userbot4 = getattr(userbot, "four", None)
         self.userbot5 = getattr(userbot, "five", None)
 
-        # ✅ Fix: Use the globally defined PyTgCalls class, not a dictionary lookup
         PT = PyTgCalls if TCALLS_BACKEND != "none" else None
         
         self.one = PT(self.userbot1, cache_duration=100) if (PT and self.userbot1) else None
@@ -263,10 +243,8 @@ class Call:
     @capture_internal_err
     async def resume_stream(self, chat_id: int):
         assistant = await self._assistant_for_chat(chat_id)
-        try:
-            await assistant.resume(chat_id)
-        except:
-            await assistant.unmute(chat_id)
+        try: await assistant.resume(chat_id)
+        except: await assistant.unmute(chat_id)
 
     @capture_internal_err
     async def mute_stream(self, chat_id: int):
@@ -282,8 +260,7 @@ class Call:
     async def stop_stream(self, chat_id: int):
         assistant = await self._assistant_for_chat(chat_id)
         await _clear_(chat_id)
-        try:
-            await assistant.leave_call(chat_id)
+        try: await assistant.leave_call(chat_id)
         except: pass
         self.active_calls.discard(chat_id)
 
@@ -296,10 +273,8 @@ class Call:
         except: pass
         await remove_active_video_chat(chat_id)
         await remove_active_chat(chat_id)
-        # ✅ Fix: Ensure _clear_ is called correctly
         await _clear_(chat_id)
-        try:
-            await assistant.leave_call(chat_id)
+        try: await assistant.leave_call(chat_id)
         except: pass
         self.active_calls.discard(chat_id)
 
@@ -343,10 +318,11 @@ class Call:
             })
 
     # --------------------------------------------------------------------------
-    # 🔥 The Robust Join Logic
+    # 🔥 The Robust Join Logic (Corrected for call_8)
     # --------------------------------------------------------------------------
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
         assistant = await self._assistant_for_chat(chat_id)
+        # Safe access to client
         user_client = getattr(assistant, "app", getattr(assistant, "client", None))
         
         lang = await get_lang(chat_id)
@@ -377,8 +353,10 @@ class Call:
         retries = 3
         for attempt in range(retries):
             try:
+                # 1. Try Joining
                 await self._play_safe(chat_id, stream, force_join=True)
                 
+                # 2. Audio Wakeup
                 await asyncio.sleep(1.2)
                 try:
                     await assistant.mute(chat_id)
@@ -386,18 +364,19 @@ class Call:
                     await assistant.unmute(chat_id)
                 except: pass
                 
-                # Check if joined successfully
+                # 3. Check Success
                 try:
                     parts = await assistant.get_participants(chat_id)
                     if not parts: raise NoActiveGroupCall
                 except: pass
 
-                break 
+                break # Exit Loop if successful
 
             except Exception as e:
                 err_str = str(e).lower()
                 
-                # 🛑 FIX: Identify Permission/Call Errors & Prioritize call_8
+                # 🔥 FIX: Identify if call is missing/admin required
+                # GroupCallForbidden or ChatAdminRequired or NoActiveGroupCall
                 is_permission_error = (
                     isinstance(e, ChatAdminRequired) 
                     or "chat_admin_required" in err_str 
@@ -410,24 +389,28 @@ class Call:
                 if is_permission_error:
                     if user_client:
                         try:
+                            # 🛠️ Attempt Manual Creation
                             await user_client.invoke(
                                 functions.phone.CreateGroupCall(
                                     peer=await user_client.resolve_peer(chat_id),
                                     random_id=randint(100000, 999999)
                                 )
                             )
+                            # Wait for Telegram to propagate the new call
                             await asyncio.sleep(2.5)
-                            continue 
+                            continue # Retry the loop
                         except Exception:
+                            # Creation Failed = Not Admin = call_8
                             raise AssistantErr(_["call_8"])
                     else:
                         raise AssistantErr(_["call_8"])
 
+                # Connection Errors -> Retry or Fail
                 if attempt == retries - 1:
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
                     
-                    # 🔥 FIX: Double check msg for call_8 keywords before defaulting to call_10
+                    # Last check for admin error before giving generic error
                     if "admin" in err_str or "forbidden" in err_str or "found" in err_str:
                         raise AssistantErr(_["call_8"])
                         
