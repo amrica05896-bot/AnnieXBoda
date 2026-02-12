@@ -1,207 +1,194 @@
-"""
-Call Controller (Final Fixed)
-Author: Certified Coders © 2026
-System: Hybrid Engine (Hasii + AnonX + Alexa)
-Notes: This version fixes the unterminated f-string error and stabilizes join/play logic.
-"""
+# AnnieXMedia/core/call.py
+# Authored By Certified Coders © 2026 (Rebuilt & Hardened for pytgcalls 2.2.11 compatibility)
+# Purpose: Unified call controller (PyTgCalls primary, ntgcalls fallback)
+# Exports: StreamController, autoend, counter
 
 import asyncio
 import os
-import re
+import sys
 import traceback
-from random import randint
+import importlib
+import logging
 from datetime import datetime, timedelta
-from typing import Union, Optional
+from random import randint
+from typing import Optional, Union, Dict, Any
 
-import yt_dlp
-from pyrogram.raw import functions
-from pyrogram.errors import ChatAdminRequired, UserNotParticipant, FloodWait
-from pyrogram.types import InlineKeyboardMarkup
-
-# Try to import pytgcalls first, fallback to ntgcalls if available. Provide safe placeholders otherwise.
-TCALLS_BACKEND = "none"
-try:
-    from pytgcalls import PyTgCalls
-    from pytgcalls.exceptions import (
-        NoActiveGroupCall,
-        NoAudioSourceFound,
-        NoVideoSourceFound,
-        NotInCallError,
-        PyTgCallsAlreadyRunning,
-        PyTgCallsError,
-    )
-    from pytgcalls.types import (
-        AudioQuality,
-        ChatUpdate,
-        MediaStream,
-        StreamEnded,
-        Update,
-        VideoQuality,
-        GroupCallConfig,
-    )
-    TCALLS_BACKEND = "pytgcalls"
-except Exception:
+# try to detect version and import compatible names
+def _import_tgcalls():
+    """
+    Try to import pytgcalls and friends. Return dict of found symbols.
+    """
+    symbols = {}
     try:
-        import ntgcalls as ntg  # type: ignore
-        PyTgCalls = getattr(ntg, 'NTgCallsClient', object)
-        NoActiveGroupCall = getattr(ntg, 'NoActiveGroupCall', Exception)
-        NoAudioSourceFound = getattr(ntg, 'NoAudioSourceFound', Exception)
-        NoVideoSourceFound = getattr(ntg, 'NoVideoSourceFound', Exception)
-        NotInCallError = getattr(ntg, 'NotInCallError', Exception)
-        PyTgCallsAlreadyRunning = getattr(ntg, 'AlreadyRunning', Exception)
-        PyTgCallsError = getattr(ntg, 'NTgCallsError', Exception)
-        AudioQuality = getattr(ntg, 'AudioQuality', object)
-        MediaStream = getattr(ntg, 'MediaStream', object)
-        VideoQuality = getattr(ntg, 'VideoQuality', object)
-        GroupCallConfig = getattr(ntg, 'GroupCallConfig', object)
-        ChatUpdate = getattr(ntg, 'ChatUpdate', object)
-        StreamEnded = getattr(ntg, 'StreamEnded', object)
-        Update = getattr(ntg, 'Update', object)
-        TCALLS_BACKEND = 'ntgcalls'
+        import pytgcalls
+        from pytgcalls import PyTgCalls
+        from pytgcalls import __version__ as _ptver
+        # try to import typical exceptions & types
+        try:
+            from pytgcalls.exceptions import (
+                NoActiveGroupCall,
+                NoAudioSourceFound,
+                NoVideoSourceFound,
+                NotInCallError,
+                PyTgCallsAlreadyRunning,
+                PyTgCallsError,
+            )
+        except Exception:
+            # not fatal, provide generic placeholders
+            NoActiveGroupCall = type("NoActiveGroupCall", (Exception,), {})
+            NoAudioSourceFound = type("NoAudioSourceFound", (Exception,), {})
+            NoVideoSourceFound = type("NoVideoSourceFound", (Exception,), {})
+            NotInCallError = type("NotInCallError", (Exception,), {})
+            PyTgCallsAlreadyRunning = type("PyTgCallsAlreadyRunning", (Exception,), {})
+            PyTgCallsError = type("PyTgCallsError", (Exception,), {})
+        try:
+            from pytgcalls.types import (
+                MediaStream,
+                GroupCallConfig,
+                AudioQuality,
+                VideoQuality,
+                ChatUpdate,
+                StreamEnded,
+                Update,
+            )
+        except Exception:
+            # minimal placeholders to avoid crashes at import time (not full functionality)
+            MediaStream = getattr(pytgcalls, "MediaStream", object)
+            GroupCallConfig = getattr(pytgcalls, "GroupCallConfig", lambda auto_start: None)
+            AudioQuality = getattr(pytgcalls, "AudioQuality", object)
+            VideoQuality = getattr(pytgcalls, "VideoQuality", object)
+            ChatUpdate = getattr(pytgcalls, "ChatUpdate", object)
+            StreamEnded = getattr(pytgcalls, "StreamEnded", object)
+            Update = getattr(pytgcalls, "Update", object)
+
+        symbols.update({
+            "backend": "pytgcalls",
+            "PyTgCalls": PyTgCalls,
+            "MediaStream": MediaStream,
+            "GroupCallConfig": GroupCallConfig,
+            "AudioQuality": AudioQuality,
+            "VideoQuality": VideoQuality,
+            "ChatUpdate": ChatUpdate,
+            "StreamEnded": StreamEnded,
+            "Update": Update,
+            "NoActiveGroupCall": NoActiveGroupCall,
+            "NoAudioSourceFound": NoAudioSourceFound,
+            "NoVideoSourceFound": NoVideoSourceFound,
+            "NotInCallError": NotInCallError,
+            "PyTgCallsAlreadyRunning": PyTgCallsAlreadyRunning,
+            "PyTgCallsError": PyTgCallsError,
+            "version": getattr(_ptver, "__str__", lambda: str(_ptver))(),
+        })
+        return symbols
     except Exception:
-        # placeholders so the module still imports in test env
-        PyTgCalls = object
-        NoActiveGroupCall = Exception
-        NoAudioSourceFound = Exception
-        NoVideoSourceFound = Exception
-        NotInCallError = Exception
-        PyTgCallsAlreadyRunning = Exception
-        PyTgCallsError = Exception
-        AudioQuality = object
-        MediaStream = object
-        VideoQuality = object
-        GroupCallConfig = object
-        ChatUpdate = object
-        StreamEnded = object
-        Update = object
-        TCALLS_BACKEND = "none"
+        # fallback to ntgcalls if available
+        try:
+            import ntgcalls
+            from ntgcalls import NTgCalls
+            symbols.update({"backend": "ntgcalls", "PyTgCalls": NTgCalls})
+            # provide minimal placeholders for types/exceptions
+            symbols.update({
+                "MediaStream": object,
+                "GroupCallConfig": lambda auto_start: None,
+                "AudioQuality": object,
+                "VideoQuality": object,
+                "ChatUpdate": object,
+                "StreamEnded": object,
+                "Update": object,
+                "NoActiveGroupCall": Exception,
+                "NoAudioSourceFound": Exception,
+                "NoVideoSourceFound": Exception,
+                "NotInCallError": Exception,
+                "PyTgCallsAlreadyRunning": Exception,
+                "PyTgCallsError": Exception,
+                "version": "ntgcalls-fallback",
+            })
+            return symbols
+        except Exception:
+            # nothing available
+            return {}
 
-import config
-from strings import get_string
-from AnnieXMedia import LOGGER, YouTube, app, userbot
-from AnnieXMedia.misc import db
-from AnnieXMedia.utils.database import (
-    add_active_chat,
-    add_active_video_chat,
-    get_lang,
-    get_loop,
-    group_assistant,
-    is_autoend,
-    music_on,
-    remove_active_chat,
-    remove_active_video_chat,
-    set_loop,
-)
-from AnnieXMedia.utils.exceptions import AssistantErr
-from AnnieXMedia.utils.stream.autoclear import auto_clean
-from AnnieXMedia.utils.thumbnails import get_thumb
-from AnnieXMedia.utils.errors import capture_internal_err
-from AnnieXMedia.utils.inline.play import stream_markup
-from AnnieXMedia.utils.formatters import check_duration, seconds_to_min, speed_converter
+_TGCALLS = _import_tgcalls()
 
-# Module-level state for plugins
-autoend: dict[int, datetime] = {}
-counter: dict[int, dict] = {}
+# Use logging wrapper from project if available, else fallback
+try:
+    from AnnieXMedia import LOGGER, app, YouTube, userbot
+except Exception:
+    # minimal fallback
+    LOGGER = lambda name=None: logging.getLogger(name or __name__)
+    app = None
+    YouTube = None
+    userbot = None
 
-# ------------------------------
-# Helpers
-# ------------------------------
+# project imports (these must exist in your project)
+try:
+    import config
+    from strings import get_string
+    from AnnieXMedia.misc import db
+    from AnnieXMedia.utils.database import (
+        add_active_chat,
+        add_active_video_chat,
+        get_lang,
+        get_loop,
+        group_assistant,
+        is_autoend,
+        music_on,
+        remove_active_chat,
+        remove_active_video_chat,
+        set_loop,
+    )
+    from AnnieXMedia.utils.exceptions import AssistantErr
+    from AnnieXMedia.utils.stream.autoclear import auto_clean
+    from AnnieXMedia.utils.thumbnails import get_thumb
+    from AnnieXMedia.utils.errors import capture_internal_err
+    from AnnieXMedia.utils.formatters import check_duration, seconds_to_min, speed_converter
+    from AnnieXMedia.utils.inline.play import stream_markup
+except Exception:
+    # If project-specific modules missing, make stubs for safe import (development only)
+    def get_string(x): return lambda k: k
+    db = {}
+    async def group_assistant(self, chat_id): raise RuntimeError("group_assistant not available")
+    class AssistantErr(Exception): pass
+    def capture_internal_err(f): return f
 
-def clean_vidid(vid):
-    if vid is None or vid is True or vid is False:
+# expose some globals required by other plugins
+autoend: Dict[int, datetime] = {}
+counter: Dict[int, dict] = {}
+
+# Pull types from _TGCALLS
+MediaStream = _TGCALLS.get("MediaStream", object)
+GroupCallConfig = _TGCALLS.get("GroupCallConfig", lambda auto_start: None)
+AudioQuality = _TGCALLS.get("AudioQuality", object)
+VideoQuality = _TGCALLS.get("VideoQuality", object)
+ChatUpdate = _TGCALLS.get("ChatUpdate", object)
+StreamEnded = _TGCALLS.get("StreamEnded", object)
+Update = _TGCALLS.get("Update", object)
+
+NoActiveGroupCall = _TGCALLS.get("NoActiveGroupCall", Exception)
+NoAudioSourceFound = _TGCALLS.get("NoAudioSourceFound", Exception)
+NoVideoSourceFound = _TGCALLS.get("NoVideoSourceFound", Exception)
+NotInCallError = _TGCALLS.get("NotInCallError", Exception)
+PyTgCallsAlreadyRunning = _TGCALLS.get("PyTgCallsAlreadyRunning", Exception)
+PyTgCallsError = _TGCALLS.get("PyTgCallsError", Exception)
+
+# -----------------------------------------------------------------------------
+# Helper functions
+# -----------------------------------------------------------------------------
+def clean_vidid(vid: Optional[Union[str,bool]]) -> Optional[str]:
+    if vid is None or vid is True or vid is False: 
         return None
     return str(vid)
 
-
-def extract_video_id(url: str) -> Union[str, None]:
+def extract_video_id(url: str) -> Optional[str]:
+    import re
     if not url or not isinstance(url, str):
         return None
     pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)'
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
-
-async def get_direct_link(videoid: str, video: bool = False):
-    clean_id = clean_vidid(videoid)
-    if not clean_id or len(clean_id) != 11:
-        return None
-    link = f"https://www.youtube.com/watch?v={clean_id}"
-    fmt = "best[ext=mp4]/best" if video else "bestaudio/best"
-    opts = {"format": fmt, "quiet": True, "no_warnings": True, "geo_bypass": True, "nocheckcertificate": True}
-    try:
-        loop = asyncio.get_running_loop()
-
-        def _extract():
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(link, download=False)
-                return info.get("url")
-
-        return await loop.run_in_executor(None, _extract)
-    except Exception:
-        return link
-
-
-def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: Optional[str] = None) -> MediaStream:
-    """Create a MediaStream with flags that avoid instant-leave and improve stability.
-    Local files use -re. Remote URLs use reconnect flags.
-    """
-    if not path:
-        path = ""
-    path = str(path)
-    is_url = path.startswith("http")
-
-    # Force audio flag if file extension suggests audio-only
-    if not is_url and path.endswith((".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus")):
-        video = False
-
-    if is_url:
-        titan_flags = (
-            "-threads 2 "
-            "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
-            "-probesize 10M -analyzeduration 10M "
-            "-rtbufsize 10M "
-            "-fflags +genpts+igndts+nobuffer -sync ext"
-        )
-    else:
-        titan_flags = (
-            "-re -threads 2 -ac 2 "
-            "-probesize 10M -analyzeduration 10M "
-            "-fflags +genpts+igndts+nobuffer -sync ext"
-        )
-
-    if ffmpeg_params:
-        titan_flags = f"{titan_flags} {ffmpeg_params}"
-
-    try:
-        return MediaStream(
-            media_path=path,
-            audio_parameters=getattr(AudioQuality, "HIGH", AudioQuality),
-            video_parameters=getattr(VideoQuality, "HD_720p", VideoQuality),
-            video_flags=(getattr(MediaStream, "Flags", type("F", (), {"REQUIRED": 1, "IGNORE": 0})).REQUIRED if video else getattr(MediaStream, "Flags", type("F", (), {"REQUIRED": 1, "IGNORE": 0})).IGNORE),
-            audio_flags=getattr(MediaStream, "Flags", type("F", (), {"REQUIRED": 1})).REQUIRED,
-            ffmpeg_parameters=titan_flags,
-        )
-    except Exception:
-        # return a simple object as fallback to keep callers working in test env
-        class _Simple:
-            def __init__(self, **kw):
-                self.__dict__.update(kw)
-
-        return _Simple(media_path=path, ffmpeg_parameters=titan_flags)
-
-
-async def _clear_(chat_id: int) -> None:
-    popped = db.pop(chat_id, None)
-    if popped:
-        await auto_clean(popped)
-    db[chat_id] = []
-    await remove_active_video_chat(chat_id)
-    await remove_active_chat(chat_id)
-    await set_loop(chat_id, 0)
-
-
 async def _invalidate_direct_cache_for_vid(videoid: Optional[str]) -> None:
-    if not videoid:
+    if not videoid or YouTube is None: 
         return
     try:
         fn = getattr(YouTube, "invalidate_direct_cache", None)
@@ -212,78 +199,150 @@ async def _invalidate_direct_cache_for_vid(videoid: Optional[str]) -> None:
     except Exception:
         pass
 
+# MediaStream factory (safe)
+def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: Optional[str] = None) -> Any:
+    """
+    Build a MediaStream object (pytgcalls::MediaStream) with sane ffmpeg flags.
+    - Use -re for local files (prevents ffmpeg from finishing instantly).
+    - Add reconnect flags for URLs.
+    - Allow extra ffmpeg_params for seek/speed operations.
+    """
+    path = "" if path is None else str(path)
+    is_url = path.startswith("http")
+    base_flags = []
+    # local files: read at native rate to prevent instant-complete
+    if not is_url:
+        base_flags.append("-re")
+        base_flags.append("-threads 2")
+        base_flags.append("-probesize 10M")
+        base_flags.append("-analyzeduration 10M")
+        base_flags.append("-fflags +genpts+igndts+nobuffer -sync ext")
+    else:
+        base_flags.append("-threads 2")
+        base_flags.append("-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5")
+        base_flags.append("-probesize 10M -analyzeduration 10M -rtbufsize 10M -fflags +genpts+igndts+nobuffer -sync ext")
 
+    # prefer STUDIO for high-quality paths if available
+    aparam = getattr(AudioQuality, "STUDIO", getattr(AudioQuality, "HIGH", AudioQuality))
+    vparam = getattr(VideoQuality, "HD_720p", VideoQuality)
+
+    if ffmpeg_params:
+        base_flags.append(str(ffmpeg_params))
+
+    ffmpeg_string = " ".join(base_flags)
+
+    # Build MediaStream object according to backend availability
+    try:
+        # if real MediaStream class is available, instantiate it
+        if MediaStream is not object:
+            return MediaStream(
+                media_path=path,
+                audio_parameters=aparams if (aparams := aparam) else aparam,
+                video_parameters=vparam,
+                video_flags=(getattr(MediaStream, "Flags", object).REQUIRED if video else getattr(MediaStream, "Flags", object).IGNORE),
+                audio_flags=(getattr(MediaStream, "Flags", object).REQUIRED),
+                ffmpeg_parameters=ffmpeg_string,
+            )
+    except Exception:
+        # last resort: return a dict describing the stream (some backends accept dicts)
+        return {
+            "media_path": path,
+            "audio_parameters": aparam,
+            "video_parameters": vparam,
+            "video": video,
+            "ffmpeg": ffmpeg_string,
+        }
+
+# -----------------------------------------------------------------------------
+# Call Controller
+# -----------------------------------------------------------------------------
 class Call:
     def __init__(self):
-        self.userbot1 = getattr(userbot, "one", None)
-        self.userbot2 = getattr(userbot, "two", None)
-        self.userbot3 = getattr(userbot, "three", None)
-        self.userbot4 = getattr(userbot, "four", None)
-        self.userbot5 = getattr(userbot, "five", None)
+        # userbot clients provided by project (may be None)
+        one = getattr(userbot, "one", None) if userbot is not None else None
+        two = getattr(userbot, "two", None) if userbot is not None else None
+        three = getattr(userbot, "three", None) if userbot is not None else None
+        four = getattr(userbot, "four", None) if userbot is not None else None
+        five = getattr(userbot, "five", None) if userbot is not None else None
 
-        self.one = PyTgCalls(self.userbot1, cache_duration=100) if self.userbot1 and TCALLS_BACKEND != "none" else None
-        self.two = PyTgCalls(self.userbot2, cache_duration=100) if self.userbot2 and TCALLS_BACKEND != "none" else None
-        self.three = PyTgCalls(self.userbot3, cache_duration=100) if self.userbot3 and TCALLS_BACKEND != "none" else None
-        self.four = PyTgCalls(self.userbot4, cache_duration=100) if self.userbot4 and TCALLS_BACKEND != "none" else None
-        self.five = PyTgCalls(self.userbot5, cache_duration=100) if self.userbot5 and TCALLS_BACKEND != "none" else None
+        PT = _TGCALLS.get("PyTgCalls")
+        self.one = PT(one, cache_duration=100) if (PT and one) else None
+        self.two = PT(two, cache_duration=100) if (PT and two) else None
+        self.three = PT(three, cache_duration=100) if (PT and three) else None
+        self.four = PT(four, cache_duration=100) if (PT and four) else None
+        self.five = PT(five, cache_duration=100) if (PT and five) else None
 
-        self.active_calls: set[int] = set()
-        self.turbo_mode: dict = {}
+        self.active_calls = set()
+        self._backend = _TGCALLS.get("backend", "none")
 
-    async def _send_log(self, text: str):
-        if not getattr(config, "LOGGER_ID", None):
-            return
+    # internal helper to obtain the right assistant (userbot) for chat
+    async def _assistant_for_chat(self, chat_id: int):
+        """
+        returns the low-level assistant (PyTgCalls instance bound to a userbot client)
+        The project-specific helper group_assistant is used when available.
+        """
         try:
-            await app.send_message(config.LOGGER_ID, text, disable_web_page_preview=True)
+            return await group_assistant(self, chat_id)
         except Exception:
-            pass
+            # fallback: try find any started client that includes this chat
+            for candidate in (self.one, self.two, self.three, self.four, self.five):
+                if candidate:
+                    return candidate
+            raise
 
-    async def _play_safe(self, chat_id, stream, force_join=False):
-        assistant = await group_assistant(self, chat_id)
-        cfg = GroupCallConfig(auto_start=bool(force_join))
-        await assistant.play(chat_id, stream, config=cfg)
+    # safe play wrapper (handles auto_start config)
+    async def _play_safe(self, chat_id: int, stream_obj, force_join: bool = False):
+        assistant = await self._assistant_for_chat(chat_id)
+        cfg = GroupCallConfig(auto_start=force_join)
+        # assistant.play may be coroutine or method depending on backend
+        try:
+            await assistant.play(chat_id, stream_obj, config=cfg)
+        except TypeError:
+            # some backends accept different signature
+            await assistant.play(chat_id, stream_obj)
 
+    # basic controls
     @capture_internal_err
-    async def pause_stream(self, chat_id: int) -> None:
-        assistant = await group_assistant(self, chat_id)
+    async def pause_stream(self, chat_id: int):
+        assistant = await self._assistant_for_chat(chat_id)
         await assistant.pause(chat_id)
 
     @capture_internal_err
-    async def resume_stream(self, chat_id: int) -> None:
-        assistant = await group_assistant(self, chat_id)
+    async def resume_stream(self, chat_id: int):
+        assistant = await self._assistant_for_chat(chat_id)
         try:
             await assistant.resume(chat_id)
         except Exception:
+            # fallback unmute
             await assistant.unmute(chat_id)
 
     @capture_internal_err
-    async def mute_stream(self, chat_id: int) -> None:
-        assistant = await group_assistant(self, chat_id)
+    async def mute_stream(self, chat_id: int):
+        assistant = await self._assistant_for_chat(chat_id)
         await assistant.mute(chat_id)
 
     @capture_internal_err
-    async def unmute_stream(self, chat_id: int) -> None:
-        assistant = await group_assistant(self, chat_id)
+    async def unmute_stream(self, chat_id: int):
+        assistant = await self._assistant_for_chat(chat_id)
         await assistant.unmute(chat_id)
 
     @capture_internal_err
-    async def stop_stream(self, chat_id: int) -> None:
-        assistant = await group_assistant(self, chat_id)
+    async def stop_stream(self, chat_id: int):
+        assistant = await self._assistant_for_chat(chat_id)
         await _clear_(chat_id)
         try:
             await assistant.leave_call(chat_id)
         except Exception:
             pass
-        finally:
-            self.active_calls.discard(chat_id)
+        self.active_calls.discard(chat_id)
 
     @capture_internal_err
-    async def force_stop_stream(self, chat_id: int) -> None:
-        assistant = await group_assistant(self, chat_id)
+    async def force_stop_stream(self, chat_id: int):
+        assistant = await self._assistant_for_chat(chat_id)
         try:
-            check = db.get(chat_id)
-            if check:
-                check.pop(0)
+            q = db.get(chat_id)
+            if isinstance(q, list) and q:
+                q.pop(0)
         except Exception:
             pass
         await remove_active_video_chat(chat_id)
@@ -293,109 +352,77 @@ class Call:
             await assistant.leave_call(chat_id)
         except Exception:
             pass
-        finally:
-            self.active_calls.discard(chat_id)
+        self.active_calls.discard(chat_id)
 
+    # skip_stream simplified to immediate play with auto_start fallback
     @capture_internal_err
-    async def skip_stream(self, chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None) -> None:
-        assistant = await group_assistant(self, chat_id)
-        ksk = GroupCallConfig(auto_start=False)
+    async def skip_stream(self, chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None):
         stream = dynamic_media_stream(path=link, video=bool(video))
-        await assistant.play(chat_id, stream, config=ksk)
+        await self._play_safe(chat_id, stream, force_join=False)
 
+    # get vc participants (non-muted)
     @capture_internal_err
     async def vc_users(self, chat_id: int) -> list:
-        assistant = await group_assistant(self, chat_id)
+        assistant = await self._assistant_for_chat(chat_id)
         try:
             participants = await assistant.get_participants(chat_id)
             return [p.user_id for p in participants if not getattr(p, "is_muted", False)]
         except Exception:
             return []
 
+    # seek / speedup
     @capture_internal_err
-    async def seek_stream(self, chat_id: int, file_path: str, to_seek: str, duration: str, mode: str) -> None:
-        assistant = await group_assistant(self, chat_id)
-        ffmpeg_params = f"-ss {to_seek} -to {duration}"
+    async def seek_stream(self, chat_id: int, file_path: str, to_seek: str, duration: str, mode: str):
         is_video = mode == "video"
-        stream = dynamic_media_stream(path=file_path, video=is_video, ffmpeg_params=ffmpeg_params)
+        ff = f"-ss {to_seek} -to {duration}"
+        stream = dynamic_media_stream(path=file_path, video=is_video, ffmpeg_params=ff)
+        assistant = await self._assistant_for_chat(chat_id)
         await assistant.play(chat_id, stream)
 
     @capture_internal_err
-    async def speedup_stream(self, chat_id: int, file_path: str, speed: float, playing: list) -> None:
-        if not isinstance(playing, list) or not playing or not isinstance(playing[0], dict):
-            raise AssistantErr("Invalid stream info for speedup.")
-
-        assistant = await group_assistant(self, chat_id)
+    async def speedup_stream(self, chat_id: int, file_path: str, speed: float, playing: list):
+        if not playing or not isinstance(playing, list):
+            raise AssistantErr("Invalid stream info")
+        assistant = await self._assistant_for_chat(chat_id)
         base = os.path.basename(file_path)
         chatdir = os.path.join("playback", str(speed))
         os.makedirs(chatdir, exist_ok=True)
         out = os.path.join(chatdir, base)
-
         if not os.path.exists(out):
             vs = str(2.0 / float(speed))
             cmd = f'ffmpeg -i "{file_path}" -filter:v "setpts={vs}*PTS" -filter:a atempo={speed} -y "{out}"'
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdin=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            proc = await asyncio.create_subprocess_shell(cmd, stdin=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
             await proc.communicate()
-
         dur = int(await asyncio.get_event_loop().run_in_executor(None, check_duration, out))
-        played, con_seconds = speed_converter(playing[0]["played"], speed)
+        played, con_seconds = speed_converter(playing[0].get("played", 0), speed)
         duration_min = seconds_to_min(dur)
-        is_video = playing[0]["streamtype"] == "video"
-        ffmpeg_params = f"-ss {played} -to {duration_min}"
-        stream = dynamic_media_stream(path=out, video=is_video, ffmpeg_params=ffmpeg_params)
-
+        is_video = playing[0].get("streamtype") == "video"
+        ff = f"-ss {played} -to {duration_min}"
+        stream = dynamic_media_stream(path=out, video=is_video, ffmpeg_params=ff)
+        await assistant.play(chat_id, stream)
+        # update db state if matches
         if chat_id in db and db[chat_id] and db[chat_id][0].get("file") == file_path:
-            await assistant.play(chat_id, stream)
             db[chat_id][0].update({
                 "played": con_seconds,
                 "dur": duration_min,
                 "seconds": dur,
                 "speed_path": out,
                 "speed": speed,
-                "old_dur": db[chat_id][0].get("dur"),
-                "old_second": db[chat_id][0].get("seconds"),
             })
-        else:
-            raise AssistantErr("Stream mismatch during speedup.")
 
-    @capture_internal_err
-    async def stream_call(self, link: str) -> None:
-        assistant = await group_assistant(self, config.LOGGER_ID)
-        stream = dynamic_media_stream(link)
-        try:
-            await assistant.play(config.LOGGER_ID, stream)
-            await asyncio.sleep(8)
-        except (NoActiveGroupCall, Exception):
-            LOGGER(__name__).warning("⚠️ لم يتمكن البوت من الانضمام لمجموعة السجل (تأكد أن المكالمة مفتوحة).")
-        finally:
-            try:
-                await assistant.leave_call(config.LOGGER_ID)
-            except Exception:
-                pass
-
-    @capture_internal_err
-    async def join_call(
-        self,
-        chat_id: int,
-        original_chat_id: int,
-        link: str,
-        video: Union[bool, str] = None,
-        image: Union[bool, str] = None,
-    ) -> None:
-        assistant = await group_assistant(self, chat_id)
+    # The robust join_call with permission checks and create-call fallback
+    async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: Union[bool, str] = None, image: Union[bool, str] = None):
+        assistant = await self._assistant_for_chat(chat_id)
         lang = await get_lang(chat_id)
         _ = get_string(lang)
-        stream = dynamic_media_stream(path=link, video=bool(video))
-
-        # Quick permission check and direct link invalidation
+        final_link = link
         vid_id = extract_video_id(str(link)) if link else None
         await _invalidate_direct_cache_for_vid(vid_id)
 
-        # If already active, change stream
+        # Prepare stream
+        stream = dynamic_media_stream(path=final_link, video=bool(video))
+
+        # If already active just play
         if chat_id in self.active_calls:
             try:
                 await self._play_safe(chat_id, stream, force_join=False)
@@ -403,215 +430,78 @@ class Call:
             except Exception:
                 pass
 
-        # Determine assistant's underlying pyrogram client to possibly create groupcall
-        user_client = None
-        try:
-            ass = await group_assistant(self, chat_id)
-            user_client = getattr(ass, "app", None) or getattr(ass, "client", None)
-        except Exception:
-            user_client = None
-
-        is_admin = True
-        if user_client:
-            try:
-                mem = await user_client.get_chat_member(chat_id, "me")
-                status = getattr(mem, "status", "")
-                if status not in ("creator", "administrator"):
-                    is_admin = False
-                else:
-                    can_manage = getattr(mem, "can_manage_voice_chats", None)
-                    if can_manage is False:
-                        is_admin = False
-            except Exception:
-                is_admin = True
-
-        # If assistant not admin and there's no active call -> raise call_8 so stream module can stop UI
-        if not is_admin:
-            try:
-                parts = await assistant.get_participants(chat_id)
-                if not parts:
-                    raise AssistantErr(_["call_8"])
-            except AssistantErr:
-                raise
-            except Exception:
-                raise AssistantErr(_["call_8"])
-
-        # Try to join with retries and fallbacks
+        # Attempt join with retries and fallback create
         retries = 3
         for attempt in range(retries):
             try:
                 await self._play_safe(chat_id, stream, force_join=True)
-
-                await asyncio.sleep(1.3)
+                # small stabilization delay
+                await asyncio.sleep(1.2)
                 try:
                     await assistant.mute(chat_id)
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.1)
                     await assistant.unmute(chat_id)
                 except Exception:
                     pass
-
-                # verify presence
-                try:
-                    parts = await assistant.get_participants(chat_id)
-                    if not parts:
-                        # if admin, try to create call then retry once
-                        if user_client and is_admin:
+                break
+            except Exception as e:
+                err = str(e).lower()
+                # Permission / No Active Call cases -> raise call_8 for stream to handle UI
+                if isinstance(e, NoActiveGroupCall) or isinstance(e, NotInCallError) or "noactivegroupcall" in err or "groupcall_forbidden" in err or "chat_admin_required" in err:
+                    # Try to create a group call (requires admin). Use pyrogram raw if possible.
+                    try:
+                        if hasattr(assistant, "app") and assistant.app:
                             try:
-                                await user_client.invoke(
-                                    functions.phone.CreateGroupCall(
-                                        peer=await user_client.resolve_peer(chat_id),
-                                        random_id=randint(10000, 99999),
+                                # This uses Pyrogram raw to attempt creation - will raise if not admin
+                                await assistant.app.invoke(
+                                    importlib.import_module("pyrogram.raw.functions.phone").CreateGroupCall(
+                                        peer=await assistant.app.resolve_peer(chat_id),
+                                        random_id=randint(100000, 999999)
                                     )
                                 )
-                                await asyncio.sleep(2)
-                                await self._play_safe(chat_id, stream, force_join=True)
-                                parts = await assistant.get_participants(chat_id)
+                                # wait a little then retry the loop
+                                await asyncio.sleep(2.5)
+                                continue
                             except Exception:
+                                # can't create -> rethrow assistant error for call_8
                                 raise AssistantErr(_["call_8"])
-                        else:
-                            raise AssistantErr(_["call_8"])
-
-                    await asyncio.sleep(0.8)
-                    parts = await assistant.get_participants(chat_id)
-                    if not parts:
+                    except Exception:
                         raise AssistantErr(_["call_8"])
-
-                except AssistantErr:
-                    raise
-                except Exception:
-                    pass
-
-                # success: register and return
-                self.active_calls.add(chat_id)
-                await add_active_chat(chat_id)
-                await music_on(chat_id)
-                if video:
-                    await add_active_video_chat(chat_id)
-
-                if await is_autoend():
-                    counter[chat_id] = {}
-                    try:
-                        users = len(await assistant.get_participants(chat_id))
-                        if users == 1:
-                            autoend[chat_id] = datetime.now() + timedelta(minutes=1)
-                    except Exception:
-                        pass
-
-                return
-
-            except AssistantErr:
-                raise
-            except Exception as e:
-                err_str = str(e).lower()
-                if isinstance(e, ChatAdminRequired) or "chat_admin_required" in err_str or "groupcall_forbidden" in err_str:
-                    raise AssistantErr(_["call_8"])
-
-                if isinstance(e, NoActiveGroupCall) or "noactivegroupcall" in err_str:
-                    if user_client and is_admin:
-                        try:
-                            await user_client.invoke(
-                                functions.phone.CreateGroupCall(
-                                    peer=await user_client.resolve_peer(chat_id),
-                                    random_id=randint(10000, 99999),
-                                )
-                            )
-                            await asyncio.sleep(2)
-                            continue
-                        except Exception:
-                            raise AssistantErr(_["call_8"])
-
-                if isinstance(e, PyTgCallsAlreadyRunning) or "already joined" in err_str:
-                    try:
-                        await self._play_safe(chat_id, stream, force_join=False)
-                        await asyncio.sleep(0.6)
-                        continue
-                    except Exception:
-                        pass
-
+                # If last attempt, map to specific assistant errors
                 if attempt == retries - 1:
                     if isinstance(e, (NoAudioSourceFound, NoVideoSourceFound)):
                         raise AssistantErr(_["call_11"])
-                    raise AssistantErr(_["call_10"])
+                    else:
+                        raise AssistantErr(_["call_10"])
+                await asyncio.sleep(0.8)
+                continue
 
-                await asyncio.sleep(1)
+        # mark active
+        self.active_calls.add(chat_id)
+        await add_active_chat(chat_id)
+        await music_on(chat_id)
+        if video:
+            await add_active_video_chat(chat_id)
 
-        raise AssistantErr(_["call_10"])
+        # autoend handling
+        try:
+            if await is_autoend():
+                counter[chat_id] = {}
+                try:
+                    users = len(await assistant.get_participants(chat_id))
+                    if users == 1:
+                        autoend[chat_id] = datetime.now() + timedelta(minutes=1)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-    async def start(self) -> None:
-        LOGGER(__name__).info("Starting Call Clients... Backend: %s" % TCALLS_BACKEND)
-        if self.one and getattr(config, "STRING1", None):
-            try:
-                await self.one.start()
-            except Exception:
-                LOGGER(__name__).exception("Failed to start client one")
-        if self.two and getattr(config, "STRING2", None):
-            try:
-                await self.two.start()
-            except Exception:
-                LOGGER(__name__).exception("Failed to start client two")
-        if self.three and getattr(config, "STRING3", None):
-            try:
-                await self.three.start()
-            except Exception:
-                LOGGER(__name__).exception("Failed to start client three")
-        if self.four and getattr(config, "STRING4", None):
-            try:
-                await self.four.start()
-            except Exception:
-                LOGGER(__name__).exception("Failed to start client four")
-        if self.five and getattr(config, "STRING5", None):
-            try:
-                await self.five.start()
-            except Exception:
-                LOGGER(__name__).exception("Failed to start client five")
-
-    async def ping(self) -> str:
-        pings = []
-        if self.one and getattr(config, "STRING1", None):
-            pings.append(self.one.ping)
-        if self.two and getattr(config, "STRING2", None):
-            pings.append(self.two.ping)
-        if self.three and getattr(config, "STRING3", None):
-            pings.append(self.three.ping)
-        if self.four and getattr(config, "STRING4", None):
-            pings.append(self.four.ping)
-        if self.five and getattr(config, "STRING5", None):
-            pings.append(self.five.ping)
-        return str(round(sum(pings) / len(pings), 3)) if pings else "0.0"
-
-    async def decorators(self) -> None:
-        assistants = list(filter(None, [self.one, self.two, self.three, self.four, self.five]))
-
-        async def unified_update_handler(client, update: Update) -> None:
-            try:
-                if isinstance(update, StreamEnded):
-                    try:
-                        assistant = await group_assistant(self, update.chat_id)
-                        await self.play(assistant, update.chat_id)
-                    except Exception:
-                        pass
-                elif isinstance(update, ChatUpdate):
-                    status = getattr(update, "status", 0)
-                    CRITICAL = (
-                        getattr(ChatUpdate, "Status", type("S", (), {"KICKED": 1, "LEFT_GROUP": 2, "CLOSED_VOICE_CHAT": 4})).KICKED
-                        | getattr(ChatUpdate, "Status", type("S", (), {"KICKED": 1, "LEFT_GROUP": 2, "CLOSED_VOICE_CHAT": 4})).LEFT_GROUP
-                        | getattr(ChatUpdate, "Status", type("S", (), {"KICKED": 1, "LEFT_GROUP": 2, "CLOSED_VOICE_CHAT": 4})).CLOSED_VOICE_CHAT
-                    )
-                    if (status & getattr(ChatUpdate, "Status", type("S", (), {"LEFT_CALL": 8})).LEFT_CALL) or (status & CRITICAL):
-                        await self.stop_stream(update.chat_id)
-            except Exception:
-                pass
-
-        for assistant in assistants:
-            try:
-                assistant.on_update()(unified_update_handler)
-            except Exception:
-                pass
-
+    # play handler (auto queue next)
     @capture_internal_err
-    async def play(self, client, chat_id: int) -> None:
+    async def play(self, client, chat_id: int):
         check = db.get(chat_id)
         if not check:
+            # cleanup and leave
             await _clear_(chat_id)
             try:
                 await client.leave_call(chat_id)
@@ -619,21 +509,15 @@ class Call:
                 pass
             return
 
-        old_is_video = False
-        try:
-            if len(check) > 0:
-                old_is_video = str(check[0].get("streamtype")) == "video"
-        except Exception:
-            pass
-
+        # queue loop/loop handling
+        loop_val = await get_loop(chat_id)
         popped = None
-        loop = await get_loop(chat_id)
         try:
-            if loop == 0:
+            if loop_val == 0:
                 popped = check.pop(0)
             else:
-                loop = loop - 1
-                await set_loop(chat_id, loop)
+                loop_val -= 1
+                await set_loop(chat_id, loop_val)
             await auto_clean(popped)
             if not check:
                 await _clear_(chat_id)
@@ -650,108 +534,145 @@ class Call:
                 return await client.leave_call(chat_id)
             except Exception:
                 return
-        else:
-            queued = check[0].get("file")
-            language = await get_lang(chat_id)
-            _ = get_string(language)
-            title = (check[0].get("title") or "").title()
-            user = check[0].get("by")
-            original_chat_id = check[0].get("chat_id")
-            streamtype = check[0].get("streamtype")
-            videoid = clean_vidid(check[0].get("vidid"))
 
-            db[chat_id][0]["played"] = 0
-            if (check[0]).get("old_dur"):
-                db[chat_id][0]["dur"] = check[0].get("old_dur")
-                db[chat_id][0]["seconds"] = check[0].get("old_second")
-                db[chat_id][0]["speed_path"] = None
-                db[chat_id][0]["speed"] = 1.0
+        # prepare next item
+        queued = check[0].get("file")
+        streamtype = check[0].get("streamtype")
+        videoid = clean_vidid(check[0].get("vidid"))
+        language = await get_lang(chat_id)
+        _ = get_string(language)
+        title = (check[0].get("title") or "").title()
+        user = check[0].get("by")
+        original_chat_id = check[0].get("chat_id")
+        is_video = str(streamtype) == "video"
 
-            new_is_video = True if str(streamtype) == "video" else False
-
-            try:
-                final_link = queued
-                vid_id = extract_video_id(str(queued)) or videoid
-                await _invalidate_direct_cache_for_vid(vid_id)
-                if queued and os.path.exists(str(queued)) and new_is_video and str(queued).endswith((".mp3", ".m4a")):
-                    if vid_id:
-                        try:
-                            direct = await get_direct_link(vid_id, video=True)
-                            if direct:
-                                final_link = direct
-                        except Exception:
-                            pass
-                if queued and ("live_" in str(queued) or "vid_" in str(queued) or "index_" in str(queued)):
+        try:
+            final_link = queued
+            if queued and os.path.exists(str(queued)) and is_video and str(queued).endswith((".mp3", ".m4a")):
+                if videoid:
                     try:
-                        if vid_id:
-                            direct_url = await get_direct_link(vid_id, video=new_is_video)
-                            if direct_url:
-                                final_link = direct_url
-                            else:
-                                path_direct = await YouTube.download(vid_id, None, video=new_is_video, videoid=vid_id)
-                                if isinstance(path_direct, tuple) and path_direct[0]:
-                                    final_link = path_direct[0]
+                        direct = None
+                        if YouTube:
+                            direct = await YouTube.get_direct_url(videoid, video=True) if hasattr(YouTube, "get_direct_url") else None
+                        if direct:
+                            final_link = direct
                     except Exception:
                         pass
 
-                stream = dynamic_media_stream(path=final_link, video=new_is_video)
+            # special modes
+            if str(queued).startswith("live_"):
+                vid = videoid
+                n, link = await YouTube.video(vid, True)
+                if n == 0:
+                    return await app.send_message(original_chat_id, text=_["call_6"])
+                stream = dynamic_media_stream(path=link, video=is_video)
+                await self._play_safe(chat_id, stream, force_join=False)
 
-                if old_is_video != new_is_video:
-                    try:
-                        await client.leave_call(chat_id)
-                    except Exception:
-                        pass
-                    await self._play_safe(chat_id, stream, force_join=True)
-                else:
-                    if chat_id in self.active_calls:
-                        try:
-                            await self._play_safe(chat_id, stream, force_join=False)
-                        except (NoActiveGroupCall, NotInCallError):
-                            await self._play_safe(chat_id, stream, force_join=True)
-                    else:
-                        await self._play_safe(chat_id, stream, force_join=True)
+                img = await get_thumb(vid)
+                run = await app.send_photo(
+                    chat_id=original_chat_id,
+                    photo=img,
+                    caption=_["stream_1"].format(f"https://t.me/{app.username}?start=info_{vid}", title[:23], check[0].get("dur"), user),
+                    reply_markup=InlineKeyboardMarkup(stream_markup(_, chat_id)),
+                )
+                db[chat_id][0]["mystic"] = run
+                db[chat_id][0]["markup"] = "stream"
+            else:
+                # normal file/url
+                stream = dynamic_media_stream(path=final_link, video=is_video)
+                await self._play_safe(chat_id, stream, force_join=False if chat_id in self.active_calls else True)
 
-                if new_is_video:
+                if is_video:
                     await add_active_video_chat(chat_id)
                 else:
                     await remove_active_video_chat(chat_id)
 
                 img = await get_thumb(videoid)
-                button = stream_markup(_, chat_id)
-                try:
-                    myst = db[chat_id][0].get("mystic")
-                    if myst:
-                        try:
-                            await myst.delete()
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-
                 run = await app.send_photo(
                     chat_id=original_chat_id,
                     photo=img,
-                    caption=_["stream_1"].format(
-                        f"https://t.me/{app.username}?start=info_{videoid}",
-                        title[:23],
-                        check[0].get("dur"),
-                        user,
-                    ),
-                    reply_markup=InlineKeyboardMarkup(button),
+                    caption=_["stream_1"].format(f"https://t.me/{app.username}?start=info_{videoid}", title[:23], check[0].get("dur"), user),
+                    reply_markup=InlineKeyboardMarkup(stream_markup(_, chat_id)),
                 )
                 db[chat_id][0]["mystic"] = run
                 db[chat_id][0]["markup"] = "stream"
+        except Exception:
+            # safe log without broken f-strings
+            try:
+                LOGGER(__name__).error("PLAY ERROR for chat %s: %s", str(chat_id), traceback.format_exc())
             except Exception:
-                tb = traceback.format_exc()
-                LOGGER(__name__).error("PLAY ERROR for chat %s:
-%s" % (chat_id, tb))
-                await _clear_(chat_id)
-                try:
-                    await client.leave_call(chat_id)
-                except Exception:
-                    pass
-                return await app.send_message(original_chat_id, text=_["call_6"])
+                # ultimate fallback
+                logging.error("PLAY ERROR for chat %s", chat_id)
+            await _clear_(chat_id)
+            try:
+                await client.leave_call(chat_id)
+            except Exception:
+                pass
+            return await app.send_message(original_chat_id, text=_["call_6"])
 
+    # start all PyTgCalls clients
+    async def start(self):
+        try:
+            if self.one and getattr(config, "STRING1", None):
+                await self.one.start()
+            if self.two and getattr(config, "STRING2", None):
+                await self.two.start()
+            if self.three and getattr(config, "STRING3", None):
+                await self.three.start()
+            if self.four and getattr(config, "STRING4", None):
+                await self.four.start()
+            if self.five and getattr(config, "STRING5", None):
+                await self.five.start()
+        except Exception:
+            LOGGER(__name__).exception("Failed to start one of the call clients")
 
-# singleton
+    @capture_internal_err
+    async def ping(self) -> str:
+        pings = []
+        if self.one and getattr(config, "STRING1", None):
+            pings.append(getattr(self.one, "ping", 0))
+        if self.two and getattr(config, "STRING2", None):
+            pings.append(getattr(self.two, "ping", 0))
+        if self.three and getattr(config, "STRING3", None):
+            pings.append(getattr(self.three, "ping", 0))
+        if self.four and getattr(config, "STRING4", None):
+            pings.append(getattr(self.four, "ping", 0))
+        if self.five and getattr(config, "STRING5", None):
+            pings.append(getattr(self.five, "ping", 0))
+        try:
+            return str(round(sum(pings) / len(pings), 3)) if pings else "0.0"
+        except Exception:
+            return "0.0"
+
+    @capture_internal_err
+    async def decorators(self):
+        assistants = [a for a in (self.one, self.two, self.three, self.four, self.five) if a]
+        CRITICAL = getattr(ChatUpdate, "Status", 0) if hasattr(ChatUpdate, "Status") else 0
+
+        async def handler(client, update: Update):
+            try:
+                if isinstance(update, StreamEnded):
+                    try:
+                        assistant = await group_assistant(self, update.chat_id)
+                        await self.play(assistant, update.chat_id)
+                    except Exception:
+                        pass
+                elif isinstance(update, ChatUpdate):
+                    status = getattr(update, "status", 0)
+                    # bitmask checks if available
+                    if (status & getattr(ChatUpdate.Status, "LEFT_CALL", 0)) or (status & CRITICAL):
+                        await self.stop_stream(update.chat_id)
+            except Exception:
+                pass
+
+        for assistant in assistants:
+            try:
+                assistant.on_update()(handler)
+            except Exception:
+                pass
+
+# single controller instance used by project
 StreamController = Call()
+
+# re-export for other plugins
+__all__ = ["StreamController", "Call", "autoend", "counter"]
