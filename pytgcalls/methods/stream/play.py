@@ -1,4 +1,5 @@
 import logging
+import asyncio # ✅ ضروري للتوقيت
 from pathlib import Path
 from typing import Optional
 from typing import Union
@@ -6,7 +7,7 @@ from typing import Union
 from ntgcalls import FileError
 from ntgcalls import StreamMode
 
-# 🔥 التعديل: استبدال GroupCallForbidden بـ RPCError (لأنها تشمل كل الأخطاء)
+# 🔥 استيراد شامل للأخطاء لضمان عدم الانهيار
 from pyrogram.errors import ChatAdminRequired, RPCError
 
 from ...exceptions import NoActiveGroupCall
@@ -73,20 +74,22 @@ class Play(Scaffold):
                 chat_id,
             )
             
-            # 🔥🔥🔥 المنطق الذكي لإنشاء الكول 🔥🔥🔥
+            # 🔥 التطوير هنا: التعامل الذكي مع Auto-Start 🔥
             if chat_call is None:
                 if config.auto_start:
                     try:
-                        # محاولة إنشاء الكول
+                        # 1. إنشاء الكول
                         await self._app.create_group_call(
                             chat_id,
                         )
+                        # 2. 🛑 الانتظار لثانيتين لضمان استقرار الاتصال بالسيرفر
+                        # هذا يحل مشكلة "ظهور الأزرار بدون دخول المساعد"
+                        await asyncio.sleep(2)
+                        
                     except (ChatAdminRequired, RPCError):
-                        # التقاط RPCError يغطي أي خطأ منع أو رفض من تيليجرام
-                        # نرفع NoActiveGroupCall عشان البوت يفهم ويرسل رسالة call_8
+                        # لو فشل بسبب الصلاحيات، نرفع الخطأ اللي البوت بيفهمه (call_8)
                         raise NoActiveGroupCall("Permission missing or Call Failed")
                     except Exception as e:
-                        # الأخطاء البرمجية الأخرى
                         py_logger.error(f"Failed to auto-start call: {e}")
                         raise NoActiveGroupCall(str(e))
                 else:
