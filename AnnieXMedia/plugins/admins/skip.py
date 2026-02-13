@@ -1,8 +1,7 @@
-# file: AnnieXMedia/plugins/skip.py
 # Authored By Certified Coders © 2026
-# System: Skip Handler (Optimized for Nuclear Call)
-# Changes: Removed 'image' param from skip_stream calls to prevent crashes
-#           Added early active-call check to send call_8 only when no active call.
+# System: Skip Handler (Optimized for PyTgCalls v3.0)
+# Compatibility: Links with Queue & Call Controller
+# Fixes: Removed 'image' param from skip calls to prevent crashes
 
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, Message
@@ -27,20 +26,19 @@ from config import BANNED_USERS
 @AdminRightsCheck
 async def skip(cli, message: Message, _, chat_id):
     # -----------------------
-    # early: إذا مفيش مكالمة شغالة نرد برسالة call_8 بس
+    # Early Check: If no active call, return 'call_8' (Bot not in call)
     # -----------------------
     try:
-        # StreamController.active_calls هو مجموعة الـ chat_id اللي فيها مكالمات شغالة
+        # Check against the active_calls set in StreamController
         if chat_id not in StreamController.active_calls:
             return await message.reply_text(_["call_8"])
     except Exception:
-        # في حال أي خطأ بسيط فتجاهل الفحص واستكمل (fallback)
         pass
 
     # -------------------------------------------------------
-    # 1. منطق التخطي المتعدد (Skip Specific Number)
+    # 1. Multi-Skip Logic (e.g., /skip 3)
     # -------------------------------------------------------
-    if not len(message.command) < 2:
+    if len(message.command) > 1:
         loop = await get_loop(chat_id)
         if loop != 0:
             return await message.reply_text(_["admin_8"])
@@ -85,7 +83,7 @@ async def skip(cli, message: Message, _, chat_id):
             return await message.reply_text(_["admin_9"])
     
     # -------------------------------------------------------
-    # 2. منطق التخطي العادي (Skip Next)
+    # 2. Standard Skip (Next Track)
     # -------------------------------------------------------
     else:
         check = db.get(chat_id)
@@ -121,13 +119,13 @@ async def skip(cli, message: Message, _, chat_id):
     if not check:
         return
     
-    # تجهيز التراك الجديد
+    # Prepare Next Track Data
     queued = check[0]["file"]
     title = (check[0]["title"]).title()
     user = check[0]["by"]
     streamtype = check[0]["streamtype"]
     videoid = check[0]["vidid"]
-    status = True if str(streamtype) == "video" else None
+    status = True if str(streamtype) == "video" else False
     
     db[chat_id][0]["played"] = 0
     exis = (check[0]).get("old_dur")
@@ -138,7 +136,7 @@ async def skip(cli, message: Message, _, chat_id):
         db[chat_id][0]["speed"] = 1.0
         
     # -------------------------------------------------------
-    # 3. أنواع التشغيل (Live, Video, Index, Audio)
+    # 3. Stream Switching Logic
     # -------------------------------------------------------
     
     # [A] Live Stream
@@ -147,7 +145,7 @@ async def skip(cli, message: Message, _, chat_id):
         if n == 0:
             return await message.reply_text(_["admin_7"].format(title))
         try:
-            # 🔥 التعديل: حذفنا image من هنا
+            # Calls StreamController.skip_stream (No image param)
             await StreamController.skip_stream(chat_id, link, video=status)
         except:
             return await message.reply_text(_["call_6"])
@@ -181,7 +179,6 @@ async def skip(cli, message: Message, _, chat_id):
             return await mystic.edit_text(_["call_6"])
         
         try:
-            # 🔥 التعديل: حذفنا image من هنا
             await StreamController.skip_stream(chat_id, file_path, video=status)
         except:
             return await mystic.edit_text(_["call_6"])
@@ -205,7 +202,6 @@ async def skip(cli, message: Message, _, chat_id):
     # [C] Index Link / M3U8
     elif "index_" in queued:
         try:
-            # 🔥 التعديل: حذفنا image من هنا
             await StreamController.skip_stream(chat_id, videoid, video=status)
         except:
             return await message.reply_text(_["call_6"])
@@ -222,7 +218,6 @@ async def skip(cli, message: Message, _, chat_id):
     # [D] Telegram Audio / SoundCloud / Direct Link
     else:
         try:
-            # 🔥 التعديل: حذفنا image من هنا
             await StreamController.skip_stream(chat_id, queued, video=status)
         except:
             return await message.reply_text(_["call_6"])
