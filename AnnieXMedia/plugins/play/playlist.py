@@ -1,5 +1,5 @@
 # Authored By Certified Coders © 2026
-# System: Playlist Manager (Add, Delete, Play)
+# System: Playlist Manager (Interactive Buttons)
 # Compatibility: AnnieXMedia & PyTgCalls v3.0
 
 import os
@@ -8,7 +8,7 @@ from random import randint
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from config import BANNED_USERS, SERVER_PLAYLIST_LIMIT
+from config import BANNED_USERS, SERVER_PLAYLIST_LIMIT, OWNER_ID
 from AnnieXMedia import Carbon, YouTube, app
 from AnnieXMedia.utils.database import (
     delete_playlist,
@@ -22,52 +22,75 @@ from AnnieXMedia.utils.inline.playlist import (
     get_playlist_markup,
     warning_markup,
 )
-from AnnieXMedia.utils.pastebin import ANNIEBIN
 from AnnieXMedia.utils.stream.stream import stream
 
 # ==========================================
-#  أوامر عرض البلاي ليست
+#  أوامر عرض البلاي ليست (تفاعلية)
 # ==========================================
 
 @app.on_message(filters.command(["playlist", "قائمتي", "ماي ليست"], prefixes=["/", "!", "", "."]) & ~BANNED_USERS)
 @language
 async def check_playlist(client, message: Message, _):
     _playlist = await get_playlist_names(message.from_user.id)
-    if _playlist:
-        get = await message.reply_text(_["playlist_2"])
-    else:
+    
+    if not _playlist:
         return await message.reply_text(_["playlist_3"])
     
-    msg = _["playlist_4"]
-    count = 0
-    for shikhar in _playlist:
-        _note = await get_playlist(message.from_user.id, shikhar)
+    buttons = []
+    # إضافة أزرار للأغاني (زر لكل أغنية للحذف)
+    for vidid in _playlist:
+        _note = await get_playlist(message.from_user.id, vidid)
         title = _note["title"]
-        title = title.title()
-        duration = _note["duration"]
-        count += 1
-        msg += f"\n\n{count}- {title[:70]}\n"
-        msg += _["playlist_5"].format(duration)
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{title[:25]} 🗑️",
+                    callback_data=f"del_playlist {vidid}"
+                )
+            ]
+        )
         
-    link = await ANNIEBIN(msg)
-    lines = msg.count("\n")
-    car = os.linesep.join(msg.split(os.linesep)[:17]) if lines >= 17 else msg
+    # أزرار التحكم السفلية
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="• تشغيل الكل •",
+                callback_data=f"play_playlist {message.from_user.id}"
+            )
+        ]
+    )
     
-    try:
-        carbon = await Carbon.generate(car, randint(100, 10000000000))
-    except:
-        carbon = ""
+    # زر المالك (بالزخرفة المطلوبة وبدون رابط ظاهر)
+    owner_id = OWNER_ID
+    if isinstance(owner_id, list):
+        owner_id = owner_id[0]
         
-    await get.delete()
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="ᎾᎳᏁᎬᏒ",  # الاسم المزخرف
+                user_id=owner_id # يفتح البروفايل مباشرة
+            )
+        ]
+    )
     
-    if carbon:
-        await message.reply_photo(carbon, caption=_["playlist_15"].format(link))
-    else:
-        await message.reply_text(msg)
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="إغلاق",
+                callback_data="close"
+            )
+        ]
+    )
+    
+    await message.reply_text(
+        text=f"🎵 **القائمة الخاصة بك يا {message.from_user.mention}:**\n\n- اضغط على اسم الأغنية لحذفها.\n- اضغط تشغيل الكل لبدء الاستماع.",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
 
 # ==========================================
-#  أوامر الحذف
+#  أوامر الحذف (باقي الملف)
 # ==========================================
 
 @app.on_message(filters.command(["delplaylist", "حذف قائمتي", "حذف البلاي ليست"], prefixes=["/", "!", "", "."]) & filters.group & ~BANNED_USERS)
@@ -131,9 +154,12 @@ async def del_plist_msg(client, message: Message, _):
 @app.on_callback_query(filters.regex("play_playlist") & ~BANNED_USERS)
 @languageCB
 async def play_playlist(client, CallbackQuery, _):
-    callback_data = CallbackQuery.data.strip()
-    mode = callback_data.split(None, 1)[1]
-    user_id = CallbackQuery.from_user.id
+    # استقبال ID المستخدم من البيانات
+    user_id = int(CallbackQuery.data.split()[1])
+    
+    if CallbackQuery.from_user.id != user_id:
+        return await CallbackQuery.answer("هذه القائمة ليست لك!", show_alert=True)
+
     _playlist = await get_playlist_names(user_id)
     
     if not _playlist:
@@ -150,18 +176,14 @@ async def play_playlist(client, CallbackQuery, _):
     await CallbackQuery.message.delete()
     
     try:
-        await CallbackQuery.answer()
+        await CallbackQuery.answer("جاري التشغيل...")
     except Exception:
         pass
         
-    # تحديد نوع التشغيل (فيديو/صوت)
-    video = True if mode == "v" else False 
-    
     mystic = await CallbackQuery.message.reply_text(_["play_1"])
     result = list(_playlist)
     
     try:
-        # استدعاء دالة stream مع تحديد streamtype="playlist"
         await stream(
             _,
             mystic,
@@ -170,7 +192,7 @@ async def play_playlist(client, CallbackQuery, _):
             chat_id,
             user_name,
             CallbackQuery.message.chat.id,
-            video=video,
+            video=False,
             streamtype="playlist",
         )
     except Exception as e:
@@ -187,12 +209,10 @@ async def add_playlist(client, CallbackQuery, _):
         videoid = callback_data.split(None, 1)[1]
         user_id = CallbackQuery.from_user.id
         
-        # 1. التحقق هل الأغنية موجودة بالفعل
         _check = await get_playlist(user_id, videoid)
         if _check:
             return await CallbackQuery.answer(_["playlist_8"], show_alert=True)
             
-        # 2. التحقق من الحد الأقصى للقائمة
         _count = await get_playlist_names(user_id)
         count = len(_count)
         if count == SERVER_PLAYLIST_LIMIT:
@@ -201,7 +221,6 @@ async def add_playlist(client, CallbackQuery, _):
                 show_alert=True,
             )
             
-        # 3. جلب البيانات وحفظها
         (
             title,
             duration_min,
@@ -237,6 +256,29 @@ async def del_plist(client, CallbackQuery, _):
     if deleted:
         try:
             await CallbackQuery.answer(_["playlist_11"], show_alert=True)
+            # تحديث القائمة فوراً بعد الحذف
+            _playlist = await get_playlist_names(user_id)
+            
+            if not _playlist:
+                return await CallbackQuery.message.edit_text(_["playlist_3"])
+            
+            buttons = []
+            for vid in _playlist:
+                _note = await get_playlist(user_id, vid)
+                title = _note["title"]
+                buttons.append([InlineKeyboardButton(text=f"{title[:25]} 🗑️", callback_data=f"del_playlist {vid}")])
+            
+            buttons.append([InlineKeyboardButton(text="• تشغيل الكل •", callback_data=f"play_playlist {user_id}")])
+            
+            # زر المالك في التحديث
+            owner_id = OWNER_ID
+            if isinstance(owner_id, list): owner_id = owner_id[0]
+            buttons.append([InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", user_id=owner_id)])
+            
+            buttons.append([InlineKeyboardButton(text="إغلاق", callback_data="close")])
+            
+            await CallbackQuery.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(buttons))
+            
         except Exception:
             pass
     else:
@@ -244,9 +286,6 @@ async def del_plist(client, CallbackQuery, _):
             return await CallbackQuery.answer(_["playlist_12"], show_alert=True)
         except Exception:
             return
-            
-    keyboard, count = await get_keyboard(_, user_id)
-    return await CallbackQuery.edit_message_reply_markup(reply_markup=keyboard)
 
 
 @app.on_callback_query(filters.regex("delete_whole_playlist") & ~BANNED_USERS)
