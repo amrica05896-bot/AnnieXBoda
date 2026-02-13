@@ -1,5 +1,5 @@
 # Authored By Certified Coders © 2026
-# System: Song Plugin (Final Version)
+# System: Song Plugin (Final Version - Custom Playback)
 # Features: Exclusive List Play Button + Inline Stream Control
 
 import os
@@ -28,7 +28,10 @@ from AnnieXMedia import app
 from AnnieXMedia.platforms import YouTube, SongDownloader
 from AnnieXMedia.utils.formatters import convert_bytes
 from AnnieXMedia.utils.inline.song import song_markup
-from AnnieXMedia.utils.database import get_config, set_config, get_cached_file, cache_file
+from AnnieXMedia.utils.database import (
+    get_config, set_config, get_cached_file, cache_file, get_lang
+)
+from strings import get_string
 
 # استيراد دالة التشغيل
 from AnnieXMedia.utils.stream.stream import stream
@@ -351,7 +354,7 @@ async def list_select_cb(client, query):
         await direct_download_handler(client, query.message, yturl, is_video_force=False, show_play_btn=True)
     except: await query.message.reply_text("فشل.")
 
-# 🛑 كولاك زر التشغيل: يشغل بوضع الكوستوم (Inline Edit)
+# 🛑 كولاك زر التشغيل: معدل لاستخدام وضع 'custom'
 @app.on_callback_query(filters.regex(pattern=r"force_play") & ~BANNED_USERS)
 async def force_play_cb(client, query):
     try: vidid = query.data.split()[1]
@@ -361,22 +364,28 @@ async def force_play_cb(client, query):
     user_id = query.from_user.id
     user_name = query.from_user.first_name
 
-    await query.answer("جاري التشغيل...")
+    await query.answer("جاري التشغيل...", show_alert=False)
     
     try:
+        # جلب اللغة (ضروري عشان stream.py يشتغل صح)
+        language = await get_lang(chat_id)
+        _ = get_string(language)
+
         details, _ = await YouTube.track(vidid, videoid=vidid)
         
-        # 🛑 التريك: بنبعت رسالة الملف (query.message) عشان الاستريم يعدل زراريرها
+        # 🔥 هنا التريك:
+        # 1. بنبعت query.message (رسالة الملف) مكان mystic
+        # 2. بنستخدم streamtype="custom" عشان يفعل اللوجيك الجديد في stream.py
         await stream(
-            {}, # dummy dict
-            query.message, # <--- الرسالة نفسها (mystic)
+            _, 
+            query.message, # <--- دي الرسالة اللي هتتعدل أزرارها
             user_id,
             details,
             chat_id,
             user_name,
             chat_id,
             video=False,
-            streamtype="custom", # ✅ كلمة السر لتعديل الأزرار
+            streamtype="custom", # ✅ مفتاح السر
             forceplay=True, 
         )
     except Exception as e:
