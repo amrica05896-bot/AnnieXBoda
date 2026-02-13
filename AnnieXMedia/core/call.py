@@ -367,7 +367,7 @@ class Call:
             else:
                 await remove_active_video_chat(chat_id)
 
-            # Notification
+            # Notifications
             img = await get_thumb(videoid)
             from AnnieXMedia.utils.inline import stream_markup
             button = stream_markup(get_string(await get_lang(chat_id)), chat_id)
@@ -394,7 +394,6 @@ class Call:
         except Exception as e:
             LOGGER(__name__).error(f"Queue Play Error: {e}")
             await _clear_(chat_id)
-            try: await app.send_message(original_chat_id, "Failed to switch stream.")
-            except: pass
+            await app.send_message(original_chat_id, "Failed to switch stream.")
 
 StreamController = Call()
