@@ -53,6 +53,8 @@ PLAYLIST_FETCH_LIMIT = int(getenv("PLAYLIST_FETCH_LIMIT", "100"))
 # مجموعة معالجة الذكاء الاصطناعي (لتجنب التعارض)
 AI_HANDLER_GROUP = int(getenv("AI_HANDLER_GROUP", 30))
 
+#سيرفر / مستخدم
+SERVER_PLAYLIST_LIMIT = int(getenv("SERVER_PLAYLIST_LIMIT", 30))
 # ── External APIs ──────────────────────────────────────────────────────────────
 COOKIE_URL = getenv("COOKIE_URL")
 API_URL = "https://hyperionengine.fly.dev"
