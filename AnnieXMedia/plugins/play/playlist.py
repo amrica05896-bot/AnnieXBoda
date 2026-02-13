@@ -34,7 +34,7 @@ async def check_playlist(client, message: Message, _):
     _playlist = await get_playlist_names(message.from_user.id)
     
     if not _playlist:
-        return await message.reply_text("• ليس لديك أي قائمة تشغيل محفوظة •")
+        return await message.reply_text(_["playlist_3"])
     
     buttons = []
     # إضافة أزرار للأغاني (زر لكل أغنية للحذف)
@@ -44,7 +44,7 @@ async def check_playlist(client, message: Message, _):
         buttons.append(
             [
                 InlineKeyboardButton(
-                    text=f"• {title[:25]} • حذف •",
+                    text=f"{title[:25]} 🗑️",
                     callback_data=f"del_playlist {vidid}"
                 )
             ]
@@ -68,7 +68,7 @@ async def check_playlist(client, message: Message, _):
     buttons.append(
         [
             InlineKeyboardButton(
-                text="• ᎾᎳᏁᎬᏒ •",  # الاسم المزخرف
+                text="ᎾᎳᏁᎬᏒ",  # الاسم المزخرف
                 user_id=owner_id # يفتح البروفايل مباشرة
             )
         ]
@@ -77,14 +77,14 @@ async def check_playlist(client, message: Message, _):
     buttons.append(
         [
             InlineKeyboardButton(
-                text="• إغلاق •",
+                text="إغلاق",
                 callback_data="close"
             )
         ]
     )
     
     await message.reply_text(
-        text=f"• **القائمة الخاصة بك يا {message.from_user.mention}:** •\n\n• اضغط على اسم الأغنية لحذفها. •\n• اضغط تشغيل الكل لبدء الاستماع. •",
+        text=f"🎵 **القائمة الخاصة بك يا {message.from_user.mention}:**\n\n- اضغط على اسم الأغنية لحذفها.\n- اضغط تشغيل الكل لبدء الاستماع.",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
@@ -100,13 +100,13 @@ async def del_group_message(client, message: Message, _):
         [
             [
                 InlineKeyboardButton(
-                    text="• حذف القوائم •",
+                    text=_["PL_B_6"],
                     url=f"https://t.me/{app.username}?start=delplaylists",
                 ),
             ]
         ]
     )
-    await message.reply_text("• لإدارة حذف القوائم اضغط الرابط •", reply_markup=upl)
+    await message.reply_text(_["playlist_6"], reply_markup=upl)
 
 
 async def get_keyboard(_, user_id):
@@ -120,15 +120,15 @@ async def get_keyboard(_, user_id):
         buttons.append(
             [
                 InlineKeyboardButton(
-                    text=f"• {title} •",
+                    text=title,
                     callback_data=f"del_playlist {x}",
                 )
             ]
         )
     buttons.append(
         [
-            InlineKeyboardButton(text="• حذف الكل •", callback_data="delete_warning"),
-            InlineKeyboardButton(text="• إغلاق •", callback_data="close"),
+            InlineKeyboardButton(text=_["PL_B_5"], callback_data="delete_warning"),
+            InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close"),
         ]
     )
     keyboard = InlineKeyboardMarkup(buttons)
@@ -140,11 +140,11 @@ async def get_keyboard(_, user_id):
 async def del_plist_msg(client, message: Message, _):
     _playlist = await get_playlist_names(message.from_user.id)
     if _playlist:
-        get = await message.reply_text("• جارٍ المعالجة... •")
+        get = await message.reply_text(_["playlist_2"])
     else:
-        return await message.reply_text("• ليس لديك أي قائمة تشغيل محفوظة •")
+        return await message.reply_text(_["playlist_3"])
     keyboard, count = await get_keyboard(_, message.from_user.id)
-    await get.edit_text(f"• تم العثور على {count} أغنية في قائمتك: •", reply_markup=keyboard)
+    await get.edit_text(_["playlist_7"].format(count), reply_markup=keyboard)
 
 
 # ==========================================
@@ -158,14 +158,14 @@ async def play_playlist(client, CallbackQuery, _):
     user_id = int(CallbackQuery.data.split()[1])
     
     if CallbackQuery.from_user.id != user_id:
-        return await CallbackQuery.answer("• هذه القائمة ليست لك! •", show_alert=True)
+        return await CallbackQuery.answer("هذه القائمة ليست لك!", show_alert=True)
 
     _playlist = await get_playlist_names(user_id)
     
     if not _playlist:
         try:
             return await CallbackQuery.answer(
-                "• ليس لديك أي قائمة تشغيل محفوظة •",
+                _["playlist_3"],
                 show_alert=True,
             )
         except Exception:
@@ -176,11 +176,11 @@ async def play_playlist(client, CallbackQuery, _):
     await CallbackQuery.message.delete()
     
     try:
-        await CallbackQuery.answer("• جاري التشغيل... •")
+        await CallbackQuery.answer("جاري التشغيل...")
     except Exception:
         pass
         
-    mystic = await CallbackQuery.message.reply_text("• جاري بدء التشغيل... •")
+    mystic = await CallbackQuery.message.reply_text(_["play_1"])
     result = list(_playlist)
     
     try:
@@ -196,7 +196,7 @@ async def play_playlist(client, CallbackQuery, _):
             streamtype="playlist",
         )
     except Exception as e:
-        await mystic.edit_text(f"• خطأ أثناء التشغيل: {e} •")
+        await mystic.edit_text(f"خطأ أثناء التشغيل: {e}")
     
     return await mystic.delete()
 
@@ -211,13 +211,13 @@ async def add_playlist(client, CallbackQuery, _):
         
         _check = await get_playlist(user_id, videoid)
         if _check:
-            return await CallbackQuery.answer("• هذه الأغنية موجودة بالفعل في قائمتك. •", show_alert=True)
+            return await CallbackQuery.answer(_["playlist_8"], show_alert=True)
             
         _count = await get_playlist_names(user_id)
         count = len(_count)
         if count == SERVER_PLAYLIST_LIMIT:
             return await CallbackQuery.answer(
-                f"• وصلت لحد القوائم المسموح به: {SERVER_PLAYLIST_LIMIT}. •",
+                _["playlist_9"].format(SERVER_PLAYLIST_LIMIT),
                 show_alert=True,
             )
             
@@ -238,11 +238,11 @@ async def add_playlist(client, CallbackQuery, _):
         
         await save_playlist(user_id, videoid, plist)
         return await CallbackQuery.answer(
-            f"• تم إضافة '{title[:30]}' إلى قائمتك. •", show_alert=True
+            _["playlist_10"].format(title[:30]), show_alert=True
         )
         
     except Exception as e:
-        return await CallbackQuery.answer(f"• Error: {e} •", show_alert=True)
+        return await CallbackQuery.answer(f"Error: {e}", show_alert=True)
 
 
 @app.on_callback_query(filters.regex("del_playlist") & ~BANNED_USERS)
@@ -255,27 +255,27 @@ async def del_plist(client, CallbackQuery, _):
     deleted = await delete_playlist(CallbackQuery.from_user.id, videoid)
     if deleted:
         try:
-            await CallbackQuery.answer("• تم الحذف من قائمتك. •", show_alert=True)
+            await CallbackQuery.answer(_["playlist_11"], show_alert=True)
             # تحديث القائمة فوراً بعد الحذف
             _playlist = await get_playlist_names(user_id)
             
             if not _playlist:
-                return await CallbackQuery.message.edit_text("• ليس لديك أي قائمة تشغيل محفوظة •")
+                return await CallbackQuery.message.edit_text(_["playlist_3"])
             
             buttons = []
             for vid in _playlist:
                 _note = await get_playlist(user_id, vid)
                 title = _note["title"]
-                buttons.append([InlineKeyboardButton(text=f"• {title[:25]} • حذف •", callback_data=f"del_playlist {vid}")])
+                buttons.append([InlineKeyboardButton(text=f"{title[:25]} 🗑️", callback_data=f"del_playlist {vid}")])
             
             buttons.append([InlineKeyboardButton(text="• تشغيل الكل •", callback_data=f"play_playlist {user_id}")])
             
             # زر المالك في التحديث
             owner_id = OWNER_ID
             if isinstance(owner_id, list): owner_id = owner_id[0]
-            buttons.append([InlineKeyboardButton(text="• ᎾᎳᏁᎬᏒ •", user_id=owner_id)])
+            buttons.append([InlineKeyboardButton(text="ᎾᎳᏁᎬᏒ", user_id=owner_id)])
             
-            buttons.append([InlineKeyboardButton(text="• إغلاق •", callback_data="close")])
+            buttons.append([InlineKeyboardButton(text="إغلاق", callback_data="close")])
             
             await CallbackQuery.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(buttons))
             
@@ -283,7 +283,7 @@ async def del_plist(client, CallbackQuery, _):
             pass
     else:
         try:
-            return await CallbackQuery.answer("• لم يتم العثور على الأغنية للحذف. •", show_alert=True)
+            return await CallbackQuery.answer(_["playlist_12"], show_alert=True)
         except Exception:
             return
 
@@ -294,7 +294,7 @@ async def del_whole_playlist(client, CallbackQuery, _):
     _playlist = await get_playlist_names(CallbackQuery.from_user.id)
     for x in _playlist:
         await delete_playlist(CallbackQuery.from_user.id, x)
-    return await CallbackQuery.edit_message_text("• تم حذف جميع الأغاني من قائمتك. •")
+    return await CallbackQuery.edit_message_text(_["playlist_13"])
 
 
 @app.on_callback_query(filters.regex("get_playlist_playmode") & ~BANNED_USERS)
@@ -305,7 +305,6 @@ async def get_playlist_playmode_(client, CallbackQuery, _):
     except Exception:
         pass
     buttons = get_playlist_markup(_)
-    # عند استدعاء get_playlist_markup قد يحتوي على نصوص داخلها — تأكد إن تلك الدوال ترجمت بنفس النمط إذا احتاج
     return await CallbackQuery.edit_message_reply_markup(
         reply_markup=InlineKeyboardMarkup(buttons)
     )
@@ -319,7 +318,7 @@ async def delete_warning_message(client, CallbackQuery, _):
     except Exception:
         pass
     upl = warning_markup(_)
-    return await CallbackQuery.edit_message_text("• هل أنت متأكد أنك تريد حذف جميع القوائم؟ •", reply_markup=upl)
+    return await CallbackQuery.edit_message_text(_["playlist_14"], reply_markup=upl)
 
 
 @app.on_callback_query(filters.regex("home_play") & ~BANNED_USERS)
@@ -342,13 +341,15 @@ async def del_back_playlist(client, CallbackQuery, _):
     _playlist = await get_playlist_names(user_id)
     if _playlist:
         try:
-            await CallbackQuery.answer("• جارٍ المعالجة... •", show_alert=True)
+            await CallbackQuery.answer(_["playlist_2"], show_alert=True)
         except Exception:
             pass
     else:
         try:
-            return await CallbackQuery.answer("• ليس لديك أي قائمة تشغيل محفوظة •", show_alert=True)
+            return await CallbackQuery.answer(_["playlist_3"], show_alert=True)
         except Exception:
             return
     keyboard, count = await get_keyboard(_, user_id)
-    return await CallbackQuery.edit_message_text(f"• تم العثور على {count} أغنية في قائمتك: •", reply_markup=keyboard)
+    return await CallbackQuery.edit_message_text(
+        _["playlist_7"].format(count), reply_markup=keyboard
+    )
