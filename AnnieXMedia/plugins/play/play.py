@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: Play Command Handler (Full Version - DB Lock & Multi-Platform)
-# Compatibility: Hybrid Call + Stream Controller
+# Compatibility: PyTgCalls v3.0 Native Chain
 
 import asyncio
 import random
@@ -9,7 +9,6 @@ import string
 from pyrogram import filters
 from pyrogram.errors import FloodWait, RandomIdDuplicate
 from pyrogram.types import InlineKeyboardMarkup, InputMediaPhoto, Message
-from pytgcalls.exceptions import NoActiveGroupCall
 from motor.motor_asyncio import AsyncIOMotorClient
 
 import config
@@ -355,12 +354,12 @@ async def play_command(
                     return await mystic.edit_text(_["play_6"].format(config.DURATION_LIMIT_MIN, app.mention))
             
             try:
+                # Calls the new stream logic (v3.0 compatible)
                 await stream(
                     _, mystic, user_id, details, chat_id, user_name, message.chat.id,
                     video=bool(video), streamtype=internal_type, spotify=spotify, forceplay=bool(fplay)
                 )
             except AssistantErr as e:
-                # Catch specific assistant errors (like call_8) propagated from stream.py
                 await _safe_delete_msg(mystic)
                 return await app.send_message(chat_id, str(e))
             except Exception as e:
