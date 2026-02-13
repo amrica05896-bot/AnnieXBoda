@@ -1,11 +1,13 @@
-﻿# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2026
+# System: Queue Manager (Database Handler)
+# Updated: Compatible with PyTgCalls v3.0 Data Structure
+
 import asyncio
 from typing import Union
 
 from AnnieXMedia.misc import db
 from AnnieXMedia.utils.formatters import check_duration, seconds_to_min
 from config import autoclean, time_to_seconds
-
 
 async def put_queue(
     chat_id,
@@ -19,23 +21,29 @@ async def put_queue(
     stream,
     forceplay: Union[bool, str] = None,
 ):
+    """
+    Standard Queue Insert for YouTube, Telegram Files, etc.
+    """
     title = title.title()
     try:
+        # Calculate duration in seconds for Seek logic later
         duration_in_seconds = time_to_seconds(duration) - 3
     except:
         duration_in_seconds = 0
+        
     put = {
         "title": title,
         "dur": duration,
-        "streamtype": stream,
+        "streamtype": stream, # Critical for Call.py (video vs audio)
         "by": user,
         "user_id": user_id,
         "chat_id": original_chat_id,
-        "file": file,
+        "file": file, # The path Call.py will read
         "vidid": vidid,
         "seconds": duration_in_seconds,
         "played": 0,
     }
+    
     if forceplay:
         check = db.get(chat_id)
         if check:
@@ -44,8 +52,12 @@ async def put_queue(
             db[chat_id] = []
             db[chat_id].append(put)
     else:
-        db[chat_id].append(put)
-    autoclean.append(file)
+        # Standard append
+        db.get(chat_id, []).append(put)
+        
+    # Add to autoclean list to remove file later
+    if file not in autoclean:
+        autoclean.append(file)
 
 
 async def put_queue_index(
@@ -59,6 +71,10 @@ async def put_queue_index(
     stream,
     forceplay: Union[bool, str] = None,
 ):
+    """
+    Queue Insert for M3U8 / Live Streams / Index Links
+    """
+    # Specific check for known IP streams or direct URLs
     if "20.212.146.162" in vidid:
         try:
             dur = await asyncio.get_event_loop().run_in_executor(
@@ -70,6 +86,7 @@ async def put_queue_index(
             dur = 0
     else:
         dur = 0
+        
     put = {
         "title": title,
         "dur": duration,
@@ -81,6 +98,7 @@ async def put_queue_index(
         "seconds": dur,
         "played": 0,
     }
+    
     if forceplay:
         check = db.get(chat_id)
         if check:
@@ -89,4 +107,7 @@ async def put_queue_index(
             db[chat_id] = []
             db[chat_id].append(put)
     else:
+        # Create list if not exists, then append
+        if chat_id not in db:
+            db[chat_id] = []
         db[chat_id].append(put)
