@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
-# System: Stream Controller (Logic & Queue Handler)
-# Fixes: UI Leak (Stop Execution on Error), Call Check Logic
+# System: Stream Controller (Logic & Queue Bridge)
+# Updated: PyTgCalls v3.0 Compatible (No Image Param, Strict Error Handling)
 
 import asyncio
 import os
@@ -51,6 +51,7 @@ async def stream(
     forceplay = bool(forceplay)
     is_video = bool(video)
 
+    # Force Stop logic for 'forceplay'
     if forceplay:
         await StreamController.force_stop_stream(chat_id)
 
@@ -105,15 +106,14 @@ async def stream(
                 if not file_path: continue
 
                 try:
+                    # v3.0 Update: Removed 'image' param from join_call
                     await StreamController.join_call(
                         chat_id,
                         original_chat_id,
                         file_path,
                         video=is_video,
-                        image=thumbnail,
                     )
                 except AssistantErr as e:
-                    # 🛑 STOP HERE - Strict Logic (No UI)
                     await safe_delete(mystic)
                     await app.send_message(original_chat_id, text=str(e))
                     return
@@ -216,17 +216,15 @@ async def stream(
             if not forceplay:
                 db[chat_id] = []
             
-            # 🔥 CRITICAL FIX: Stop execution if Join fails
             try:
+                # v3.0 Update: Removed 'image' param
                 await StreamController.join_call(
                     chat_id,
                     original_chat_id,
                     file_path,
                     video=is_video,
-                    image=thumbnail,
                 )
             except AssistantErr as e:
-                # 🛑 HALT EXECUTION
                 await safe_delete(mystic)
                 await app.send_message(original_chat_id, text=str(e))
                 return
@@ -300,6 +298,7 @@ async def stream(
                 db[chat_id] = []
             
             try:
+                # v3.0 Update: Removed 'image' param
                 await StreamController.join_call(chat_id, original_chat_id, file_path, video=False)
             except AssistantErr as e:
                 await safe_delete(mystic)
@@ -372,6 +371,7 @@ async def stream(
                 db[chat_id] = []
             
             try:
+                # v3.0 Update: Removed 'image' param
                 await StreamController.join_call(chat_id, original_chat_id, file_path, video=is_video)
             except AssistantErr as e:
                 await safe_delete(mystic)
@@ -449,12 +449,12 @@ async def stream(
                 raise AssistantErr(_["play_14"])
 
             try:
+                # v3.0 Update: Removed 'image' param
                 await StreamController.join_call(
                     chat_id,
                     original_chat_id,
                     file_path,
                     video=is_video,
-                    image=thumbnail or None,
                 )
             except AssistantErr as e:
                 await safe_delete(mystic)
@@ -522,6 +522,7 @@ async def stream(
                 db[chat_id] = []
             
             try:
+                # v3.0 Update: Removed 'image' param
                 await StreamController.join_call(
                     chat_id,
                     original_chat_id,
