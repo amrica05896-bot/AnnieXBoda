@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: Stream Controller (Logic & Queue Bridge)
-# Updated: PyTgCalls v3.0 Compatible (No Image Param, Strict Error Handling)
+# Updated: Added 'custom' streamtype for Inline Song Playback
 
 import asyncio
 import os
@@ -19,6 +19,8 @@ from AnnieXMedia.utils.database import (
 )
 from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.inline import aq_markup, close_markup, stream_markup
+# 🔥 استدعاء ملف الأزرار الخاص بيك
+from AnnieXMedia.utils.inline.custom import custom_markup 
 from AnnieXMedia.utils.pastebin import ANNIEBIN
 from AnnieXMedia.utils.stream.queue import put_queue, put_queue_index
 from AnnieXMedia.utils.thumbnails import get_thumb
@@ -57,6 +59,79 @@ async def stream(
 
     def get_download_id(vid):
         return f"{vid}_v" if is_video else vid
+
+    # ==========================
+    # 🔥 حالة CUSTOM (لتشغيل الملف وتغيير أزراره)
+    # ==========================
+    if streamtype == "custom":
+        link = result["link"]
+        vidid = result["vidid"]
+        title = (result["title"]).title()
+        duration_min = result["duration_min"]
+        
+        # 1. التنزيل (أو جلب الرابط المباشر)
+        try:
+            # نمرر None مكان mystic عشان الـ Downloader مغيرش الكابشن بتاع أغنية الملف
+            file_path, direct = await YouTube.download(
+                vidid, 
+                None, 
+                video=is_video, 
+                videoid=get_download_id(vidid)
+            )
+        except Exception:
+            # لو فشل، بنرجع الأزرار الأصلية أو نبعت تنبيه بسيط
+            return await app.send_message(original_chat_id, text=_["play_14"])
+        
+        if not file_path:
+            return await app.send_message(original_chat_id, text=_["play_14"])
+
+        # 2. تشغيل في الكول
+        try:
+            await StreamController.join_call(
+                chat_id,
+                original_chat_id,
+                file_path,
+                video=is_video,
+            )
+        except AssistantErr as e:
+            return await app.send_message(original_chat_id, text=str(e))
+        except Exception as e:
+            return await app.send_message(original_chat_id, text=f"Error: {e}")
+
+        # 3. وضع البيانات في الطابور
+        # بنمسح الطابور القديم عشان ده Force Play
+        db[chat_id] = [] 
+        await put_queue(
+            chat_id,
+            original_chat_id,
+            file_path if direct else f"vid_{vidid}",
+            title,
+            duration_min,
+            user_name,
+            vidid,
+            user_id,
+            "video" if is_video else "audio",
+            forceplay=True,
+        )
+
+        # 4. 🔥 السحر هنا: تعديل رسالة الملف للأزرار الجديدة
+        # mystic هنا هي رسالة الملف نفسها اللي اتبعتت من song.py
+        button = custom_markup(_, chat_id, vidid)
+        
+        try:
+            await mystic.edit_reply_markup(reply_markup=button)
+        except:
+            # لو معرفش يعدل، يبعت رسالة جديدة احتياطي
+            await app.send_message(
+                original_chat_id,
+                text="✅ تم التشغيل",
+                reply_markup=button
+            )
+
+        # تسجيل الرسالة دي كـ "التحكم" في الداتا بيز
+        db[chat_id][0]["mystic"] = mystic
+        db[chat_id][0]["markup"] = "custom"
+        return
 
     # ==========================
     # 1. PLAYLIST MODE
