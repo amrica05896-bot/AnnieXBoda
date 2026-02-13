@@ -1,6 +1,7 @@
 # Authored By Certified Coders © 2026
 # RADIO SYSTEM - AnnieXMedia SOURCE
 # High Stability Stream Logic | No-Prefix Commands
+# Fixed: TypeError in put_queue by setting video=False explicitly
 
 import asyncio
 from pyrogram import filters, enums
@@ -135,6 +136,7 @@ async def radio_handler(client, message: Message):
         chat_id = message.chat.id
 
     try:
+        # 🔥 التصحيح هنا: video=False بدلاً من None
         await stream(
             _,
             status_msg,
@@ -143,7 +145,7 @@ async def radio_handler(client, message: Message):
             chat_id,
             message.from_user.first_name,
             message.chat.id,
-            video=None,
+            video=False, # Must be boolean for new Stream Engine
             streamtype="index",
         )
     except Exception as e:
