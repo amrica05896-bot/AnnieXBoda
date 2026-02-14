@@ -1,6 +1,6 @@
 # plugins/ai/handlers.py
 # Authored By Certified Coders (c) 2026
-# Advanced AI Handler System - Production Grade
+# AI Handler System - Enterprise Edition
 # Features: Timeouts, Scope Isolation, Media Transformation, No Emojis.
 
 import os
@@ -32,8 +32,8 @@ from .engine import (
     set_engine_state
 )
 
-# Placeholder for Video Processor (Assuming it exists in video_bg.py)
-# from .video_bg import process_video_black_bg
+# Media Engine Import
+from .media_engine import process_media
 
 # ------------------------------------------------------------------
 # CONFIGURATION & LOGGING
@@ -206,29 +206,50 @@ async def transform_handler(client: Client, message: Message):
 
     # مرحلة التنفيذ (Processing)
     if target_message:
-        status_msg = await message.reply_text("جاري تنفيذ طلبك انتظر.")
+        # تحديد رسالة الحالة بناءً على نوع الملف
+        if target_message.video or target_message.animation:
+            status_text = "جـاري تحويل الفيديو."
+        else:
+            status_text = "جـاري تحويل الصور."
+            
+        status_msg = await message.reply_text(status_text)
+        
+        input_file = None
+        output_file = None
         
         try:
-            # محاكاة عملية التحميل والمعالجة
-            # file_path = await target_message.download()
+            # تحميل الملف
+            await client.send_chat_action(chat_id, ChatAction.DOWNLOAD_DOCUMENT)
+            input_file = await target_message.download()
             
-            # TODO: استدعاء دالة المعالجة الحقيقية هنا
-            # await process_video(file_path, instructions)
+            # استدعاء محرك الميديا
+            output_file = await process_media(input_file, instructions)
             
-            # محاكاة وقت المعالجة
-            await client.send_chat_action(chat_id, ChatAction.UPLOAD_VIDEO)
-            # await asyncio.sleep(2) 
+            if not output_file:
+                await status_msg.edit_text("لم اتمكن من معالجة هذا الطلب.")
+                return
+
+            # رفع الملف الناتج
+            await client.send_chat_action(chat_id, ChatAction.UPLOAD_DOCUMENT)
+            caption_text = f"تم التحويل بنجاح.\nالطلب: {instructions}"
             
-            # الرد النهائي (هنا سنفترض نجاح العملية)
-            # await message.reply_video("output.mp4", caption="تم الانتهاء")
+            if output_file.endswith(".mp4"):
+                await message.reply_video(output_file, caption=caption_text)
+            else:
+                await message.reply_photo(output_file, caption=caption_text)
             
-            # حذف رسالة الانتظار
-            # await status_msg.delete()
-            pass
+            await status_msg.delete()
 
         except Exception as e:
             logger.error(f"Error in transform process: {e}")
             await status_msg.edit_text(f"حدث خطأ اثناء المعالجة: {str(e)}")
+        
+        finally:
+            # تنظيف الملفات
+            if input_file and os.path.exists(input_file):
+                os.remove(input_file)
+            if output_file and os.path.exists(output_file) and output_file != input_file:
+                os.remove(output_file)
 
 # زر الإلغاء (Callback)
 @app.on_callback_query(filters.regex("^cancel_transform$"))
@@ -300,7 +321,6 @@ async def admin_callbacks(client: Client, query: CallbackQuery):
     data = query.data
     user_id = query.from_user.id
 
-    # تحقق بسيط (رغم أن الفلتر موجود في الرسالة، لكن للكولباك أيضاً)
     if user_id not in SUDO_USERS and data != "ai_help":
         await query.answer("هذا الامر للمطورين فقط.", show_alert=True)
         return
@@ -311,7 +331,7 @@ async def admin_callbacks(client: Client, query: CallbackQuery):
             "- ذكاء <سؤال>\n"
             "- ذكاء دائم\n"
             "- كفاية\n"
-            "- تحويل (معالجة فيديو)\n"
+            "- تحويل (معالجة ميديا)\n"
             "- مسح ذاكرتي"
         )
         await query.answer(help_text, show_alert=True)
@@ -321,7 +341,6 @@ async def admin_callbacks(client: Client, query: CallbackQuery):
         new_state = not status["enabled"]
         set_engine_state(new_state)
         await query.answer("تم تغيير الحالة.", show_alert=True)
-        # تحديث الرسالة
         new_status_text = "مفعل" if new_state else "معطل"
         try:
             await query.message.edit_text(
@@ -332,8 +351,6 @@ async def admin_callbacks(client: Client, query: CallbackQuery):
             pass
 
     elif data == "ai_flush":
-        # تنظيف الذاكرة العامة (وظيفة إضافية ممكن إضافتها للمحرك)
-        # هنا سننظف جلسات الانتظار
         SESSIONS._sessions.clear()
         await query.answer("تم تصفير الجلسات.", show_alert=True)
 
@@ -351,61 +368,44 @@ async def admin_callbacks(client: Client, query: CallbackQuery):
 async def main_ai_handler(client: Client, message: Message):
     """
     المعالج الرئيسي للرسائل.
-    يقرر هل يرد بالذكاء الاصطناعي أم لا.
     """
-    # 1. التحقق من حالة المحرك العامة
     engine_status = get_engine_status()
     if not engine_status["enabled"] and message.from_user.id not in SUDO_USERS:
         return
 
     user_id = message.from_user.id
     chat_id = message.chat.id
-    bot_me = await client.get_me()
     
     should_reply = False
     
-    # 2. التحقق من الوضع الدائم (Strict Scope)
     if SESSIONS.is_active(user_id, chat_id):
-        # المستخدم مفعل الوضع الدائم في هذا الجروب
         should_reply = True
-        # تجديد التايمر
         await SESSIONS.start_session(client, user_id, chat_id)
     
-    # 3. التحقق من كلمات التفعيل
     elif is_trigger_message(message.text):
         should_reply = True
         
-    # إذا لم يتحقق الشرطين، نتجاهل الرسالة
     if not should_reply:
         return
 
-    # 4. استخراج النص للمعالجة
     prompt = extract_prompt_text(message.text)
     if not prompt:
-        # لو كانت رسالة فارغة أو فقط "يا بوت" بدون سؤال في الوضع العادي
         if SESSIONS.is_active(user_id, chat_id):
-            prompt = "مرحبا" # رد افتراضي للوضع الدائم
+            prompt = "مرحبا"
         else:
             return
 
-    # 5. إرسال مؤشر الكتابة/الانتظار
     await client.send_chat_action(chat_id, ChatAction.TYPING)
     wait_msg = await message.reply_text("...")
 
-    # 6. دالة التحديث المباشر
     async def update_response_text(text: str):
-        """تحديث الرسالة أثناء التوليد"""
         try:
-            # نتأكد أن النص تغير، وأنه ليس فارغاً
             if text and text != wait_msg.text:
-                # قص النص لحدود تيليجرام
                 safe_text = text[:4000]
                 await wait_msg.edit(safe_text)
         except Exception:
-            # تجاهل أخطاء التعديل المتكرر
             pass
 
-    # 7. استدعاء المحرك
     try:
         final_reply = await ask_ollama_stream(
             user_id=user_id,
@@ -413,11 +413,9 @@ async def main_ai_handler(client: Client, message: Message):
             on_update=update_response_text
         )
 
-        # 8. التأكد من الرد النهائي
         if final_reply and final_reply != wait_msg.text:
             await wait_msg.edit(final_reply[:4000])
             
     except Exception as e:
         logger.error(f"Handler Error: {e}")
         await wait_msg.edit("حدث خطأ اثناء المعالجة.")
-
