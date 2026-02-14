@@ -1,7 +1,7 @@
 # plugins/ai/engine.py
 # Authored By Certified Coders (c) 2026
-# Project: AnnieXMedia - B200 Local Power Edition
-# Cleaned: No G4F, Only Pure Local Ollama
+# Project: AnnieXMedia - B200/H200 Local Power Edition
+# Cleaned: No G4F, Only Pure Local Ollama (2026 Pro Models)
 
 import logging
 import asyncio
@@ -17,17 +17,17 @@ from ollama import AsyncClient as OllamaClient
 logger = logging.getLogger("AnnieX_AI_Engine")
 
 # ------------------------------------------------------------------
-# Models Configuration (B200 Optimized)
+# Models Configuration (2026 Best Performance)
 # ------------------------------------------------------------------
-# الموديلات التي قمنا بتحميلها في الـ Docker
-LIGHT_MODEL = "llama3.2"       # 3B (سريع جداً - وضع السرعة)
-HEAVY_MODEL = "llama3.1:70b"   # 70B (الوحش الذكي - وضع العبقرية)
+# الموديلات التي تفهم السياق بعمق ومستحيل تهلوس على سيرفر H200
+LIGHT_MODEL = "llama3.3:70b"     # نسخة 2026 السريعة والذكية جداً
+HEAVY_MODEL = "deepseek-r1:70b"  # الموديل الذي "يفكر" (Reasoning King)
 
 DEFAULT_MODEL = LIGHT_MODEL
 
 # اعدادات الذاكرة
 USER_HISTORY: Dict[int, list] = {}
-MAX_HISTORY = 8       # زدنا الذاكرة لأن السيرفر المحلي يتحمل
+MAX_HISTORY = 12      # زدنا الذاكرة لاستغلال الـ RAM العملاق
 MAX_USERS_IN_MEM = 100 
 
 # ------------------------------------------------------------------
@@ -65,7 +65,7 @@ def _build_messages(user_id: int, prompt: str, system_prompt: str) -> list:
 async def ask_ollama_stream(
     user_id: int,
     prompt: str,
-    system_prompt: str = "أنت آني، مساعد ذكي، تحدث بالعربية بوضوح.",
+    system_prompt: str = "أنت آني، مساعد ذكي، خبير في كل شيء، تتحدث بلهجة مصرية مهذبة وواضحة جداً.",
     model: Optional[str] = None,
     on_update: Optional[Callable[[str], None]] = None,
 ) -> str:
@@ -81,17 +81,26 @@ async def ask_ollama_stream(
     last_sent_len = 0
     
     try:
-        # الاتصال بـ localhost لأن Ollama يعمل داخل نفس السيرفر (Docker)
+        # الاتصال بـ localhost داخل الـ Docker
         client = OllamaClient(host='http://localhost:11434')
         
-        # بدء المحادثة (Streaming)
-        async for chunk in await client.chat(model=used_model, messages=messages, stream=True):
+        # بدء المحادثة (Streaming) مع إعدادات دقة فائقة لمنع الهلوسة
+        async for chunk in await client.chat(
+            model=used_model, 
+            messages=messages, 
+            stream=True,
+            options={
+                "temperature": 0.5,  # توازن مثالي بين الإبداع والدقة
+                "top_p": 0.9,
+                "num_ctx": 16384     # سياق ضخم جداً لاستغلال الـ H200
+            }
+        ):
             content = chunk.get('message', {}).get('content', '')
             if content:
                 full_reply += content
                 now = time.time()
-                # تحديث الرسالة كل 0.5 ثانية (استجابة سريعة جداً للمحلي)
-                if on_update and (now - last_update_time > 0.5) and (len(full_reply) - last_sent_len > 8):
+                # تحديث الرسالة فوراً
+                if on_update and (now - last_update_time > 0.4) and (len(full_reply) - last_sent_len > 8):
                     try:
                         await on_update(f"{full_reply} ▌")
                         last_update_time = now
@@ -99,13 +108,13 @@ async def ask_ollama_stream(
                     except: pass
         
         if not full_reply:
-             return "❌ لم يصل رد من الموديل المحلي. (تأكد أن الموديل تم تحميله في الـ start.sh)"
+             return " خطأ في معالجة الموديل. جرب مرة أخرى."
 
     except Exception as e:
         logger.error(f"Ollama Error: {e}")
-        return f"❌ خطأ داخلي في محرك B200: {str(e)}"
+        return f" خطأ داخلي في المحرك: {str(e)}"
 
-    # التحديث النهائي للنص
+    # التحديث النهائي
     if on_update:
         try: await on_update(full_reply)
         except: pass
@@ -127,7 +136,7 @@ def clear_user_memory(user_id: int):
 
 def toggle_model() -> str:
     """
-    يقوم بالتبديل بين الموديل الخفيف والذكاء العالي ويعيد الاسم الجديد
+    يقوم بالتبديل بين أقوى موديلات 2026
     """
     if ENGINE.model == LIGHT_MODEL:
         ENGINE.model = HEAVY_MODEL
