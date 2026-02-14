@@ -1,5 +1,5 @@
-# استخدام أحدث نسخة بايثون (الأساس)
-FROM python:3.13-slim
+# استخدام نسخة بايثون الكاملة (مش slim) لحل مشاكل المكتبات
+FROM python:3.13
 
 # ===============================
 # ⚡ Environment Setup
@@ -9,6 +9,8 @@ ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 ENV DENO_INSTALL="/root/.deno"
 ENV PATH="${DENO_INSTALL}/bin:${PATH}"
+# إضافة مسار Ollama
+ENV PATH="/usr/local/bin:${PATH}"
 ENV OLLAMA_HOST=0.0.0.0
 
 WORKDIR /app
@@ -16,20 +18,15 @@ WORKDIR /app
 # ===============================
 # 🛠️ System Engines & AI Dependencies
 # ===============================
+# هنا مش محتاجين نثبت zstd ولا gcc لأنهم موجودين، بس هنأكد عليهم
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        git ffmpeg curl unzip build-essential python3-dev \
-        libffi-dev libxml2-dev libxslt-dev zlib1g-dev gcc \
-        aria2 ca-certificates procps && \
+        ffmpeg aria2 nodejs npm && \
     \
-    # 1. Node.js (YouTube Engine)
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
-    \
-    # 2. Deno (YouTube Engine 2)
+    # 2. Deno (YouTube Engine)
     curl -fsSL https://deno.land/install.sh | sh && \
     \
-    # 3. 🤖 تثبيت Ollama (محرك الذكاء الاصطناعي)
+    # 3. 🤖 تثبيت Ollama (بدون مشاكل zstd)
     curl -fsSL https://ollama.com/install.sh | sh && \
     \
     apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -49,7 +46,6 @@ RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
 # ===============================
 # 🚀 Boosters & AI Libs
 # ===============================
-# إضافة مكتبة ollama للبايثون للتواصل مع المحرك
 RUN pip install --no-cache-dir \
     uvloop \
     g4f \
@@ -61,7 +57,7 @@ RUN pip install --no-cache-dir \
 # ===============================
 COPY pytgcalls /app/pytgcalls
 
-# إعدادات yt-dlp الإجبارية
+# إعدادات yt-dlp
 RUN mkdir -p /etc/yt-dlp && \
     echo "--remote-components ejs:github" > /etc/yt-dlp.conf
 
@@ -71,12 +67,6 @@ COPY . .
 # ===============================
 # 🧠 سكريبت الإقلاع الذكي (Start Script)
 # ===============================
-# نقوم بإنشاء سكريبت تشغيل يقوم بـ:
-# 1. تشغيل Ollama في الخلفية.
-# 2. تحميل الموديل الخفيف (Llama 3.2) فوراً.
-# 3. تحميل الموديل الذكي (Llama 3.1 70B) في الخلفية (لأنه حجمه كبير).
-# 4. تشغيل بوت الميوزك.
-
 RUN echo '#!/bin/bash\n\
 \n\
 echo "🔴 [AI Engine] Starting Ollama Server..."\n\
