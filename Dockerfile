@@ -1,74 +1,100 @@
-# استخدام أحدث وأخف نسخة مستقرة
+# استخدام أحدث نسخة بايثون (الأساس)
 FROM python:3.13-slim
 
 # ===============================
-# Performance & Runtime Tweaks
+# ⚡ Environment Setup
 # ===============================
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 ENV DENO_INSTALL="/root/.deno"
 ENV PATH="${DENO_INSTALL}/bin:${PATH}"
+ENV OLLAMA_HOST=0.0.0.0
 
 WORKDIR /app
 
 # ===============================
-# System Engines (Speed Core)
+# 🛠️ System Engines & AI Dependencies
 # ===============================
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         git ffmpeg curl unzip build-essential python3-dev \
         libffi-dev libxml2-dev libxslt-dev zlib1g-dev gcc \
-        aria2 ca-certificates && \
+        aria2 ca-certificates procps && \
     \
-    # Node.js (YouTube Cipher Engine 1)
+    # 1. Node.js (YouTube Engine)
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
     \
-    # Deno (YouTube Cipher Engine 2 – مهم جدًا 2026)
+    # 2. Deno (YouTube Engine 2)
     curl -fsSL https://deno.land/install.sh | sh && \
+    \
+    # 3. 🤖 تثبيت Ollama (محرك الذكاء الاصطناعي)
+    curl -fsSL https://ollama.com/install.sh | sh && \
     \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ===============================
-# Python Core Upgrade
+# 🐍 Python Upgrades & Libraries
 # ===============================
 RUN pip install --upgrade pip setuptools wheel
 
-# ===============================
-# Local pytgcalls (Custom Build)
-# ===============================
-COPY pytgcalls /app/pytgcalls
-
-# ===============================
-# Python Libraries
-# ===============================
+# نسخ ملفات المكتبات وتثبيتها
 COPY requirements.txt .
 
-# استبعاد pytgcalls / py-tgcalls لمنع التعارض
+# استبعاد pytgcalls لمنع التعارض ثم التثبيت
 RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
     pip install --no-cache-dir -r filtered.txt
 
 # ===============================
-# 🔥 UVLOOP + Network Boost
+# 🚀 Boosters & AI Libs
 # ===============================
+# إضافة مكتبة ollama للبايثون للتواصل مع المحرك
 RUN pip install --no-cache-dir \
     uvloop \
     g4f \
-    curl_cffi
+    curl_cffi \
+    ollama
 
 # ===============================
-# yt-dlp Global Forced Config
+# 🎵 Local Libraries & Configs
 # ===============================
+COPY pytgcalls /app/pytgcalls
+
+# إعدادات yt-dlp الإجبارية
 RUN mkdir -p /etc/yt-dlp && \
     echo "--remote-components ejs:github" > /etc/yt-dlp.conf
 
-# ===============================
-# Copy Bot Source
-# ===============================
+# نسخ باقي ملفات السورس
 COPY . .
 
 # ===============================
-# Launch 🚀
+# 🧠 سكريبت الإقلاع الذكي (Start Script)
 # ===============================
-CMD ["python3", "run.py"]
+# نقوم بإنشاء سكريبت تشغيل يقوم بـ:
+# 1. تشغيل Ollama في الخلفية.
+# 2. تحميل الموديل الخفيف (Llama 3.2) فوراً.
+# 3. تحميل الموديل الذكي (Llama 3.1 70B) في الخلفية (لأنه حجمه كبير).
+# 4. تشغيل بوت الميوزك.
+
+RUN echo '#!/bin/bash\n\
+\n\
+echo "🔴 [AI Engine] Starting Ollama Server..."\n\
+ollama serve > /var/log/ollama.log 2>&1 &\n\
+sleep 5\n\
+\n\
+echo "🟠 [AI Engine] Downloading Light Model (Llama 3.2)..."\n\
+ollama pull llama3.2 > /dev/null 2>&1\n\
+echo "✅ [AI Engine] Light Model Ready!"\n\
+\n\
+echo "🔵 [AI Engine] Downloading SUPER SMART Model (Llama 3.1:70b) in background..."\n\
+(ollama pull llama3.1:70b && echo "✅✅ [AI Engine] THE BEAST (70B) IS READY!") &\n\
+\n\
+echo "🟢 [Music Bot] Starting AnnieXBoda..."\n\
+python3 run.py\n\
+' > start.sh && chmod +x start.sh
+
+# ===============================
+# 🏁 Launch Command
+# ===============================
+CMD ["./start.sh"]
