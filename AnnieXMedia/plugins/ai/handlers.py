@@ -18,13 +18,14 @@ from pyrogram.types import (
 from AnnieXMedia import app
 from config import OWNER_ID
 
-# استيراد المحرك الذكي (G4F Engine)
-# هذا المحرك يحتوي على منطق التبديل التلقائي عند الفشل
+# استيراد المحرك الذكي (Local Engine)
 from .engine import (
     ENGINE,
     ask_ollama_stream,
     clear_user_memory,
-    toggle_model, 
+    toggle_model,
+    LIGHT_MODEL,
+    HEAVY_MODEL
 )
 
 from .prompts import build_system_prompt
@@ -47,11 +48,7 @@ SUDO_FILTER = filters.user(list(SUDO_USERS))
 # -------------------------------------------------
 class AIState:
     def __init__(self):
-        self.enabled: bool = True
-        self.mode: str = "عام"
         self.permanent_users: Set[int] = set()
-        # الحالة الافتراضية بناءً على المحرك
-        self.speed: str = "light" if "mini" in ENGINE.model else "heavy"
 
 AI_STATE = AIState()
 
@@ -87,7 +84,16 @@ def owner_only_text() -> str:
 # KEYBOARDS
 # -------------------------------------------------
 def build_control_keyboard() -> InlineKeyboardMarkup:
-    speed_txt = "(سريع)" if AI_STATE.speed == "light" else "(ذكي)"
+    # تحديد النص بناءً على الموديل الحالي في المحرك
+    if ENGINE.model == LIGHT_MODEL:
+        speed_txt = "(سريع)"
+        # الزر القادم سيكون للتحويل للوضع الذكي
+        switch_label = "تبديل الوضع (ذكي)"
+    else:
+        speed_txt = "(ذكي)"
+        # الزر القادم سيكون للتحويل للوضع السريع
+        switch_label = "تبديل الوضع (سريع)"
+
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("اوامر المستخدمين", callback_data="ai_users")],
@@ -100,7 +106,7 @@ def build_control_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("تنظيف الذاكرة", callback_data="ai_clean"),
             ],
             [
-                InlineKeyboardButton(f"تبديل الوضع {speed_txt}", callback_data="ai_speed"),
+                InlineKeyboardButton(switch_label, callback_data="ai_speed"),
                 InlineKeyboardButton("اعادة تشغيل", callback_data="ai_restart"),
             ],
             [InlineKeyboardButton("اغلاق", callback_data="ai_close")],
@@ -124,11 +130,14 @@ def build_settings_keyboard() -> InlineKeyboardMarkup:
 # -------------------------------------------------
 @app.on_message(filters.regex(r"^(اوامر الذكاء|كيب ذكاء|كيب الذكاء)$") & SUDO_FILTER)
 async def ai_control_panel(_, m: Message):
+    # تحديد حالة السرعة للعرض
+    current_speed = "🚀 سريع" if ENGINE.model == LIGHT_MODEL else "🧠 ذكي"
+    
     text = (
         "**🤖 لوحة تحكم الذكاء الاصطناعي (Auto-Switch Engine)**\n\n"
-        f"• **الحالة:** {'✅ مفعل' if AI_STATE.enabled else '❌ معطل'}\n"
+        f"• **الحالة:** {'✅ مفعل' if ENGINE.enabled else '❌ معطل'}\n"
         f"• **الموديل:** `{ENGINE.model}`\n"
-        f"• **الوضع:** {'🚀 سريع' if AI_STATE.speed == 'light' else '🧠 ذكي'}\n"
+        f"• **الوضع:** {current_speed}\n"
         f"• **المتصلين:** `{len(AI_STATE.permanent_users)}`\n"
     )
     await m.reply_text(text, reply_markup=build_control_keyboard())
@@ -177,22 +186,21 @@ async def ai_callbacks(_, q: CallbackQuery):
         # التبديل الفعلي للموديل في المحرك
         new_model = toggle_model()
         
-        # تحديث حالة الواجهة
-        if "mini" in new_model:
-            AI_STATE.speed = "light"
-            msg = "تم التفعيل: الوضع السريع (GPT-4o Mini)"
+        # تحديث نص الرسالة
+        if new_model == LIGHT_MODEL:
+            msg = "تم التفعيل: الوضع السريع"
+            current_speed = "🚀 سريع"
         else:
-            AI_STATE.speed = "heavy"
-            msg = "تم التفعيل: الوضع الذكي (GPT-4o)"
+            msg = "تم التفعيل: الوضع الذكي"
+            current_speed = "🧠 ذكي"
             
         await q.answer(msg, show_alert=True)
         
-        # تحديث نص الرسالة
         text = (
             "**🤖 لوحة تحكم الذكاء الاصطناعي (Auto-Switch Engine)**\n\n"
-            f"• **الحالة:** {'✅ مفعل' if AI_STATE.enabled else '❌ معطل'}\n"
+            f"• **الحالة:** {'✅ مفعل' if ENGINE.enabled else '❌ معطل'}\n"
             f"• **الموديل:** `{ENGINE.model}`\n"
-            f"• **الوضع:** {'🚀 سريع' if AI_STATE.speed == 'light' else '🧠 ذكي'}\n"
+            f"• **الوضع:** {current_speed}\n"
             f"• **المتصلين:** `{len(AI_STATE.permanent_users)}`\n"
         )
         try:
@@ -202,11 +210,13 @@ async def ai_callbacks(_, q: CallbackQuery):
         return
 
     if data == "ai_back":
+        # إعادة بناء اللوحة الرئيسية
+        current_speed = "🚀 سريع" if ENGINE.model == LIGHT_MODEL else "🧠 ذكي"
         text = (
             "**🤖 لوحة تحكم الذكاء الاصطناعي (Auto-Switch Engine)**\n\n"
-            f"• **الحالة:** {'✅ مفعل' if AI_STATE.enabled else '❌ معطل'}\n"
+            f"• **الحالة:** {'✅ مفعل' if ENGINE.enabled else '❌ معطل'}\n"
             f"• **الموديل:** `{ENGINE.model}`\n"
-            f"• **الوضع:** {'🚀 سريع' if AI_STATE.speed == 'light' else '🧠 ذكي'}\n"
+            f"• **الوضع:** {current_speed}\n"
             f"• **المتصلين:** `{len(AI_STATE.permanent_users)}`\n"
         )
         await q.message.edit_text(text, reply_markup=build_control_keyboard())
@@ -216,14 +226,15 @@ async def ai_callbacks(_, q: CallbackQuery):
         if uid not in SUDO_USERS:
             await q.answer(owner_only_text(), show_alert=True)
             return
-        AI_STATE.enabled = not AI_STATE.enabled
-        ENGINE.enabled = AI_STATE.enabled # مزامنة مع المحرك
+        ENGINE.enabled = not ENGINE.enabled
         await q.answer("تم تحديث حالة الذكاء.", show_alert=True)
+        
+        current_speed = "🚀 سريع" if ENGINE.model == LIGHT_MODEL else "🧠 ذكي"
         text = (
             "**🤖 لوحة تحكم الذكاء الاصطناعي (Auto-Switch Engine)**\n\n"
-            f"• **الحالة:** {'✅ مفعل' if AI_STATE.enabled else '❌ معطل'}\n"
+            f"• **الحالة:** {'✅ مفعل' if ENGINE.enabled else '❌ معطل'}\n"
             f"• **الموديل:** `{ENGINE.model}`\n"
-            f"• **الوضع:** {'🚀 سريع' if AI_STATE.speed == 'light' else '🧠 ذكي'}\n"
+            f"• **الوضع:** {current_speed}\n"
             f"• **المتصلين:** `{len(AI_STATE.permanent_users)}`\n"
         )
         try:
@@ -274,7 +285,7 @@ async def clear_user(_, m: Message):
 @app.on_message(filters.text & ~filters.bot, group=60)
 async def ai_handler(client, m: Message):
     # التحقق من أن الذكاء مفعل (يسمح للمطورين بالتجاوز)
-    if not AI_STATE.enabled and m.from_user.id not in SUDO_USERS:
+    if not ENGINE.enabled and m.from_user.id not in SUDO_USERS:
         return
 
     try:
@@ -290,7 +301,7 @@ async def ai_handler(client, m: Message):
     if not prompt:
         return
 
-    system_prompt = build_system_prompt(AI_STATE.mode)
+    system_prompt = build_system_prompt("عام")
 
     # رسالة الانتظار
     wait_msg = await m.reply_text("⏳")
@@ -304,7 +315,6 @@ async def ai_handler(client, m: Message):
             pass
 
     # استدعاء المحرك
-    # هنا يتم التعامل مع التبديل التلقائي في حالة فشل السيرفر الأول
     reply = await ask_ollama_stream(
         user_id=m.from_user.id,
         prompt=prompt,
