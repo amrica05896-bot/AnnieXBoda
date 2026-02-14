@@ -86,13 +86,13 @@ def owner_only_text() -> str:
 def build_control_keyboard() -> InlineKeyboardMarkup:
     # تحديد النص بناءً على الموديل الحالي في المحرك
     if ENGINE.model == LIGHT_MODEL:
-        speed_txt = "(سريع)"
-        # الزر القادم سيكون للتحويل للوضع الذكي
-        switch_label = "تبديل الوضع (ذكي)"
+        # لو الحالي خفيف (Llama)، الزرار يكون للتبديل للتقيل (DeepSeek)
+        current_status = "(Llama 3.3 - سريع)"
+        switch_label = "🔄 تفعيل العبقري (DeepSeek R1)"
     else:
-        speed_txt = "(ذكي)"
-        # الزر القادم سيكون للتحويل للوضع السريع
-        switch_label = "تبديل الوضع (سريع)"
+        # لو الحالي تقيل (DeepSeek)، الزرار يكون للتبديل للخفيف (Llama)
+        current_status = "(DeepSeek R1 - عبقري)"
+        switch_label = "⚡ تفعيل السريع (Llama 3.3)"
 
     return InlineKeyboardMarkup(
         [
@@ -118,8 +118,8 @@ def build_settings_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("خفيف (سريع)", callback_data="ai_light"),
-                InlineKeyboardButton("تقيل (ذكي)", callback_data="ai_heavy"),
+                InlineKeyboardButton("Llama 3.3 (سريع)", callback_data="ai_light"),
+                InlineKeyboardButton("DeepSeek R1 (عبقري)", callback_data="ai_heavy"),
             ],
             [InlineKeyboardButton("رجوع", callback_data="ai_back")],
         ]
@@ -131,10 +131,10 @@ def build_settings_keyboard() -> InlineKeyboardMarkup:
 @app.on_message(filters.regex(r"^(اوامر الذكاء|كيب ذكاء|كيب الذكاء)$") & SUDO_FILTER)
 async def ai_control_panel(_, m: Message):
     # تحديد حالة السرعة للعرض
-    current_speed = "🚀 سريع" if ENGINE.model == LIGHT_MODEL else "🧠 ذكي"
+    current_speed = "🚀 سريع (Llama 3.3)" if ENGINE.model == LIGHT_MODEL else "🧠 عبقري (DeepSeek R1)"
     
     text = (
-        "**🤖 لوحة تحكم الذكاء الاصطناعي (Auto-Switch Engine)**\n\n"
+        "**🤖 لوحة تحكم الذكاء الاصطناعي (Pro Engine)**\n\n"
         f"• **الحالة:** {'✅ مفعل' if ENGINE.enabled else '❌ معطل'}\n"
         f"• **الموديل:** `{ENGINE.model}`\n"
         f"• **الوضع:** {current_speed}\n"
@@ -188,16 +188,16 @@ async def ai_callbacks(_, q: CallbackQuery):
         
         # تحديث نص الرسالة
         if new_model == LIGHT_MODEL:
-            msg = "تم التفعيل: الوضع السريع"
-            current_speed = "🚀 سريع"
+            msg = "🚀 تم التفعيل: Llama 3.3 (السرعة)"
+            current_speed = "🚀 سريع (Llama 3.3)"
         else:
-            msg = "تم التفعيل: الوضع الذكي"
-            current_speed = "🧠 ذكي"
+            msg = "🧠 تم التفعيل: DeepSeek R1 (العبقرية)"
+            current_speed = "🧠 عبقري (DeepSeek R1)"
             
         await q.answer(msg, show_alert=True)
         
         text = (
-            "**🤖 لوحة تحكم الذكاء الاصطناعي (Auto-Switch Engine)**\n\n"
+            "**🤖 لوحة تحكم الذكاء الاصطناعي (Pro Engine)**\n\n"
             f"• **الحالة:** {'✅ مفعل' if ENGINE.enabled else '❌ معطل'}\n"
             f"• **الموديل:** `{ENGINE.model}`\n"
             f"• **الوضع:** {current_speed}\n"
@@ -211,9 +211,9 @@ async def ai_callbacks(_, q: CallbackQuery):
 
     if data == "ai_back":
         # إعادة بناء اللوحة الرئيسية
-        current_speed = "🚀 سريع" if ENGINE.model == LIGHT_MODEL else "🧠 ذكي"
+        current_speed = "🚀 سريع (Llama 3.3)" if ENGINE.model == LIGHT_MODEL else "🧠 عبقري (DeepSeek R1)"
         text = (
-            "**🤖 لوحة تحكم الذكاء الاصطناعي (Auto-Switch Engine)**\n\n"
+            "**🤖 لوحة تحكم الذكاء الاصطناعي (Pro Engine)**\n\n"
             f"• **الحالة:** {'✅ مفعل' if ENGINE.enabled else '❌ معطل'}\n"
             f"• **الموديل:** `{ENGINE.model}`\n"
             f"• **الوضع:** {current_speed}\n"
@@ -229,9 +229,9 @@ async def ai_callbacks(_, q: CallbackQuery):
         ENGINE.enabled = not ENGINE.enabled
         await q.answer("تم تحديث حالة الذكاء.", show_alert=True)
         
-        current_speed = "🚀 سريع" if ENGINE.model == LIGHT_MODEL else "🧠 ذكي"
+        current_speed = "🚀 سريع (Llama 3.3)" if ENGINE.model == LIGHT_MODEL else "🧠 عبقري (DeepSeek R1)"
         text = (
-            "**🤖 لوحة تحكم الذكاء الاصطناعي (Auto-Switch Engine)**\n\n"
+            "**🤖 لوحة تحكم الذكاء الاصطناعي (Pro Engine)**\n\n"
             f"• **الحالة:** {'✅ مفعل' if ENGINE.enabled else '❌ معطل'}\n"
             f"• **الموديل:** `{ENGINE.model}`\n"
             f"• **الوضع:** {current_speed}\n"
