@@ -1,8 +1,8 @@
-# استخدام نسخة Slim Bookworm (الأفضل توازناً بين الحجم والأداء)
-FROM python:3.13-slim
+# استخدام نسخة Slim Bookworm (خفيفة ومستقرة)
+FROM python:3.13-slim-bookworm
 
 # ===============================
-# ⚡ إعدادات البيئة (تحسين الأداء)
+# ⚡ إعدادات البيئة
 # ===============================
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -15,9 +15,9 @@ ENV OLLAMA_HOST=0.0.0.0
 WORKDIR /app
 
 # ===============================
-# 🛠️ تثبيت "العضلات" الناقصة (System Deps)
+# 🛠️ تثبيت الأدوات الناقصة (System Deps)
 # ===============================
-# هنا السر: بننزل zstd و gnupg و ffmpeg يدوياً عشان النسخة الـ slim تشتغل صح
+# التعديل هنا: أضفنا unzip عشان Deno يشتغل، و zstd عشان Ollama
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
@@ -28,26 +28,27 @@ RUN apt-get update && \
         aria2 \
         procps \
         zstd \
+        unzip \
         build-essential \
         libffi-dev \
         libxml2-dev \
         libxslt-dev \
         zlib1g-dev && \
     \
-    # 1. إعداد وتثبيت Node.js (بشكل صحيح)
+    # 1. إعداد وتثبيت Node.js
     mkdir -p /etc/apt/keyrings && \
     curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
     apt-get update && \
     apt-get install -y nodejs && \
     \
-    # 2. تثبيت Deno
+    # 2. تثبيت Deno (الآن سيجد unzip وسينجح)
     curl -fsSL https://deno.land/install.sh | sh && \
     \
-    # 3. تثبيت Ollama (دلوقتي هيلاقي zstd وهيشتغل زي الفل)
+    # 3. تثبيت Ollama (الآن سيجد zstd وسينجح)
     curl -fsSL https://ollama.com/install.sh | sh && \
     \
-    # تنظيف الكاش لتقليل مساحة الصورة
+    # تنظيف الكاش
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ===============================
@@ -58,12 +59,11 @@ RUN pip install --upgrade pip setuptools wheel
 # نسخ المتطلبات وتثبيتها
 COPY requirements.txt .
 
-# استبعاد pytgcalls من المتطلبات لتثبيت النسخة المحلية لاحقاً
 RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
     pip install --no-cache-dir -r filtered.txt
 
 # ===============================
-# 🚀 مكتبات الذكاء والسرعة الإضافية
+# 🚀 مكتبات الذكاء الإضافية
 # ===============================
 RUN pip install --no-cache-dir \
     uvloop \
@@ -72,22 +72,20 @@ RUN pip install --no-cache-dir \
     ollama
 
 # ===============================
-# 🎵 نسخ ملفات البوت
+# 🎵 ملفات البوت
 # ===============================
-# نسخ مكتبة المكالمات المحلية
 COPY pytgcalls /app/pytgcalls
 
 # إعدادات yt-dlp
 RUN mkdir -p /etc/yt-dlp && \
     echo "--remote-components ejs:github" > /etc/yt-dlp.conf
 
-# نسخ باقي السورس كود
+# نسخ باقي السورس
 COPY . .
 
 # ===============================
-# 🧠 سكريبت الإقلاع (المايسترو)
+# 🧠 سكريبت الإقلاع
 # ===============================
-# السكريبت ده بيضمن إن الـ AI يشتغل في الخلفية والبوت يشتغل في الواجهة
 RUN echo '#!/bin/bash\n\
 \n\
 echo "🔴 [AI Engine] Starting Ollama Server..."\n\
