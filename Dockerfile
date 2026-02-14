@@ -1,5 +1,5 @@
-# استخدام نسخة Slim Bookworm (خفيفة ومستقرة)
-FROM python:3.13-slim-bookworm
+# استخدام نسخة Slim (الأخف والأسرع في التحميل)
+FROM python:3.13-slim
 
 # ===============================
 # ⚡ إعدادات البيئة
@@ -15,9 +15,8 @@ ENV OLLAMA_HOST=0.0.0.0
 WORKDIR /app
 
 # ===============================
-# 🛠️ تثبيت الأدوات الناقصة (System Deps)
+# 🛠️ تثبيت الأدوات النظام (System Deps)
 # ===============================
-# التعديل هنا: أضفنا unzip عشان Deno يشتغل، و zstd عشان Ollama
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
@@ -42,13 +41,13 @@ RUN apt-get update && \
     apt-get update && \
     apt-get install -y nodejs && \
     \
-    # 2. تثبيت Deno (الآن سيجد unzip وسينجح)
+    # 2. تثبيت Deno
     curl -fsSL https://deno.land/install.sh | sh && \
     \
-    # 3. تثبيت Ollama (الآن سيجد zstd وسينجح)
+    # 3. تثبيت Ollama
     curl -fsSL https://ollama.com/install.sh | sh && \
     \
-    # تنظيف الكاش
+    # تنظيف الكاش لتقليل المساحة
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ===============================
@@ -84,7 +83,7 @@ RUN mkdir -p /etc/yt-dlp && \
 COPY . .
 
 # ===============================
-# 🧠 سكريبت الإقلاع
+# 🧠 سكريبت الإقلاع (الموديلات الأذكى)
 # ===============================
 RUN echo '#!/bin/bash\n\
 \n\
@@ -92,12 +91,12 @@ echo "🔴 [AI Engine] Starting Ollama Server..."\n\
 ollama serve > /var/log/ollama.log 2>&1 &\n\
 sleep 5\n\
 \n\
-echo "🟠 [AI Engine] Downloading Light Model (Llama 3.2)..."\n\
-ollama pull llama3.2 > /dev/null 2>&1\n\
-echo "✅ [AI Engine] Light Model Ready!"\n\
+echo "🟠 [AI Engine] Downloading Intelligence Model (Llama 3.3 70B)..."\n\
+ollama pull llama3.3:70b > /dev/null 2>&1\n\
+echo "✅ [AI Engine] Llama 3.3 Ready!"\n\
 \n\
-echo "🔵 [AI Engine] Downloading SUPER SMART Model (Llama 3.1:70b) in background..."\n\
-(ollama pull llama3.1:70b && echo "✅✅ [AI Engine] THE BEAST (70B) IS READY!") &\n\
+echo "🔵 [AI Engine] Downloading REASONING Model (DeepSeek-R1 70B) in background..."\n\
+(ollama pull deepseek-r1:70b && echo "✅✅ [AI Engine] DeepSeek-R1 IS READY!") &\n\
 \n\
 echo "🟢 [Music Bot] Starting AnnieXBoda..."\n\
 python3 run.py\n\
