@@ -1,4 +1,4 @@
-# استخدام نسخة Slim (الأخف والأسرع في التحميل)
+# استخدام نسخة Slim (الأساس المتين)
 FROM python:3.13-slim
 
 # ===============================
@@ -11,11 +11,13 @@ ENV DENO_INSTALL="/root/.deno"
 ENV PATH="${DENO_INSTALL}/bin:${PATH}"
 ENV PATH="/usr/local/bin:${PATH}"
 ENV OLLAMA_HOST=0.0.0.0
+# إصلاح سياسات ImageMagick عشان الكتابة على الفيديو تشتغل
+ENV IMAGEMAGICK_BINARY="/usr/bin/convert"
 
 WORKDIR /app
 
 # ===============================
-# 🛠️ تثبيت الأدوات النظام (System Deps)
+# 🛠️ تثبيت أدوات النظام + مكتبات الفيديو
 # ===============================
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -32,7 +34,14 @@ RUN apt-get update && \
         libffi-dev \
         libxml2-dev \
         libxslt-dev \
-        zlib1g-dev && \
+        zlib1g-dev \
+        # مكتبات معالجة الفيديو والصور الضرورية
+        libgl1 \
+        libglib2.0-0 \
+        imagemagick && \
+    \
+    # تعديل سياسات ImageMagick للسماح بمعالجة النصوص في الفيديو
+    sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml && \
     \
     # 1. إعداد وتثبيت Node.js
     mkdir -p /etc/apt/keyrings && \
@@ -47,7 +56,7 @@ RUN apt-get update && \
     # 3. تثبيت Ollama
     curl -fsSL https://ollama.com/install.sh | sh && \
     \
-    # تنظيف الكاش لتقليل المساحة
+    # تنظيف الكاش
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ===============================
@@ -62,9 +71,18 @@ RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
     pip install --no-cache-dir -r filtered.txt
 
 # ===============================
-# 🚀 مكتبات الذكاء الإضافية
+# 🎬 تثبيت "وحوش" تعديل الفيديو (Video Editor Suite)
 # ===============================
+# moviepy: للمونتاج وقص ودمج الفيديو
+# opencv-python-headless: لمعالجة الفريمات والرؤية الحاسوبية
+# rembg[gpu]: لعزل الخلفيات بالذكاء الاصطناعي (يدعم GPU)
+# numpy/pillow: لمعالجة المصفوفات والصور
 RUN pip install --no-cache-dir \
+    moviepy \
+    opencv-python-headless \
+    rembg[gpu] \
+    numpy \
+    pillow \
     uvloop \
     g4f \
     curl_cffi \
@@ -83,7 +101,7 @@ RUN mkdir -p /etc/yt-dlp && \
 COPY . .
 
 # ===============================
-# 🧠 سكريبت الإقلاع (الموديلات الأذكى)
+# 🧠 سكريبت الإقلاع (النسخة الواحدة الثابتة)
 # ===============================
 RUN echo '#!/bin/bash\n\
 \n\
@@ -91,12 +109,13 @@ echo "🔴 [AI Engine] Starting Ollama Server..."\n\
 ollama serve > /var/log/ollama.log 2>&1 &\n\
 sleep 5\n\
 \n\
-echo "🟠 [AI Engine] Downloading Intelligence Model (Llama 3.3 70B)..."\n\
-ollama pull llama3.3:70b > /dev/null 2>&1\n\
-echo "✅ [AI Engine] Llama 3.3 Ready!"\n\
+echo "🔵 [AI Engine] Downloading THE KING (DeepSeek-R1 70B)..."\n\
+echo "⏳ This allows H200 to focus on ONE powerful brain..."\n\
+# هنا التحميل Blocking (يعني البوت مش هيشتغل غير لما الموديل يجهز 100%)
+ollama pull deepseek-r1:70b\n\
+echo "✅✅ [AI Engine] DeepSeek-R1 is Ready & Loaded!"\n\
 \n\
-echo "🔵 [AI Engine] Downloading REASONING Model (DeepSeek-R1 70B) in background..."\n\
-(ollama pull deepseek-r1:70b && echo "✅✅ [AI Engine] DeepSeek-R1 IS READY!") &\n\
+echo "🎬 [Video Engine] Video Editing Suite Initialized (MoviePy + OpenCV + Rembg)"\n\
 \n\
 echo "🟢 [Music Bot] Starting AnnieXBoda..."\n\
 python3 run.py\n\
