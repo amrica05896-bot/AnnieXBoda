@@ -1,24 +1,26 @@
 # plugins/ai/handlers.py
 # Authored By Certified Coders (c) 2026
-# AI Handler System - Enterprise Edition
-# Features: Timeouts, Scope Isolation, Media Transformation, No Emojis.
+# AI Handler System - Pure Text Edition (Cleaned)
+# Features: Timeouts, Scope Isolation, No Media Dependencies.
 
 import os
 import re
+import time
 import logging
 import asyncio
 from typing import Dict, Optional, Union, Set
 
-# Pyrogram & Pyromod
+# Pyrogram
 from pyrogram import filters, Client
+# ✅ استيراد الثوابت من enums (للنسخ الحديثة)
+from pyrogram.enums import ChatAction, ParseMode
 from pyrogram.types import (
     Message,
     CallbackQuery,
     InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    ChatAction
+    InlineKeyboardButton
 )
-import pyromod.listen  # تفعيل خاصية الانتظار
+from pyrogram.errors import FloodWait, MessageNotModified
 
 # Project Imports
 from AnnieXMedia import app
@@ -31,9 +33,6 @@ from .engine import (
     get_engine_status,
     set_engine_state
 )
-
-# Media Engine Import
-from .media_engine import process_media
 
 # ------------------------------------------------------------------
 # CONFIGURATION & LOGGING
@@ -97,20 +96,19 @@ class SessionManager:
         try:
             await asyncio.sleep(60)
             
-            # إذا وصلنا هنا، يعني الوقت انتهى
             async with self._lock:
-                if user_id in self._sessions:
+                # التأكد قبل الحذف
+                if user_id in self._sessions and self._sessions[user_id]["chat_id"] == chat_id:
                     del self._sessions[user_id]
-            
-            # إرسال تنبيه
-            try:
-                await client.send_message(chat_id, "تم انهاء الذكاء الدائم لعدم وجود رد.")
-            except Exception as e:
-                logger.warning(f"Failed to send timeout message: {e}")
+                    try:
+                        await client.send_message(chat_id, "تم انهاء وضع الذكاء الدائم لعدم وجود رد.")
+                    except Exception:
+                        pass
 
         except asyncio.CancelledError:
-            # تم إلغاء المهمة (المستخدم أرسل رسالة جديدة)
             pass
+        except Exception as e:
+            logger.error(f"Session Monitor Error: {e}")
 
 # تهيئة مدير الجلسات
 SESSIONS = SessionManager()
@@ -135,131 +133,6 @@ def is_trigger_message(text: str) -> bool:
     return bool(re.match(pattern, text or "", re.IGNORECASE))
 
 # ------------------------------------------------------------------
-# COMMAND: TRANSFORM (تحويل)
-# ------------------------------------------------------------------
-@app.on_message(filters.regex(r"^تحويل(\s+.*)?$"))
-async def transform_handler(client: Client, message: Message):
-    """
-    معالج أمر التحويل.
-    المنطق:
-    1. ريبلاي -> تنفيذ فوري.
-    2. بدون ريبلاي -> طلب ملف وانتظار الرد.
-    """
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-    
-    # استخراج التعليمات الإضافية (مثل: تحويل خلفية حمراء)
-    parts = message.text.split(maxsplit=1)
-    instructions = parts[1] if len(parts) > 1 else ""
-
-    target_message = None
-
-    # السيناريو 1: المستخدم قام بالرد على رسالة
-    if message.reply_to_message:
-        replied = message.reply_to_message
-        if replied.video or replied.photo or replied.animation:
-            target_message = replied
-        else:
-            await message.reply_text("الرد يجب ان يكون على فيديو او صورة.")
-            return
-
-    # السيناريو 2: طلب ملف جديد
-    else:
-        # زر الإلغاء
-        cancel_kb = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("الغاء", callback_data="cancel_transform")]]
-        )
-        
-        prompt_msg = await message.reply_text(
-            "ارسل الان الفيديو او الصورة المطلوبة.",
-            reply_markup=cancel_kb
-        )
-
-        try:
-            # انتظار رد المستخدم (Pyromod)
-            response: Message = await client.listen(
-                chat_id=chat_id, 
-                user_id=user_id, 
-                filters=filters.incoming, # قبول أي رد وارد من المستخدم
-                timeout=60
-            )
-            
-            # التحقق من نص الإلغاء
-            if response.text == "الغاء":
-                await prompt_msg.delete()
-                await message.reply_text("تم الغاء الطلب.")
-                return
-
-            # التحقق من نوع الملف
-            if response.video or response.photo or response.animation:
-                target_message = response
-                # تنظيف الرسائل
-                try: await prompt_msg.delete()
-                except: pass
-            else:
-                await message.reply_text("الملف غير مدعوم او لم يتم ارسال ملف.")
-                return
-
-        except asyncio.TimeoutError:
-            await prompt_msg.edit_text("انتهى وقت الانتظار.")
-            return
-
-    # مرحلة التنفيذ (Processing)
-    if target_message:
-        # تحديد رسالة الحالة بناءً على نوع الملف
-        if target_message.video or target_message.animation:
-            status_text = "جـاري تحويل الفيديو."
-        else:
-            status_text = "جـاري تحويل الصور."
-            
-        status_msg = await message.reply_text(status_text)
-        
-        input_file = None
-        output_file = None
-        
-        try:
-            # تحميل الملف
-            await client.send_chat_action(chat_id, ChatAction.DOWNLOAD_DOCUMENT)
-            input_file = await target_message.download()
-            
-            # استدعاء محرك الميديا
-            output_file = await process_media(input_file, instructions)
-            
-            if not output_file:
-                await status_msg.edit_text("لم اتمكن من معالجة هذا الطلب.")
-                return
-
-            # رفع الملف الناتج
-            await client.send_chat_action(chat_id, ChatAction.UPLOAD_DOCUMENT)
-            caption_text = f"تم التحويل بنجاح.\nالطلب: {instructions}"
-            
-            if output_file.endswith(".mp4"):
-                await message.reply_video(output_file, caption=caption_text)
-            else:
-                await message.reply_photo(output_file, caption=caption_text)
-            
-            await status_msg.delete()
-
-        except Exception as e:
-            logger.error(f"Error in transform process: {e}")
-            await status_msg.edit_text(f"حدث خطأ اثناء المعالجة: {str(e)}")
-        
-        finally:
-            # تنظيف الملفات
-            if input_file and os.path.exists(input_file):
-                os.remove(input_file)
-            if output_file and os.path.exists(output_file) and output_file != input_file:
-                os.remove(output_file)
-
-# زر الإلغاء (Callback)
-@app.on_callback_query(filters.regex("^cancel_transform$"))
-async def cancel_transform_callback(client: Client, query: CallbackQuery):
-    # نستخدم client.stop_listening لإنهاء الانتظار في pyromod إذا كان مدعوماً
-    # أو ببساطة نحذف الرسالة، مما سيجعل التايمر ينتهي أو المستخدم يرسل رسالة جديدة
-    await query.message.delete()
-    await query.answer("تم الالغاء")
-
-# ------------------------------------------------------------------
 # COMMAND: PERMANENT AI (ذكاء دائم)
 # ------------------------------------------------------------------
 @app.on_message(filters.regex(r"^(ذكاء دائم)$") & ~filters.bot)
@@ -280,8 +153,11 @@ async def disable_permanent_ai(client: Client, message: Message):
     """إيقاف وضع الذكاء المستمر"""
     user_id = message.from_user.id
     
-    await SESSIONS.end_session(user_id)
-    await message.reply_text("تم ايقاف الذكاء الدائم.")
+    if user_id in SESSIONS._sessions:
+        await SESSIONS.end_session(user_id)
+        await message.reply_text("تم ايقاف الذكاء الدائم.")
+    else:
+        await message.reply_text("الوضع غير مفعل اصلا.")
 
 # ------------------------------------------------------------------
 # COMMAND: CLEAR MEMORY (مسح ذاكرتي)
@@ -289,7 +165,7 @@ async def disable_permanent_ai(client: Client, message: Message):
 @app.on_message(filters.regex(r"^(مسح ذاكرتي)$") & ~filters.bot)
 async def clear_memory_handler(client: Client, message: Message):
     clear_user_memory(message.from_user.id)
-    await message.reply_text("تم مسح ذاكرتك.")
+    await message.reply_text("تم مسح سجل المحادثة الخاص بك.")
 
 # ------------------------------------------------------------------
 # ADMIN CONTROL PANEL
@@ -331,7 +207,6 @@ async def admin_callbacks(client: Client, query: CallbackQuery):
             "- ذكاء <سؤال>\n"
             "- ذكاء دائم\n"
             "- كفاية\n"
-            "- تحويل (معالجة ميديا)\n"
             "- مسح ذاكرتي"
         )
         await query.answer(help_text, show_alert=True)
@@ -367,7 +242,7 @@ async def admin_callbacks(client: Client, query: CallbackQuery):
 @app.on_message(filters.text & ~filters.bot, group=60)
 async def main_ai_handler(client: Client, message: Message):
     """
-    المعالج الرئيسي للرسائل.
+    المعالج الرئيسي للرسائل مع حماية FloodWait وتحديث ذكي.
     """
     engine_status = get_engine_status()
     if not engine_status["enabled"] and message.from_user.id not in SUDO_USERS:
@@ -395,14 +270,34 @@ async def main_ai_handler(client: Client, message: Message):
         else:
             return
 
-    await client.send_chat_action(chat_id, ChatAction.TYPING)
-    wait_msg = await message.reply_text("...")
+    # إرسال حالة "يكتب" ورسالة الانتظار
+    try:
+        await client.send_chat_action(chat_id, ChatAction.TYPING)
+        wait_msg = await message.reply_text("جـاري التفكير.")
+    except Exception:
+        return
+
+    # متغيرات للحماية من التكرار السريع
+    last_update_time = 0
+    update_interval = 1.5
 
     async def update_response_text(text: str):
+        nonlocal last_update_time
+        now = time.time()
+
+        # تحديث فقط إذا مر وقت كافٍ
+        if (now - last_update_time < update_interval) and len(text) > 20:
+            return
+
         try:
             if text and text != wait_msg.text:
                 safe_text = text[:4000]
-                await wait_msg.edit(safe_text)
+                await wait_msg.edit_text(safe_text, parse_mode=ParseMode.MARKDOWN)
+                last_update_time = now
+        except MessageNotModified:
+            pass
+        except FloodWait as f:
+            await asyncio.sleep(f.value)
         except Exception:
             pass
 
@@ -414,8 +309,11 @@ async def main_ai_handler(client: Client, message: Message):
         )
 
         if final_reply and final_reply != wait_msg.text:
-            await wait_msg.edit(final_reply[:4000])
+            await wait_msg.edit_text(final_reply[:4000], parse_mode=ParseMode.MARKDOWN)
             
     except Exception as e:
         logger.error(f"Handler Error: {e}")
-        await wait_msg.edit("حدث خطأ اثناء المعالجة.")
+        try:
+            await wait_msg.edit_text("حدث خطأ اثناء المعالجة.")
+        except:
+            pass
