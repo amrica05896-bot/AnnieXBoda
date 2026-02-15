@@ -1,4 +1,6 @@
-﻿# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2026
+# Fixed for Python 3.10+ (Locals Scope Fix)
+
 import os
 import re
 import subprocess
@@ -15,15 +17,19 @@ from AnnieXMedia import app
 
 
 async def aexec(code, client, message):
+    # ✅ FIX: Use a dedicated dictionary for local scope
+    local_env = {}
     exec(
         "async def __aexec(client, message): "
-        + "".join(f"\n {a}" for a in code.split("\n"))
+        + "".join(f"\n {a}" for a in code.split("\n")),
+        globals(),
+        local_env
     )
-    return await locals()["__aexec"](client, message)
+    # Call the function from the dictionary
+    return await local_env["__aexec"](client, message)
 
 
 async def edit_or_reply(msg: Message, **kwargs):
-    # Use edit_text if the message was sent by the bot itself; otherwise, use reply.
     func = msg.edit_text if msg.from_user.is_self else msg.reply
     await func(**kwargs)
 
@@ -42,7 +48,7 @@ async def edit_or_reply(msg: Message, **kwargs):
 )
 async def executor(client: Client, message: Message):
     if len(message.command) < 2:
-        return await edit_or_reply(message, text="<b>ᴡʜᴀᴛ ʏᴏᴜ ᴡᴀɴɴᴀ ᴇxᴇᴄᴜᴛᴇ ʙᴀʙʏ ?</b>")
+        return await edit_or_reply(message, text="<b>Give me some code to execute!</b>")
 
     try:
         cmd = message.text.split(" ", maxsplit=1)[1]
@@ -66,15 +72,15 @@ async def executor(client: Client, message: Message):
     sys.stdout = old_stdout
     sys.stderr = old_stderr
 
-    evaluation = "\n"
+    evaluation = ""
     if exc:
-        evaluation += exc
+        evaluation = exc
     elif stderr:
-        evaluation += stderr
+        evaluation = stderr
     elif stdout:
-        evaluation += stdout
+        evaluation = stdout
     else:
-        evaluation += "Success"
+        evaluation = "Success"
 
     final_output = f"<b>⥤ ʀᴇsᴜʟᴛ :</b>\n<pre language='python'>{evaluation}</pre>"
 
@@ -125,15 +131,11 @@ async def forceclose_command(_, CallbackQuery):
     if CallbackQuery.from_user.id != int(user_id):
         try:
             return await CallbackQuery.answer(
-                "» ɪᴛ'ʟʟ ʙᴇ ʙᴇᴛᴛᴇʀ ɪғ ʏᴏᴜ sᴛᴀʏ ɪɴ ʏᴏᴜʀ ʟɪᴍɪᴛs ʙᴀʙʏ.", show_alert=True
+                "» ᴛʜɪs ɪs ɴᴏᴛ ғᴏʀ ʏᴏᴜ!", show_alert=True
             )
         except:
             return
     await CallbackQuery.message.delete()
-    try:
-        await CallbackQuery.answer()
-    except:
-        return
 
 
 @app.on_edited_message(
@@ -150,7 +152,7 @@ async def forceclose_command(_, CallbackQuery):
 )
 async def shellrunner(_, message: Message):
     if len(message.command) < 2:
-        return await edit_or_reply(message, text="<b>ᴇxᴀᴍᴩʟᴇ :</b>\n/sh git pull")
+        return await edit_or_reply(message, text="<b>Example:</b>\n/sh git pull")
 
     text = message.text.split(None, 1)[1]
 
@@ -182,7 +184,7 @@ async def shellrunner(_, message: Message):
             )
             stdout, stderr = process.communicate()
             output = stdout.decode() + stderr.decode()
-        except Exception as err:
+        except Exception:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             errors = traceback.format_exception(
                 etype=exc_type,
@@ -208,5 +210,3 @@ async def shellrunner(_, message: Message):
         os.remove("output.txt")
     else:
         await edit_or_reply(message, text=f"<b>OUTPUT :</b>\n<pre>{output}</pre>")
-
-    await message.stop_propagation()
