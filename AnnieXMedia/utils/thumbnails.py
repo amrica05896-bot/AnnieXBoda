@@ -1,6 +1,7 @@
 # Authored By Certified Coders © 2026
 # Module: Thumbnail Generator (Glass Design)
-# Optimized for Python 3.13 & Pillow 11.x (Renamed to get_thumb for compatibility)
+# Optimized for Python 3.13 & Pillow 11.x
+# Updated to use: py-yt-search (Modern YouTube Library)
 
 import os
 import re
@@ -8,7 +9,12 @@ import asyncio
 import aiofiles
 import aiohttp
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
-from youtubesearchpython.aio import VideosSearch
+# ✅ الاستبدال هنا: استخدام py_yt الحديثة
+try:
+    from py_yt import VideosSearch
+except ImportError:
+    VideosSearch = None
+
 from config import YOUTUBE_IMG_URL
 from AnnieXMedia.core.dir import CACHE_DIR 
 
@@ -54,14 +60,12 @@ def trim_to_width(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> str:
     """Uses getlength which is compatible with Pillow 10+ & Python 3.13"""
     ellipsis = "…"
     try:
-        # Modern Pillow (10.x / 11.x)
         if font.getlength(text) <= max_w:
             return text
         for i in range(len(text) - 1, 0, -1):
             if font.getlength(text[:i] + ellipsis) <= max_w:
                 return text[:i] + ellipsis
     except AttributeError:
-        # Fallback for older Pillow
         if font.getsize(text)[0] <= max_w:
             return text
         for i in range(len(text) - 1, 0, -1):
@@ -69,7 +73,6 @@ def trim_to_width(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> str:
                 return text[:i] + ellipsis
     return ellipsis
 
-# ✅ الدالة اسمها get_thumb عشان التوافق مع ملفاتك القديمة
 async def get_thumb(videoid: str) -> str:
     if not os.path.isdir(CACHE_DIR):
         os.makedirs(CACHE_DIR)
@@ -79,25 +82,34 @@ async def get_thumb(videoid: str) -> str:
         return cache_path
 
     try:
-        search = VideosSearch(f"https://www.youtube.com/watch?v={videoid}", limit=1)
-        results_data = await search.next()
-        result_items = results_data.get("result", [])
-        
-        if not result_items:
-            search = VideosSearch(videoid, limit=1)
+        # ✅ Modern Search Logic (py_yt)
+        if VideosSearch:
+            # محاولة البحث بالرابط
+            search = VideosSearch(f"https://www.youtube.com/watch?v={videoid}", limit=1)
             results_data = await search.next()
-            result_items = results_data.get("result", [])
-
-        if not result_items:
-            raise ValueError("No results found.")
             
-        data = result_items[0]
-        title = data.get("title", "Unknown Track")
-        thumbnail = data.get("thumbnails", [{}])[0].get("url", YOUTUBE_IMG_URL).split("?")[0]
-        duration = data.get("duration")
-        views = data.get("viewCount", {}).get("short", "Unknown Views")
+            # لو مفيش نتيجة، ابحث بالـ ID
+            if not results_data or not results_data.get("result"):
+                search = VideosSearch(videoid, limit=1)
+                results_data = await search.next()
 
-    except Exception:
+            result_items = results_data.get("result", [])
+            if not result_items:
+                raise ValueError("No results found.")
+                
+            data = result_items[0]
+            title = data.get("title", "Unknown Track")
+            # التعامل مع الصور المصغرة في المكتبة الجديدة
+            thumbnails = data.get("thumbnails", [])
+            thumbnail = thumbnails[0].get("url") if thumbnails else YOUTUBE_IMG_URL
+            duration = data.get("duration", "00:00")
+            views = data.get("viewCount", {}).get("short", "Unknown Views")
+        else:
+            # Fallback if py_yt is missing
+            raise ImportError("py-yt-search not installed")
+
+    except Exception as e:
+        print(f"Metadata Error: {e}")
         title, thumbnail, duration, views = "Unknown Track", YOUTUBE_IMG_URL, "00:00", "N/A"
 
     is_live = not duration or str(duration).strip().lower() in {"", "live", "live now"}
@@ -116,9 +128,7 @@ async def get_thumb(videoid: str) -> str:
         return YOUTUBE_IMG_URL
 
     try:
-        # Base Image
         base = Image.open(thumb_path).convert("RGBA")
-        # ✅ Python 3.13 Fix: Use Image.Resampling.LANCZOS
         base = base.resize((1280, 720), Image.Resampling.LANCZOS)
         
         # 1. Background
@@ -148,7 +158,6 @@ async def get_thumb(videoid: str) -> str:
             width=2
         )
 
-        # Fonts
         try:
             title_font = ImageFont.truetype("AnnieXMedia/assets/thumb/font2.ttf", 32)
             regular_font = ImageFont.truetype("AnnieXMedia/assets/thumb/font.ttf", 18)
@@ -156,13 +165,12 @@ async def get_thumb(videoid: str) -> str:
             title_font = regular_font = ImageFont.load_default()
 
         # 4. Inner Thumbnail
-        # ✅ Python 3.13 Fix: Use Image.Resampling.LANCZOS
         thumb_inner = base.resize((THUMB_W, THUMB_H), Image.Resampling.LANCZOS)
         tmask = Image.new("L", thumb_inner.size, 0)
         ImageDraw.Draw(tmask).rounded_rectangle((0, 0, THUMB_W, THUMB_H), radius=20, fill=255)
         bg.paste(thumb_inner, (THUMB_X, THUMB_Y), tmask)
 
-        # 5. Text (Arabic Fixed)
+        # 5. Text
         final_title = fix_ar(trim_to_width(title, title_font, MAX_TITLE_WIDTH))
         final_views = fix_ar(f"YouTube | {views}")
 
@@ -182,7 +190,6 @@ async def get_thumb(videoid: str) -> str:
         icons_path = "AnnieXMedia/assets/thumb/play_icons.png"
         if os.path.isfile(icons_path):
             ic = Image.open(icons_path).convert("RGBA")
-            # ✅ Python 3.13 Fix
             ic = ic.resize((ICONS_W, ICONS_H), Image.Resampling.LANCZOS)
             r, g, b, a = ic.split()
             black_ic = Image.merge("RGBA", (r.point(lambda _: 0), g.point(lambda _: 0), b.point(lambda _: 0), a))
