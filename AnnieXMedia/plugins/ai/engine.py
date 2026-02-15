@@ -1,7 +1,7 @@
 # file: AnnieXMedia/plugins/ai/engine.py
 # Authored By Certified Coders (c) 2026
 # DeepSeek-R1 Engine (Ollama Async) - H200 Optimized
-# Fixes: ImportError toggle_model, ENGINE, No Emojis.
+# Fixes: ImportError toggle_model, ENGINE, No Emojis
 
 import os
 import logging
