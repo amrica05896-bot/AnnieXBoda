@@ -94,6 +94,6 @@ curl_cffi>=0.14.0
 
 # ===== Time / Locale =====
 pytz
-
+py-yt-search
 # ===== YouTube Search (patched fork) =====
 git+https://github.com/q058961234-web/youtube-search-python.git
