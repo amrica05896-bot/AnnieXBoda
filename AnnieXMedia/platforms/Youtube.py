@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Authored By Certified Coders (c) 2026
-# Zero-Error Native YouTube Resolver
+# Zero-Error Native YouTube Resolve
 # Features: Native Downloader (No Aria2), Full API Compatibility, Hybrid Search
 
 import asyncio
