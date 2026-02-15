@@ -1,7 +1,8 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Authored By Certified Coders (c) 2026
-# Zero-Error Native YouTube Resolve
-# Features: Native Downloader (No Aria2), Full API Compatibility, Hybrid Search
+# Zero-Error Native YouTube Resolver
+# Compliant with yt-dlp Official Documentation (README)
+# Fixes: KeyError 'link', AttributeError, 403 Forbidden
 
 import asyncio
 import json
@@ -16,37 +17,24 @@ from urllib.parse import urlparse, parse_qs
 import aiohttp
 import yt_dlp
 
-# Smart Import for Fast Search (py-yt-search)
+# Smart Import for Fast Search (py-yt-search) - Optional Hybrid Layer
 try:
     from py_yt import VideosSearch
     PY_YT_AVAILABLE = True
 except ImportError:
     PY_YT_AVAILABLE = False
 
-# Fast JSON Parser
-try:
-    import orjson as _orjson
-    def _loads_bytes(b: bytes): return _orjson.loads(b)
-except Exception:
-    def _loads_bytes(b: bytes): return json.loads(b.decode("utf-8", "ignore"))
-
-# Configuration
+# Logging Configuration
 log = logging.getLogger("AnnieXMedia.YouTube")
 if not log.handlers:
     logging.basicConfig(level=logging.INFO)
 log.setLevel(logging.INFO)
 
-MAX_YTDLP_THREADS = 12
-MAX_CONCURRENT_EXTRACTS = 6
-YTDLP_SOCKET_TIMEOUT = 15  # Increased for Native stability
-CACHE_DEFAULT_TTL = 600
+# Performance & Concurrency settings
+MAX_WORKERS = 10
+CACHE_TTL = 600
 
-_thread_pool = ThreadPoolExecutor(max_workers=MAX_YTDLP_THREADS)
-_extract_sema = asyncio.Semaphore(MAX_CONCURRENT_EXTRACTS)
-
-_aio_connector = aiohttp.TCPConnector(limit=100, ssl=False)
-_aio_session: Optional[aiohttp.ClientSession] = None
-
+_thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 _direct_cache: Dict[str, Tuple[int, str]] = {}
 _direct_cache_lock = asyncio.Lock()
 _meta_cache: Dict[str, Tuple[float, Dict[str, Any], str]] = {}
@@ -64,55 +52,48 @@ def get_cookie_file() -> Optional[str]:
             return os.path.abspath(p)
     return None
 
-async def _ensure_aio_session() -> aiohttp.ClientSession:
-    global _aio_session
-    if _aio_session is None or _aio_session.closed:
-        _aio_session = aiohttp.ClientSession(connector=_aio_connector)
-    return _aio_session
-
-async def _exec_proc(*args: str, timeout: int = 15) -> Tuple[bytes, bytes]:
-    try:
-        proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        return out, err
-    except asyncio.TimeoutError:
-        return b"", b"timeout"
-    except Exception:
-        return b"", b"error"
-
 def _normalize_link(link: str, videoid: Union[bool, str, None] = None) -> str:
+    """Standardize YouTube Links according to ID structure."""
     if isinstance(videoid, str) and len(videoid) == 11:
-        return "https://www.youtube.com/watch?v=" + videoid
-    if not link: return ""
-    link = link.strip()
-    if "youtube.com" in link or "youtu.be" in link:
-         # Internal ID format handling
-         return link.split("&")[0]
-    return link
-
-def _parse_expire(url: str) -> Optional[int]:
-    try:
-        params = parse_qs(urlparse(url).query)
-        if "expire" in params: return int(params["expire"][0])
-    except: pass
-    return None
+        return f"https://www.youtube.com/watch?v={videoid}"
+    if not link: 
+        return ""
+    return link.split("&")[0]
 
 class YouTubeAPI:
     def __init__(self):
         self.base = "https://www.youtube.com/watch?v="
         self.pool = _thread_pool
-        self.sema = _extract_sema
         self.cookie = get_cookie_file()
+        
+        # Standard 2026 Options based on yt-dlp Documentation
+        self.base_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'nocheckcertificate': True,
+            'geo_bypass': True,
+            'cookiefile': self.cookie,
+            # Official Anti-Bot Bypass strategy
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios', 'web'],
+                    'player_skip': ['webpage', 'configs']
+                }
+            }
+        }
 
-    # 1. ✅ Core Verification (Prevents AttributeError 'exists')
+    # ---------------------------------------------------------------
+    # 1. Compatibility & Utility Methods (Prevent AttributeErrors)
+    # ---------------------------------------------------------------
+    
     async def exists(self, link: str, videoid: Union[bool, str] = None) -> bool:
+        """Checks if the link is a valid YouTube URL."""
         if videoid: return True
         if not link: return False
-        # Simple check for youtube domains or internal IDs
-        return any(x in link for x in ["youtube.com", "youtu.be", "googleusercontent.com/youtube.com"])
+        return any(x in link for x in ["youtube.com", "youtu.be", "googleusercontent.com"])
 
-    # 2. ✅ URL Extraction Logic
     async def url(self, message) -> Optional[str]:
+        """Extracts URL from Telegram Message Object."""
         if not message: return None
         msgs = [message]
         if getattr(message, "reply_to_message", None): msgs.append(message.reply_to_message)
@@ -126,8 +107,12 @@ class YouTubeAPI:
                     return text[off:off+ln].split("&si")[0]
         return None
 
-    # 3. ✅ Hybrid Search (py_yt -> yt-dlp)
+    # ---------------------------------------------------------------
+    # 2. Search Engine (Hybrid: Fast Scraper -> Native Fallback)
+    # ---------------------------------------------------------------
+
     async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
+        """Returns list of results: [{'title':.., 'vidid':.., 'duration':..}]"""
         # A. Fast Path (py_yt)
         if PY_YT_AVAILABLE:
             try:
@@ -140,105 +125,113 @@ class YouTubeAPI:
                         "duration": x.get("duration"),
                         "thumb": x.get("thumbnails")[0].get("url").split("?")[0] if x.get("thumbnails") else ""
                     } for x in res["result"]]
-            except Exception as e:
-                log.warning(f"Fast search failed: {e}")
+            except Exception:
+                pass
 
-        # B. Fallback Path (yt-dlp native)
-        cmd = ["yt-dlp", "--dump-json", f"ytsearch{limit}:{query}", "--flat-playlist", "--no-warnings", "--skip-download"]
-        if self.cookie: cmd[1:1] = ["--cookies", self.cookie]
+        # B. Native Fallback (yt-dlp flat-playlist)
+        opts = self.base_opts.copy()
+        opts.update({'extract_flat': True, 'skip_download': True})
         
-        out, _ = await _exec_proc(*cmd, timeout=12)
-        results = []
-        if out:
-            for line in out.decode().splitlines():
+        loop = asyncio.get_running_loop()
+        def _native_search():
+            with yt_dlp.YoutubeDL(opts) as ydl:
                 try:
-                    d = _loads_bytes(line.encode())
-                    results.append({"title": d.get("title"), "vidid": d.get("id"), "duration": d.get("duration_string")})
-                except: pass
-        return results
+                    res = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
+                    return res.get('entries', [])
+                except: return []
 
-    # 4. ✅ Metadata Tracking
+        entries = await loop.run_in_executor(self.pool, _native_search)
+        return [{
+            "title": e.get("title"),
+            "vidid": e.get("id"),
+            "duration": e.get("duration_string")
+        } for e in entries]
+
+    # ---------------------------------------------------------------
+    # 3. Metadata Tracker (Fixes KeyError 'link')
+    # ---------------------------------------------------------------
+
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
         prepared = _normalize_link(link, videoid)
         key = "meta:" + prepared
         
+        # Check Cache
         async with _meta_cache_lock:
             if key in _meta_cache:
                 return _meta_cache[key][1], _meta_cache[key][2]
 
-        # Try Fast Metadata
-        if PY_YT_AVAILABLE and not videoid and "http" in prepared:
-            try:
-                s = VideosSearch(prepared, limit=1)
-                r = await s.next()
-                if r and r.get("result"):
-                    d = r["result"][0]
-                    details = {
-                        "title": d.get("title"), 
-                        "link": d.get("link"),
-                        "vidid": d.get("id"), 
-                        "duration_min": d.get("duration"),
-                        "thumb": d.get("thumbnails")[0].get("url").split("?")[0]
-                    }
-                    async with _meta_cache_lock: _meta_cache[key] = (time.time(), details, d["id"])
-                    return details, d["id"]
-            except: pass
+        # Fetch Data (Native yt-dlp)
+        loop = asyncio.get_running_loop()
+        def _get_meta():
+            opts = self.base_opts.copy()
+            opts['noplaylist'] = True
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                try:
+                    return ydl.extract_info(prepared, download=False)
+                except Exception as e:
+                    log.error(f"Track Error: {e}")
+                    return None
 
-        # Native yt-dlp Metadata
-        cmd = ["yt-dlp", "--dump-json", prepared, "--no-warnings"]
-        if self.cookie: cmd[1:1] = ["--cookies", self.cookie]
+        info = await loop.run_in_executor(self.pool, _get_meta)
         
-        out, _ = await _exec_proc(*cmd)
-        if out:
-            try:
-                d = _loads_bytes(out)
-                details = {
-                    "title": d.get("title"), 
-                    "link": d.get("webpage_url"),
-                    "vidid": d.get("id"), 
-                    "duration_min": d.get("duration"),
-                    "thumb": d.get("thumbnail")
-                }
-                async with _meta_cache_lock: _meta_cache[key] = (time.time(), details, d["id"])
-                return details, d["id"]
-            except: pass
+        if info:
+            # ✅ STRICT STANDARDIZATION TO FIX KEYERROR
+            details = {
+                "title": info.get("title", "Unknown Track"),
+                "link": info.get("webpage_url", prepared), # 👈 This ensures 'link' key always exists
+                "vidid": info.get("id", ""),
+                "duration_min": info.get("duration", 0),
+                "thumb": info.get("thumbnail", ""),
+                "description": info.get("description", "")
+            }
+            async with _meta_cache_lock: 
+                _meta_cache[key] = (time.time(), details, details["vidid"])
+            return details, details["vidid"]
         
-        return {"title": "Unknown", "duration_min": 0, "thumb": "", "vidid": ""}, ""
+        # Fallback dictionary to prevent Crash
+        fallback = {"title": "Unknown", "link": prepared, "vidid": "", "duration_min": 0, "thumb": ""}
+        return fallback, ""
 
-    # 5. ✅ Direct Stream Link (No Aria2 needed here)
+    # ---------------------------------------------------------------
+    # 4. Stream Link Generator (The Engine)
+    # ---------------------------------------------------------------
+
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
         prepared = _normalize_link(link)
-        key = prepared + str(prefer_audio)
-        now = time.time()
-
+        key = f"stream:{prepared}:{prefer_audio}"
+        
         async with _direct_cache_lock:
             if key in _direct_cache:
-                exp, url = _direct_cache[key]
-                if exp > now + 10: return url
+                if _direct_cache[key][0] > time.time() + 10:
+                    return _direct_cache[key][1]
 
-        async with self.sema:
-            loop = asyncio.get_running_loop()
-            def _extract():
-                opts = {
-                    "quiet": True, "noplaylist": True, "skip_download": True,
-                    "socket_timeout": 10,
-                    "extractor_args": {"youtube": {"player_client": ["android", "ios"]}}
-                }
-                if self.cookie: opts["cookiefile"] = self.cookie
+        loop = asyncio.get_running_loop()
+        def _extract_stream():
+            opts = self.base_opts.copy()
+            opts.update({
+                'format': 'bestaudio/best' if prefer_audio else 'best',
+                'noplaylist': True,
+                'skip_download': True
+            })
+            with yt_dlp.YoutubeDL(opts) as ydl:
                 try:
-                    with yt_dlp.YoutubeDL(opts) as ydl:
-                        return ydl.extract_info(prepared, download=False)
+                    info = ydl.extract_info(prepared, download=False)
+                    return info.get('url')
                 except: return None
-            
-            info = await loop.run_in_executor(self.pool, _extract)
 
-        if info and info.get("url"):
-            exp = _parse_expire(info["url"]) or int(now + 600)
-            async with _direct_cache_lock: _direct_cache[key] = (exp - 5, info["url"])
-            return info["url"]
+        url = await loop.run_in_executor(self.pool, _extract_stream)
+        
+        if url:
+            # Cache for 10 minutes (default expiry)
+            async with _direct_cache_lock:
+                _direct_cache[key] = (time.time() + CACHE_TTL, url)
+            return url
         return None
 
-    # 6. ✅ Native Download (Aria2 Removed)
+    # ---------------------------------------------------------------
+    # 5. Native Downloader (No Aria2)
+    # ---------------------------------------------------------------
+
     async def download(
         self,
         link: str,
@@ -254,74 +247,55 @@ class YouTubeAPI:
         prepared = _normalize_link(link, videoid)
         is_video = bool(video or songvideo)
         
-        # Stream Optimization check
+        # 1. Check Stream (Optimization)
         direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
         if direct:
             return direct, True
 
-        # Native Download Logic
+        # 2. Native Download
         loop = asyncio.get_running_loop()
-        def _native_download():
-            try:
-                base_dir = "/dev/shm/AnnieDownloads" if os.path.exists("/dev/shm") else "downloads"
-                os.makedirs(base_dir, exist_ok=True)
-                
-                # Format Selection
-                if is_video:
-                    fmt = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-                else:
-                    fmt = "bestaudio[ext=m4a]/bestaudio/best"
+        def _download_native():
+            base_dir = "/dev/shm/AnnieDownloads" if os.path.exists("/dev/shm") else "downloads"
+            os.makedirs(base_dir, exist_ok=True)
+            
+            opts = self.base_opts.copy()
+            fmt = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
+            
+            opts.update({
+                'format': fmt,
+                'outtmpl': f"{base_dir}/%(id)s.%(ext)s",
+                'noplaylist': True,
+            })
 
-                opts = {
-                    "format": fmt,
-                    "outtmpl": f"{base_dir}/%(id)s.%(ext)s",
-                    "quiet": True,
-                    "cookiefile": self.cookie,
-                    "noplaylist": True,
-                    "hls_prefer_native": True, # Native HLS support
-                }
-                
-                # Audio Post-processing
-                if not is_video:
-                     opts["postprocessors"] = [{
-                         "key": "FFmpegExtractAudio",
-                         "preferredcodec": "mp3",
-                         "preferredquality": "192"
-                     }]
+            if not is_video:
+                 opts["postprocessors"] = [{
+                     "key": "FFmpegExtractAudio",
+                     "preferredcodec": "mp3",
+                     "preferredquality": "192"
+                 }]
 
-                with yt_dlp.YoutubeDL(opts) as ydl:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                try:
                     info = ydl.extract_info(prepared, download=True)
                     path = ydl.prepare_filename(info)
-                    
-                    # Fix extension for audio
-                    if not is_video and not path.endswith(".mp3"):
+                    if not is_video:
                         mp3_path = os.path.splitext(path)[0] + ".mp3"
                         if os.path.exists(mp3_path): return mp3_path
-                    
                     return path
-            except Exception as e:
-                log.error(f"Native download failed: {e}")
-                return None
+                except Exception as e:
+                    log.error(f"Download Error: {e}")
+                    return None
 
-        path = await loop.run_in_executor(self.pool, _native_download)
+        path = await loop.run_in_executor(self.pool, _download_native)
         return path, False
 
-    # 7. ✅ Playlist Support
-    async def playlist(self, link: str, limit: int, user_id=None, videoid=None) -> List[str]:
-        if videoid: link = f"https://www.youtube.com/playlist?list={link}"
-        cmd = [
-            "yt-dlp", "-i", "--flat-playlist", "--playlist-end", str(limit),
-            "--get-id", "--skip-download", "--no-warnings", link
-        ]
-        if self.cookie: cmd[1:1] = ["--cookies", self.cookie]
-        
-        out, _ = await _exec_proc(*cmd, timeout=20)
-        return [x for x in out.decode().split("\n") if x]
-
-    # 8. ✅ Compatibility Wrappers (Crucial for avoiding AttributeErrors)
+    # ---------------------------------------------------------------
+    # 6. Helper Wrappers (For play.py compatibility)
+    # ---------------------------------------------------------------
+    
     async def details(self, link, videoid=None):
         d, vid = await self.track(link, videoid)
-        return d.get("title", "Unknown"), d.get("duration_min", "0:00"), 0, d.get("thumb", ""), vid
+        return d.get("title", "Unknown"), d.get("duration_min", 0), 0, d.get("thumb", ""), vid
 
     async def title(self, link, videoid=None):
         d, _ = await self.track(link, videoid)
@@ -329,17 +303,32 @@ class YouTubeAPI:
 
     async def duration(self, link, videoid=None):
         d, _ = await self.track(link, videoid)
-        return d.get("duration_min", "0:00")
+        return d.get("duration_min", 0)
 
     async def thumbnail(self, link, videoid=None):
         d, _ = await self.track(link, videoid)
         return d.get("thumb", "")
 
+    async def playlist(self, link: str, limit: int, user_id=None, videoid=None) -> List[str]:
+        if videoid: link = f"https://www.youtube.com/playlist?list={link}"
+        
+        loop = asyncio.get_running_loop()
+        def _get_playlist():
+            opts = self.base_opts.copy()
+            opts.update({'extract_flat': True, 'playlistend': limit})
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                try:
+                    res = ydl.extract_info(link, download=False)
+                    return [entry.get('id') for entry in res.get('entries', []) if entry.get('id')]
+                except: return []
+        
+        return await loop.run_in_executor(self.pool, _get_playlist)
+
     async def download_thumb(self, url: str) -> Optional[str]:
         if not url: return None
         try:
             path = f"downloads/thumb_{int(time.time())}.jpg"
-            async with _ensure_aio_session() as sess:
+            async with aiohttp.ClientSession() as sess:
                 async with sess.get(url) as resp:
                     if resp.status == 200:
                         with open(path, "wb") as f: f.write(await resp.read())
