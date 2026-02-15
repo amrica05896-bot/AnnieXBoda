@@ -1,7 +1,7 @@
 # file: AnnieXMedia/plugins/ai/engine.py
 # Authored By Certified Coders (c) 2026
-# DeepSeek-R1 Engine (Ollama Async)
-# Fixes: ImportError ENGINE, Memory Management, Streaming
+# DeepSeek-R1 Engine (Ollama Async) - H200 Optimized
+# Fixes: ImportError toggle_model, ENGINE, No Emojis.
 
 import os
 import logging
@@ -43,15 +43,19 @@ async def ask_ollama_stream(
     تستخدم aiohttp مباشرة لسرعة H200.
     """
     if not _IS_ENABLED:
-        return "⚠️ الذكاء الاصطناعي معطل حالياً للصيانة."
+        return "الذكاء الاصطناعي معطل حاليا للصيانة."
 
     # 1. تجهيز الذاكرة
     if user_id not in _MEMORY:
         _MEMORY[user_id] = []
-        # System Prompt
+        # System Prompt (Strict No-Emoji)
         _MEMORY[user_id].append({
             "role": "system", 
-            "content": "You are Annie, a helpful AI assistant. Answer directly and briefly in Arabic. Do NOT use emojis."
+            "content": (
+                "You are Annie, an advanced AI assistant. "
+                "Answer directly, accurately, and briefly in Arabic. "
+                "Do NOT use emojis strictly."
+            )
         })
     
     # إضافة رسالة المستخدم
@@ -82,7 +86,7 @@ async def ask_ollama_stream(
             async with session.post(OLLAMA_CHAT_API, json=payload) as response:
                 
                 if response.status != 200:
-                    return f"❌ خطأ من الخادم: {response.status}"
+                    return f"خطأ من الخادم: {response.status}"
 
                 async for line in response.content:
                     if not line: continue
@@ -96,7 +100,7 @@ async def ask_ollama_stream(
                             # تحديث الرسالة كل 0.8 ثانية لتجنب FloodWait
                             now = time.time()
                             if on_update and (now - last_update_time > 0.8):
-                                await on_update(full_response + " ⏳...")
+                                await on_update(full_response + " ...")
                                 last_update_time = now
                         
                         if chunk.get("done", False):
@@ -110,7 +114,7 @@ async def ask_ollama_stream(
 
     except Exception as e:
         logger.error(f"Ollama Error: {e}")
-        return f"❌ حدث خطأ في الاتصال بالمحرك: {str(e)}"
+        return "حدث خطأ في الاتصال بمحرك الذكاء الاصطناعي."
 
 def clear_user_memory(user_id: int):
     """مسح ذاكرة مستخدم معين"""
@@ -131,6 +135,16 @@ def set_engine_state(state: bool):
     _IS_ENABLED = state
 
 # ------------------------------------------------------------------
+# 🛑 Missing Function Fix (toggle_model)
+# ------------------------------------------------------------------
+def toggle_model(model_name: str = None) -> str:
+    """
+    دالة وهمية لإصلاح خطأ الاستيراد في ملفات البوت القديمة.
+    نحن نستخدم DeepSeek فقط، لذا لا داعي للتبديل.
+    """
+    return f"الموديل مثبت تلقائيا على: {TARGET_MODEL}"
+
+# ------------------------------------------------------------------
 # 🛡️ COMPATIBILITY LAYER (حل مشكلة ImportError ENGINE)
 # ------------------------------------------------------------------
 class LegacyEngineWrapper:
@@ -143,8 +157,15 @@ class LegacyEngineWrapper:
         self.is_running = True
         self.memory = _MEMORY
 
-# ✅ هذا هو السطر الذي يحل المشكلة الحالية
+# ✅ كائن المحرك الوهمي
 ENGINE = LegacyEngineWrapper()
 
-# تصدير الدوال عشان handlers.py يشوفها
-__all__ = ["ask_ollama_stream", "clear_user_memory", "get_engine_status", "set_engine_state", "ENGINE"]
+# تصدير جميع الدوال والكائنات الضرورية
+__all__ = [
+    "ask_ollama_stream", 
+    "clear_user_memory", 
+    "get_engine_status", 
+    "set_engine_state", 
+    "toggle_model", 
+    "ENGINE"
+]
