@@ -1,7 +1,7 @@
 # file: AnnieXMedia/plugins/ai/engine.py
 # Authored By Certified Coders (c) 2026
 # DeepSeek-R1 Engine (Ollama Async)
-# Fixes: ImportError ENGINE, Memory Management, Streaming.
+# Fixes: ImportError ENGINE, Memory Management, Streaming
 
 import os
 import logging
