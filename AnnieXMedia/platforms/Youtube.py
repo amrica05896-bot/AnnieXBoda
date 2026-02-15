@@ -1,17 +1,14 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Authored By Certified Coders (c) 2026
-# Zero-Error Native YouTube Resolver (The Nuclear Edition)
-# Fixes: 'Requested format is not available' by removing ALL restrictions.
+# Zero-Error Native YouTube Resolver (Kamikaze Retry Edition)
+# Fixes: 'Requested format is not available' by cycling through Clients & Formats.
 
 import asyncio
-import json
 import logging
 import os
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple, Union
-from urllib.parse import urlparse, parse_qs
 
 import aiohttp
 import yt_dlp
@@ -63,22 +60,6 @@ class YouTubeAPI:
         self.base = "https://www.youtube.com/watch?v="
         self.pool = _thread_pool
         self.cookie = get_cookie_file()
-        
-        # Base Options (Simple & Strong)
-        self.base_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'nocheckcertificate': True,
-            'geo_bypass': True,
-            'cookiefile': self.cookie,
-            # استخدام عميل android بيضمن وجود صيغ صوتية خفيفة دائماً
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'web'],
-                    'player_skip': ['webpage', 'configs']
-                }
-            }
-        }
 
     # 1. Compatibility
     async def exists(self, link: str, videoid: Union[bool, str] = None) -> bool:
@@ -115,8 +96,10 @@ class YouTubeAPI:
                 pass
 
         # Fallback to Native
-        opts = self.base_opts.copy()
-        opts.update({'extract_flat': True, 'skip_download': True})
+        opts = {
+            'extract_flat': True, 'skip_download': True, 'quiet': True, 
+            'no_warnings': True, 'cookiefile': self.cookie
+        }
         
         loop = asyncio.get_running_loop()
         def _native_search():
@@ -133,8 +116,9 @@ class YouTubeAPI:
             "duration": e.get("duration_string")
         } for e in entries]
 
-    # 3. Track (Robust Auto-Search)
+    # 3. Track (Data Fetcher)
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
+        # Auto-Search Logic
         if not videoid and link and not link.startswith(("http", "www", "rtmp")):
             results = await self.search(link, limit=1)
             if results:
@@ -152,8 +136,12 @@ class YouTubeAPI:
 
         loop = asyncio.get_running_loop()
         def _get_meta():
-            opts = self.base_opts.copy()
-            opts['noplaylist'] = True
+            # Basic options just for metadata
+            opts = {
+                'quiet': True, 'no_warnings': True, 'cookiefile': self.cookie,
+                'noplaylist': True,
+                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+            }
             with yt_dlp.YoutubeDL(opts) as ydl:
                 try:
                     return ydl.extract_info(prepared, download=False)
@@ -177,7 +165,7 @@ class YouTubeAPI:
         
         return {"title": "Error", "link": prepared, "vidid": "", "duration_min": 0, "thumb": ""}, ""
 
-    # 4. Stream (The Nuclear Fix for 'Requested format is not available')
+    # 4. Stream (The Retry Engine)
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
         prepared = _normalize_link(link)
         key = f"stream:{prepared}:{prefer_audio}"
@@ -188,28 +176,39 @@ class YouTubeAPI:
                     return _direct_cache[key][1]
 
         loop = asyncio.get_running_loop()
-        def _extract_stream():
-            opts = self.base_opts.copy()
-            
-            # 🛑 التغيير الجذري: إزالة أي قيود على الصيغة
-            # bestaudio/best معناها: هات أحسن صوت، لو مفيش هات أحسن فيديو فيه صوت.
-            # ده بيضمن إننا منقعش في خطأ Format Not Available أبداً.
-            fmt = 'bestaudio/best' if prefer_audio else 'best'
-            
-            opts.update({
-                'format': fmt,
-                'noplaylist': True,
-                'skip_download': True
-            })
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                try:
-                    info = ydl.extract_info(prepared, download=False)
-                    return info.get('url')
-                except Exception as e:
-                    log.error(f"Stream Error: {e}")
-                    return None
 
-        url = await loop.run_in_executor(self.pool, _extract_stream)
+        # 🛑 THIS IS THE SOLUTION: Multiple Strategies
+        strategies = [
+            # 1. Standard Audio (Android)
+            {'format': 'bestaudio/best', 'client': 'android'},
+            # 2. Fallback Audio (Web - More compatible)
+            {'format': 'bestaudio/best', 'client': 'web'},
+            # 3. Video Stream (iOS - Often unblocked)
+            {'format': 'best', 'client': 'ios'},
+            # 4. Last Resort (Worst quality just to work)
+            {'format': 'worst', 'client': 'web'}
+        ]
+
+        def _extract_with_retry():
+            for strat in strategies:
+                opts = {
+                    'quiet': True, 'no_warnings': True, 'cookiefile': self.cookie,
+                    'noplaylist': True, 'skip_download': True,
+                    'format': strat['format'],
+                    'extractor_args': {'youtube': {'player_client': [strat['client']]}}
+                }
+                try:
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(prepared, download=False)
+                        if info and info.get('url'):
+                            log.info(f"Success with strategy: {strat['client']} - {strat['format']}")
+                            return info.get('url')
+                except Exception as e:
+                    log.warning(f"Strategy {strat['client']} failed: {e}")
+                    continue
+            return None
+
+        url = await loop.run_in_executor(self.pool, _extract_with_retry)
         
         if url:
             async with _direct_cache_lock:
@@ -217,7 +216,7 @@ class YouTubeAPI:
             return url
         return None
 
-    # 5. Download (Standardized)
+    # 5. Download (Standardized with Retry)
     async def download(
         self,
         link: str,
@@ -235,6 +234,8 @@ class YouTubeAPI:
              if results:
                 videoid = results[0]["vidid"]
                 link = f"https://www.youtube.com/watch?v={videoid}"
+             else:
+                return None, False # Fail gracefully if search fails
 
         prepared = _normalize_link(link, videoid)
         is_video = bool(video or songvideo)
@@ -248,16 +249,15 @@ class YouTubeAPI:
             base_dir = "/dev/shm/AnnieDownloads" if os.path.exists("/dev/shm") else "downloads"
             os.makedirs(base_dir, exist_ok=True)
             
-            opts = self.base_opts.copy()
-            
-            # 🛑 صيغة التحميل الموحدة
+            # Use 'best' to ensure success if specific formats fail
             fmt = "bestvideo+bestaudio/best" if is_video else "bestaudio/best"
             
-            opts.update({
+            opts = {
                 'format': fmt,
                 'outtmpl': f"{base_dir}/%(id)s.%(ext)s",
                 'noplaylist': True,
-            })
+                'quiet': True, 'no_warnings': True, 'cookiefile': self.cookie,
+            }
 
             if not is_video:
                  opts["postprocessors"] = [{
@@ -283,7 +283,7 @@ class YouTubeAPI:
         path = await loop.run_in_executor(self.pool, _download_native)
         return path, False
 
-    # 6. Wrappers
+    # 6. Helpers
     async def details(self, link, videoid=None):
         d, vid = await self.track(link, videoid)
         return d.get("title", "Unknown"), d.get("duration_min", 0), 0, d.get("thumb", ""), vid
@@ -304,8 +304,7 @@ class YouTubeAPI:
         if videoid: link = f"https://www.youtube.com/playlist?list={link}"
         loop = asyncio.get_running_loop()
         def _get_playlist():
-            opts = self.base_opts.copy()
-            opts.update({'extract_flat': True, 'playlistend': limit})
+            opts = {'extract_flat': True, 'playlistend': limit, 'quiet': True}
             with yt_dlp.YoutubeDL(opts) as ydl:
                 try:
                     res = ydl.extract_info(link, download=False)
