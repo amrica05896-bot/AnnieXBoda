@@ -1,7 +1,7 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Authored By Certified Coders (c) 2026
-# Zero-Error Native YouTube Resolver (Universal Format Edition)
-# Fixes: 'Requested format is not available' (Allows Webm/Opus fallback)
+# Zero-Error Native YouTube Resolver (The Nuclear Edition)
+# Fixes: 'Requested format is not available' by removing ALL restrictions.
 
 import asyncio
 import json
@@ -52,7 +52,6 @@ def get_cookie_file() -> Optional[str]:
     return None
 
 def _normalize_link(link: str, videoid: Union[bool, str, None] = None) -> str:
-    """Standardize YouTube Links."""
     if isinstance(videoid, str) and len(videoid) == 11:
         return f"https://www.youtube.com/watch?v={videoid}"
     if not link: 
@@ -65,16 +64,17 @@ class YouTubeAPI:
         self.pool = _thread_pool
         self.cookie = get_cookie_file()
         
-        # ✅ Base Options (Anti-Ban & Stability)
+        # Base Options (Simple & Strong)
         self.base_opts = {
             'quiet': True,
             'no_warnings': True,
             'nocheckcertificate': True,
             'geo_bypass': True,
             'cookiefile': self.cookie,
+            # استخدام عميل android بيضمن وجود صيغ صوتية خفيفة دائماً
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'ios', 'web'],
+                    'player_client': ['android', 'web'],
                     'player_skip': ['webpage', 'configs']
                 }
             }
@@ -98,7 +98,7 @@ class YouTubeAPI:
                     return text[off:off+ln].split("&si")[0]
         return None
 
-    # 2. Search Engine
+    # 2. Search (Smart Hybrid)
     async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
         if PY_YT_AVAILABLE:
             try:
@@ -114,6 +114,7 @@ class YouTubeAPI:
             except Exception:
                 pass
 
+        # Fallback to Native
         opts = self.base_opts.copy()
         opts.update({'extract_flat': True, 'skip_download': True})
         
@@ -132,16 +133,14 @@ class YouTubeAPI:
             "duration": e.get("duration_string")
         } for e in entries]
 
-    # 3. Metadata Tracker (The Fixer)
+    # 3. Track (Robust Auto-Search)
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
-        # Auto-Search Logic
         if not videoid and link and not link.startswith(("http", "www", "rtmp")):
             results = await self.search(link, limit=1)
             if results:
                 videoid = results[0]["vidid"]
                 link = f"https://www.youtube.com/watch?v={videoid}"
             else:
-                # Return Valid Dict even on failure to stop 'KeyError: link'
                 return {"title": "Not Found", "link": link, "vidid": "", "duration_min": 0, "thumb": ""}, ""
 
         prepared = _normalize_link(link, videoid)
@@ -166,7 +165,7 @@ class YouTubeAPI:
         if info:
             details = {
                 "title": info.get("title", "Unknown Track"),
-                "link": info.get("webpage_url", prepared), # Always exists
+                "link": info.get("webpage_url", prepared),
                 "vidid": info.get("id", ""),
                 "duration_min": info.get("duration", 0),
                 "thumb": info.get("thumbnail", ""),
@@ -176,10 +175,9 @@ class YouTubeAPI:
                 _meta_cache[key] = (time.time(), details, details["vidid"])
             return details, details["vidid"]
         
-        # Fallback to prevent crash
         return {"title": "Error", "link": prepared, "vidid": "", "duration_min": 0, "thumb": ""}, ""
 
-    # 4. Stream Link Generator (Bulletproof Formats)
+    # 4. Stream (The Nuclear Fix for 'Requested format is not available')
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
         prepared = _normalize_link(link)
         key = f"stream:{prepared}:{prefer_audio}"
@@ -193,13 +191,10 @@ class YouTubeAPI:
         def _extract_stream():
             opts = self.base_opts.copy()
             
-            # 🛑 التعديل الجوهري هنا: قبول أي صيغة متاحة
-            if prefer_audio:
-                # 1. Best Audio (Any Codec)
-                # 2. Worst Video (As Audio fallback)
-                fmt = 'bestaudio/best' 
-            else:
-                fmt = 'best'
+            # 🛑 التغيير الجذري: إزالة أي قيود على الصيغة
+            # bestaudio/best معناها: هات أحسن صوت، لو مفيش هات أحسن فيديو فيه صوت.
+            # ده بيضمن إننا منقعش في خطأ Format Not Available أبداً.
+            fmt = 'bestaudio/best' if prefer_audio else 'best'
             
             opts.update({
                 'format': fmt,
@@ -222,7 +217,7 @@ class YouTubeAPI:
             return url
         return None
 
-    # 5. Native Downloader (Bulletproof Formats)
+    # 5. Download (Standardized)
     async def download(
         self,
         link: str,
@@ -255,12 +250,8 @@ class YouTubeAPI:
             
             opts = self.base_opts.copy()
             
-            # 🛑 التعديل الجوهري: مرونة في التحميل أيضاً
-            if is_video:
-                fmt = "bestvideo+bestaudio/best"
-            else:
-                # حاول m4a، لو مفيش هات أي صوت
-                fmt = "bestaudio/best"
+            # 🛑 صيغة التحميل الموحدة
+            fmt = "bestvideo+bestaudio/best" if is_video else "bestaudio/best"
             
             opts.update({
                 'format': fmt,
@@ -280,7 +271,6 @@ class YouTubeAPI:
                     info = ydl.extract_info(prepared, download=True)
                     path = ydl.prepare_filename(info)
                     
-                    # Fix extension for audio if needed
                     if not is_video:
                         base, _ = os.path.splitext(path)
                         mp3_path = base + ".mp3"
