@@ -1,4 +1,4 @@
-# 1. استخدام أحدث إصدار رقمي لعام 2026 (Resolute Raccoon)
+# 1. الأساس: Ubuntu 26.04 (المستقبل)
 FROM ubuntu:26.04
 
 # ========================================================
@@ -19,16 +19,15 @@ ENV DEBIAN_FRONTEND=noninteractive \
 WORKDIR /app
 
 # ========================================================
-# 🛠 SYSTEM DEPENDENCIES (2026 Repositories)
+# 🛠 SYSTEM DEPENDENCIES
 # ========================================================
-# في Ubuntu 26.04 بايثون 3.13 موجود أصلاً، مش محتاجين PPA خارجي
 RUN apt-get update --fix-missing && \
     apt-get install -y --no-install-recommends \
     software-properties-common build-essential cmake git curl wget unzip \
     ffmpeg aria2 libffi-dev libxml2-dev libxslt-dev zlib1g-dev libssl-dev \
-    # تثبيت بايثون 3.13 مباشرة من مستودعات أوبونتو الرسمية
+    # بايثون 3.13 الرسمي
     python3.13 python3.13-dev python3.13-venv \
-    # Node.js 20
+    # Node.js
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     # Deno
@@ -40,8 +39,15 @@ RUN ln -sf /usr/bin/python3.13 /usr/bin/python3 && \
     ln -sf /usr/bin/python3.13 /usr/bin/python
 
 # ========================================================
+# 💉 THE FIX: REMOVE EXTERNALLY-MANAGED FLAG
+# ========================================================
+# هذا السطر هو الحل! نقوم بحذف ملف الحماية لنسمح بالتثبيت
+RUN rm -f /usr/lib/python3.13/EXTERNALLY-MANAGED
+
+# ========================================================
 # 📦 PYTHON PREP
 # ========================================================
+# الآن سيعمل هذا الأمر بدون مشاكل
 RUN uv pip install --upgrade setuptools wheel
 
 # ========================================================
@@ -54,11 +60,11 @@ COPY pytgcalls /app/pytgcalls
 # ========================================================
 COPY requirements.txt .
 
-# حذف المكتبات القديمة (deepai) والمحلية (pytgcalls)
+# 1. فلترة المكتبات القديمة والمحلية
 RUN grep -v -E -i '^(py-tgcalls|pytgcalls|deepai|numba|llvmlite|quimb)' requirements.txt > filtered.txt && \
     uv pip install --no-cache -r filtered.txt
 
-# تثبيت المكتبات السريعة
+# 2. تثبيت المكتبات السريعة
 RUN uv pip install --no-cache \
     uvloop \
     g4f \
