@@ -4,7 +4,7 @@ from typing import Union
 
 import aiohttp
 from bs4 import BeautifulSoup
-from py_yt import VideosSearch 
+from youtubesearchpython.aio import VideosSearch
 
 
 class RessoAPI:
