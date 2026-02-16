@@ -1,5 +1,5 @@
-# 1. الدبابة Ubuntu 24.04
-FROM ubuntu:24.10
+# 1. استخدام أحدث إصدار رقمي لعام 2026 (Resolute Raccoon)
+FROM ubuntu:26.04
 
 # ========================================================
 # ⚡ UV PACKAGE MANAGER
@@ -19,13 +19,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
 WORKDIR /app
 
 # ========================================================
-# 🛠 SYSTEM DEPENDENCIES
+# 🛠 SYSTEM DEPENDENCIES (2026 Repositories)
 # ========================================================
-RUN apt-get update && \
+# استخدام --fix-missing لضمان تجاوز أي تحديثات لحظية في نسخة المطورين
+RUN apt-get update --fix-missing && \
     apt-get install -y --no-install-recommends \
     software-properties-common build-essential cmake git curl wget unzip \
     ffmpeg aria2 libffi-dev libxml2-dev libxslt-dev zlib1g-dev libssl-dev \
-    # Python 3.13 PPA
+    # بايثون 3.13 هو الافتراضي غالباً في 26.04، لكن نؤكد عليه
     && add-apt-repository ppa:deadsnakes/ppa -y \
     && apt-get update && \
     apt-get install -y python3.13 python3.13-dev python3.13-venv \
@@ -36,7 +37,7 @@ RUN apt-get update && \
     && curl -fsSL https://deno.land/install.sh | sh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Link Python 3.13
+# ربط Python 3.13
 RUN ln -sf /usr/bin/python3.13 /usr/bin/python3 && \
     ln -sf /usr/bin/python3.13 /usr/bin/python
 
@@ -46,9 +47,8 @@ RUN ln -sf /usr/bin/python3.13 /usr/bin/python3 && \
 RUN uv pip install --upgrade setuptools wheel
 
 # ========================================================
-# 🧬 LOCAL PYTGCALLS (نسخ فقط بدون تثبيت)
+# 🧬 LOCAL PYTGCALLS
 # ========================================================
-# ننسخ المجلد كما هو، وبايثون سيجده لأنه في نفس المسار
 COPY pytgcalls /app/pytgcalls
 
 # ========================================================
@@ -56,11 +56,11 @@ COPY pytgcalls /app/pytgcalls
 # ========================================================
 COPY requirements.txt .
 
-# 1. فلترة المكتبات القديمة (deepai, numba) والمكتبة المحلية (pytgcalls)
+# حذف المكتبات القديمة (deepai) والمحلية (pytgcalls)
 RUN grep -v -E -i '^(py-tgcalls|pytgcalls|deepai|numba|llvmlite|quimb)' requirements.txt > filtered.txt && \
     uv pip install --no-cache -r filtered.txt
 
-# 2. تثبيت المكتبات السريعة (بدون ./pytgcalls لأننا نسخناها خلاص)
+# تثبيت المكتبات السريعة
 RUN uv pip install --no-cache \
     uvloop \
     g4f \
