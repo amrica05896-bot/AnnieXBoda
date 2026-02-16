@@ -1,16 +1,14 @@
 # Authored By Certified Coders © 2026
 # System: Call Controller (PyTgCalls v3.0 Native)
-# Fixes: Queue (StreamEnded Filter), Seek (FFmpeg Offset), Auto-Start
+# Fixes: Queue Link Expiration, Stream Switching, Correct Class Name
 
 import asyncio
 from datetime import datetime, timedelta
 from typing import Union, Optional
 
-import yt_dlp
 from pyrogram.types import InlineKeyboardMarkup
-from pyrogram.errors import ChatAdminRequired
+from pyrogram.errors import ChatAdminRequired, UserNotParticipant, FloodWait
 
-# Imports based on PyTgCalls v3.0 Docs
 from pytgcalls import PyTgCalls, filters
 from pytgcalls.types import (
     MediaStream,
@@ -57,26 +55,6 @@ counter = {}
 # Helper Functions
 # ===============================
 
-async def get_direct_link(videoid: str, video: bool = False):
-    if not videoid: return None
-    link = f"https://www.youtube.com/watch?v={videoid}"
-    fmt = "best[ext=mp4]/best" if video else "bestaudio/best"
-    opts = {
-        "format": fmt,
-        "quiet": True,
-        "no_warnings": True,
-        "geo_bypass": True,
-        "nocheckcertificate": True
-    }
-    try:
-        loop = asyncio.get_running_loop()
-        def _extract():
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(link, download=False)
-                return info.get("url")
-        return await loop.run_in_executor(None, _extract)
-    except: return link
-
 def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> MediaStream:
     """
     Constructs a MediaStream object compatible with PyTgCalls v3.0.
@@ -109,7 +87,7 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
     return MediaStream(
         media_path=path,
         audio_parameters=AudioQuality.HIGH, # 48kHz Stereo
-        video_parameters=VideoQuality.HD_720p, # 720p
+        video_parameters=VideoQuality.HD_720 if video else None,
         # Strict Flags based on requested mode
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
@@ -119,10 +97,8 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
 async def _clear_(chat_id: int) -> None:
     popped = db.pop(chat_id, None)
     if popped: await auto_clean(popped)
-    db[chat_id] = []
     await remove_active_video_chat(chat_id)
     await remove_active_chat(chat_id)
-    await set_loop(chat_id, 0)
 
 # ===============================
 # The Controller Class
@@ -163,12 +139,10 @@ class Call:
 
     async def stop_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
-        await _clear_(chat_id)
         try:
+            await _clear_(chat_id)
             await assistant.leave_call(chat_id)
         except: pass
-        finally:
-            self.active_calls.discard(chat_id)
 
     async def force_stop_stream(self, chat_id: int) -> None:
         assistant = await group_assistant(self, chat_id)
@@ -178,12 +152,9 @@ class Call:
         except: pass
         await remove_active_video_chat(chat_id)
         await remove_active_chat(chat_id)
-        await _clear_(chat_id)
         try:
             await assistant.leave_call(chat_id)
         except: pass
-        finally:
-            self.active_calls.discard(chat_id)
 
     # --- Advanced Controls (Seek & Skip) ---
     async def seek_stream(self, chat_id: int, file_path: str, to_seek: int, duration: int, mode: str) -> None:
@@ -226,14 +197,8 @@ class Call:
         lang = await get_lang(chat_id)
         _ = get_string(lang)
 
-        # Resolve YouTube Direct Links if needed
-        final_link = link
-        if "youtube" in str(link) or "youtu.be" in str(link):
-            # Assumes link is valid or handled by stream.py beforehand
-            pass
-
         # Build Stream
-        stream = _build_stream(final_link, video=video)
+        stream = _build_stream(link, video=video)
 
         try:
             # play() with auto_start=True replaces join_group_call + change_stream
@@ -244,7 +209,6 @@ class Call:
             )
             
             # Update Internal State
-            self.active_calls.add(chat_id)
             await add_active_chat(chat_id)
             await music_on(chat_id)
             if video:
@@ -253,11 +217,6 @@ class Call:
             # Auto-End Logic
             if await is_autoend():
                 counter[chat_id] = {}
-                try:
-                    users = len(await assistant.get_participants(chat_id))
-                    if users == 1:
-                        autoend[chat_id] = datetime.now() + timedelta(minutes=1)
-                except: pass
                     
         except NoActiveGroupCall:
              raise AssistantErr(_["call_8"])
@@ -301,11 +260,12 @@ class Call:
                 chat_id = update.chat_id
                 await self.stop_stream(chat_id)
 
-    # --- Queue Processing ---
+    # --- Queue Processing (The Fix) ---
     @capture_internal_err
     async def play(self, client, chat_id: int) -> None:
         """
         Handles the queue when a song ends.
+        Includes Logic to Refresh Links using YouTube.py
         """
         check = db.get(chat_id)
         if not check:
@@ -324,33 +284,41 @@ class Call:
             if popped: await auto_clean(popped)
             
             if not check:
-                await _clear_(chat_id)
                 try: await client.leave_call(chat_id)
                 except: pass
-                finally: self.active_calls.discard(chat_id)
+                await _clear_(chat_id)
                 return
         except:
-            try: await _clear_(chat_id); return await client.leave_call(chat_id)
-            except: return
+            try: await client.leave_call(chat_id)
+            except: pass
+            await _clear_(chat_id)
+            return
 
         # Get Next Track Info
-        queued = check[0].get("file")
-        title = (check[0].get("title") or "").title()
-        user = check[0].get("by")
-        original_chat_id = check[0].get("chat_id")
-        streamtype = check[0].get("streamtype")
-        videoid = check[0].get("vidid")
-        duration = check[0].get("dur")
+        queued_item = check[0]
+        title = (queued_item.get("title") or "").title()
+        user = queued_item.get("by")
+        original_chat_id = queued_item.get("chat_id")
+        streamtype = queued_item.get("streamtype")
+        videoid = queued_item.get("vidid")
+        duration = queued_item.get("dur")
         
         is_video = str(streamtype) == "video"
         
-        # Link Handling
-        final_link = queued
-        if "youtube" in str(queued):
-             try:
-                direct = await get_direct_link(videoid, video=is_video)
-                if direct: final_link = direct
-             except: pass
+        # 🔥 The Fix: Link Refresh using YouTube.py 🔥
+        final_link = queued_item.get("file")
+        
+        # إذا كان الرابط قديم (expired) أو يوتيوب، نحاول تجديده
+        if videoid:
+            try:
+                # نستخدم YouTube.get_direct_link مباشرة
+                # prefer_audio=True لو صوت، False لو فيديو
+                refreshed = await YouTube.get_direct_link(final_link, prefer_audio=not is_video)
+                if refreshed:
+                    final_link = refreshed
+                    LOGGER(__name__).info(f"Refreshed link for {videoid}")
+            except Exception as e:
+                LOGGER(__name__).error(f"Failed to refresh link: {e}")
 
         # Build & Play Next Stream
         stream = _build_stream(final_link, video=is_video)
