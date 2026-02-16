@@ -1,61 +1,74 @@
 # Authored By Certified Coders © 2026
-# Fixed for Python 3.10+ (Locals Scope Fix)
+# Ultimate Dev Module: Eval, Shell, and System Diagnostics
+# Features: Pre-loaded imports, Async Execution, Auto-File Upload
 
 import os
 import re
 import subprocess
 import sys
 import traceback
+import asyncio
+import io
+import time
 from io import StringIO
-from time import time
+
+# ✅ مكتبات جاهزة للاستخدام الفوري داخل Eval
+import requests
+import yt_dlp
+import json
+import shutil
+from datetime import datetime
 
 from pyrogram import filters, Client
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-
 from config import OWNER_ID
 from AnnieXMedia import app
 
-
+# --- Helper Function to Fix Scope Issues ---
 async def aexec(code, client, message):
-    # ✅ FIX: Use a dedicated dictionary for local scope
-    local_env = {}
+    # نجهز بيئة العمل بالمتغيرات المهمة عشان متعملش import كل مرة
+    local_env = {
+        "c": client,
+        "m": message,
+        "msg": message,
+        "client": client,
+        "requests": requests,
+        "yt_dlp": yt_dlp,
+        "os": os,
+        "sys": sys,
+        "json": json,
+        "app": app,
+        "print": print, # التأكد من وجود print
+    }
+    
+    # دمج الـ Globals لضمان رؤية المكتبات المستوردة فوق
     exec(
         "async def __aexec(client, message): "
         + "".join(f"\n {a}" for a in code.split("\n")),
         globals(),
         local_env
     )
-    # Call the function from the dictionary
     return await local_env["__aexec"](client, message)
-
 
 async def edit_or_reply(msg: Message, **kwargs):
     func = msg.edit_text if msg.from_user.is_self else msg.reply
     await func(**kwargs)
 
-
-@app.on_edited_message(
-    filters.command("eval")
-    & filters.user(OWNER_ID)
-    & ~filters.forwarded
-    & ~filters.via_bot
-)
-@app.on_message(
-    filters.command("eval")
-    & filters.user(OWNER_ID)
-    & ~filters.forwarded
-    & ~filters.via_bot
-)
+# ================= /eval Command (Python) =================
+@app.on_edited_message(filters.command("eval") & filters.user(OWNER_ID))
+@app.on_message(filters.command("eval") & filters.user(OWNER_ID))
 async def executor(client: Client, message: Message):
     if len(message.command) < 2:
-        return await edit_or_reply(message, text="<b>Give me some code to execute!</b>")
+        return await edit_or_reply(message, text="<b>💻 هات كود بايثون عشان أنفذه!</b>\nمثال: <code>/eval print('hello')</code>")
 
     try:
         cmd = message.text.split(" ", maxsplit=1)[1]
     except IndexError:
         return await message.delete()
 
-    t1 = time()
+    t1 = time.time()
+    
+    # توجيه المخرجات (Capture Prints)
     old_stderr = sys.stderr
     old_stdout = sys.stdout
     redirected_output = sys.stdout = StringIO()
@@ -63,150 +76,99 @@ async def executor(client: Client, message: Message):
     stdout, stderr, exc = None, None, None
 
     try:
+        # تنفيذ الكود
         await aexec(cmd, client, message)
     except Exception:
         exc = traceback.format_exc()
 
+    # استرجاع المخرجات
     stdout = redirected_output.getvalue()
     stderr = redirected_error.getvalue()
     sys.stdout = old_stdout
     sys.stderr = old_stderr
 
     evaluation = ""
-    if exc:
-        evaluation = exc
-    elif stderr:
-        evaluation = stderr
-    elif stdout:
-        evaluation = stdout
-    else:
-        evaluation = "Success"
+    if exc: evaluation += exc
+    elif stderr: evaluation += stderr
+    elif stdout: evaluation += stdout
+    else: evaluation += "✅ Success (No Output)"
 
-    final_output = f"<b>⥤ ʀᴇsᴜʟᴛ :</b>\n<pre language='python'>{evaluation}</pre>"
+    final_output = f"<b>⥤ 🐍 Python Eval :</b>\n<pre language='python'>{cmd[:50]}...</pre>\n\n<b>⥤ 📤 Result :</b>\n<pre language='python'>{evaluation}</pre>"
 
-    t2 = time()
-    keyboard = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    text="⏳",
-                    callback_data=f"runtime {round(t2 - t1, 3)} Seconds",
-                ),
-                InlineKeyboardButton(
-                    text="🗑",
-                    callback_data=f"forceclose abc|{message.from_user.id}",
-                ),
-            ]
-        ]
-    )
+    t2 = time.time()
+    runtime = round(t2 - t1, 3)
 
+    # لو النتيجة طويلة، ارفعها في ملف
     if len(final_output) > 4096:
-        filename = "output.txt"
+        filename = f"eval_output_{int(t1)}.txt"
         with open(filename, "w+", encoding="utf8") as out_file:
             out_file.write(str(evaluation))
-
+        
         await message.reply_document(
             document=filename,
-            caption=f"<b>⥤ ᴇᴠᴀʟ :</b>\n<code>{cmd[0:980]}</code>\n\n<b>⥤ ʀᴇsᴜʟᴛ :</b>\nAttached Document",
-            quote=False,
-            reply_markup=keyboard,
+            caption=f"<b>⥤ Eval Executed</b> in {runtime}s",
+            quote=False
         )
-        await message.delete()
         os.remove(filename)
     else:
-        await edit_or_reply(message, text=final_output, reply_markup=keyboard)
+        await edit_or_reply(message, text=final_output)
 
-
-@app.on_callback_query(filters.regex(r"runtime"))
-async def runtime_func_cq(_, cq):
-    runtime = cq.data.split(None, 1)[1]
-    await cq.answer(runtime, show_alert=True)
-
-
-@app.on_callback_query(filters.regex("forceclose"))
-async def forceclose_command(_, CallbackQuery):
-    callback_data = CallbackQuery.data.strip()
-    callback_request = callback_data.split(None, 1)[1]
-    query, user_id = callback_request.split("|")
-    if CallbackQuery.from_user.id != int(user_id):
-        try:
-            return await CallbackQuery.answer(
-                "» ᴛʜɪs ɪs ɴᴏᴛ ғᴏʀ ʏᴏᴜ!", show_alert=True
-            )
-        except:
-            return
-    await CallbackQuery.message.delete()
-
-
-@app.on_edited_message(
-    filters.command("sh")
-    & filters.user(OWNER_ID)
-    & ~filters.forwarded
-    & ~filters.via_bot
-)
-@app.on_message(
-    filters.command("sh")
-    & filters.user(OWNER_ID)
-    & ~filters.forwarded
-    & ~filters.via_bot
-)
-async def shellrunner(_, message: Message):
+# ================= /sh Command (Terminal) =================
+@app.on_edited_message(filters.command("sh") & filters.user(OWNER_ID))
+@app.on_message(filters.command("sh") & filters.user(OWNER_ID))
+async def shellrunner(client: Client, message: Message):
     if len(message.command) < 2:
-        return await edit_or_reply(message, text="<b>Example:</b>\n/sh git pull")
+        return await edit_or_reply(message, text="<b>⌨️ هات أمر تيرمينال!</b>\nمثال: <code>/sh pip install speedtest-cli</code>")
 
-    text = message.text.split(None, 1)[1]
+    cmd_text = message.text.split(None, 1)[1]
+    
+    # رسالة انتظار
+    status_msg = await edit_or_reply(message, text="<b>🔄 جاري المعالجة...</b>")
+    
+    try:
+        # تنفيذ الأمر
+        process = await asyncio.create_subprocess_shell(
+            cmd_text,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        result = str(stdout.decode().strip()) + str(stderr.decode().strip())
+    except Exception as e:
+        result = str(e)
 
-    if "\n" in text:
-        code = text.split("\n")
-        output = ""
-        for x in code:
-            shell = re.split(r""" (?=(?:[^'"]|'[^']*'|"[^"]*")*$)""", x)
-            try:
-                process = subprocess.Popen(
-                    shell,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                stdout, stderr = process.communicate()
-                output += f"<b>{x}</b>\n{stdout.decode()}\n{stderr.decode()}"
-            except Exception as err:
-                return await edit_or_reply(
-                    message, text=f"<b>ERROR :</b>\n<pre>{err}</pre>"
-                )
-    else:
-        shell = re.split(r""" (?=(?:[^'"]|'[^']*'|"[^"]*")*$)""", text)
-        shell = [arg.replace('"', "") for arg in shell]
-        try:
-            process = subprocess.Popen(
-                shell,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            stdout, stderr = process.communicate()
-            output = stdout.decode() + stderr.decode()
-        except Exception:
-            exc_type, exc_obj, exc_tb = sys.exc_info()
-            errors = traceback.format_exception(
-                etype=exc_type,
-                value=exc_obj,
-                tb=exc_tb,
-            )
-            return await edit_or_reply(
-                message, text=f"<b>ERROR :</b>\n<pre>{''.join(errors)}</pre>"
-            )
+    if not result:
+        result = "✅ Command Executed (No Output)"
 
-    if not output.strip():
-        output = "None"
-
-    if len(output) > 4096:
-        with open("output.txt", "w+", encoding="utf-8") as file:
-            file.write(output)
+    # لو النتيجة طويلة، ارفعها في ملف
+    if len(result) > 4096:
+        filename = f"sh_output_{int(time.time())}.txt"
+        with open(filename, "w+", encoding="utf8") as file:
+            file.write(result)
         await app.send_document(
             message.chat.id,
-            "output.txt",
-            reply_to_message_id=message.id,
-            caption="<code>Output</code>",
+            filename,
+            caption=f"<b>⥤ Shell:</b> <code>{cmd_text}</code>",
+            reply_to_message_id=message.id
         )
-        os.remove("output.txt")
+        os.remove(filename)
+        await status_msg.delete()
     else:
-        await edit_or_reply(message, text=f"<b>OUTPUT :</b>\n<pre>{output}</pre>")
+        await status_msg.edit_text(f"<b>⥤ 🐚 Shell :</b>\n<pre>{cmd_text}</pre>\n\n<b>⥤ 📤 Output :</b>\n<pre>{result}</pre>")
+
+# ================= أدوات مساعدة =================
+# أمر سريع لفحص السيرفر
+@app.on_message(filters.command("sys") & filters.user(OWNER_ID))
+async def sys_info(client, message):
+    # فحص المعالج والرامات
+    cpu = "Unknown"
+    ram = "Unknown"
+    try:
+        # Linux only commands
+        cpu = subprocess.getoutput("nproc")
+        ram_cmd = subprocess.getoutput("free -h | awk '/^Mem/ {print $2}'")
+        ram = ram_cmd if ram_cmd else "Unknown"
+    except: pass
+    
+    await message.reply_text(f"🖥 <b>Server Stats:</b>\nCPU Cores: {cpu}\nTotal RAM: {ram}")
+
