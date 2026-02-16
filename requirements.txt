@@ -61,7 +61,6 @@ gpytranslate
 SpeechRecognition
 lyricsgenius
 spotipy
-deepai
 lexica-api
 nekosbest
 g4f
