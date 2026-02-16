@@ -1,74 +1,100 @@
-# استخدام أحدث وأخف نسخة مستقرة
-FROM python:3.13-slim
+# 1. استخدام "الدبابة" Ubuntu 24.04 (ليست Debian وليست Slim)
+FROM ubuntu:24.04
 
-# ===============================
-# Performance & Runtime Tweaks
-# ===============================
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV PIP_NO_CACHE_DIR=1
-ENV DENO_INSTALL="/root/.deno"
-ENV PATH="${DENO_INSTALL}/bin:${PATH}"
+# ========================================================
+# ⚡ UV PACKAGE MANAGER (محرك السرعة)
+# ========================================================
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# ========================================================
+# 🚀 SYSTEM CONFIGURATION
+# ========================================================
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_SYSTEM_PYTHON=1 \
+    # مسارات المحركات
+    DENO_INSTALL="/root/.deno" \
+    PATH="/root/.deno/bin:/usr/bin:${PATH}"
 
 WORKDIR /app
 
-# ===============================
-# System Engines (Speed Core)
-# ===============================
+# ========================================================
+# 🛠 THE ULTIMATE TOOLCHAIN (C/C++ POWER)
+# ========================================================
+# هنا بننزل "العدة الكاملة" عشان مكتبات C تشتغل صح
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        git ffmpeg curl unzip build-essential python3-dev \
-        libffi-dev libxml2-dev libxslt-dev zlib1g-dev gcc \
-        aria2 ca-certificates && \
-    \
-    # Node.js (YouTube Cipher Engine 1)
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
-    \
-    # Deno (YouTube Cipher Engine 2 – مهم جدًا 2026)
-    curl -fsSL https://deno.land/install.sh | sh && \
-    \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    software-properties-common \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    wget \
+    unzip \
+    ffmpeg \
+    aria2 \
+    libffi-dev \
+    libxml2-dev \
+    libxslt-dev \
+    zlib1g-dev \
+    libssl-dev \
+    # إضافة PPA عشان ننزل أحدث بايثون 3.13 على أوبونتو
+    && add-apt-repository ppa:deadsnakes/ppa -y \
+    && apt-get update && \
+    apt-get install -y python3.13 python3.13-dev python3.13-venv \
+    # تثبيت Node.js 20 (Full)
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    # تثبيت Deno (أحدث نسخة)
+    && curl -fsSL https://deno.land/install.sh | sh \
+    # تنظيف
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# ===============================
-# Python Core Upgrade
-# ===============================
-RUN pip install --upgrade pip setuptools wheel
+# ربط python3 بـ python3.13
+RUN ln -sf /usr/bin/python3.13 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3.13 /usr/bin/python
 
-# ===============================
-# Local pytgcalls (Custom Build)
-# ===============================
+# ========================================================
+# 📦 PYTHON PREP
+# ========================================================
+# نستخدم uv لتثبيت setuptools بسرعة البرق
+RUN uv pip install --upgrade setuptools wheel
+
+# ========================================================
+# 🧬 LOCAL PYTGCALLS (Native C Compilation)
+# ========================================================
 COPY pytgcalls /app/pytgcalls
 
-# ===============================
-# Python Libraries
-# ===============================
+# ========================================================
+# ⚡ INSTALL DEPENDENCIES
+# ========================================================
 COPY requirements.txt .
 
-# استبعاد pytgcalls / py-tgcalls لمنع التعارض
+# 1. فلترة وتثبيت المكتبات العادية
 RUN grep -v -i '^py-tgcalls\|pytgcalls' requirements.txt > filtered.txt && \
-    pip install --no-cache-dir -r filtered.txt
+    uv pip install --no-cache -r filtered.txt
 
-# ===============================
-# 🔥 UVLOOP + Network Boost
-# ===============================
-RUN pip install --no-cache-dir \
+# 2. تثبيت المكتبات الثقيلة + بناء pytgcalls محلياً
+# بما إننا على Ubuntu Full، عملية البناء (Compilation) هتكون مثالية
+RUN uv pip install --no-cache \
     uvloop \
     g4f \
-    curl_cffi
+    curl_cffi \
+    ./pytgcalls
 
-# ===============================
-# yt-dlp Global Forced Config
-# ===============================
+# ========================================================
+# ⚙️ YOUTUBE ENGINE
+# ========================================================
 RUN mkdir -p /etc/yt-dlp && \
     echo "--remote-components ejs:github" > /etc/yt-dlp.conf
 
-# ===============================
-# Copy Bot Source
-# ===============================
+# ========================================================
+# 📂 SOURCE CODE
+# ========================================================
 COPY . .
 
-# ===============================
-# Launch 🚀
-# ===============================
+# ========================================================
+# 🚀 LAUNCH
+# ========================================================
 CMD ["python3", "run.py"]
