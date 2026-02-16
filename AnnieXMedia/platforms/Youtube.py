@@ -2,6 +2,7 @@
 # Robust YouTube resolver for AnnieXMedia (2026)
 # Fixed: Added download_thumb method logic & Search Function & Keep-Alive
 # Change: added invalidate_direct_cache and clear_direct_cache helpers
+# Feature: Added get_recommendations (Autoplay)
 
 import asyncio
 import contextlib
@@ -175,16 +176,10 @@ class YouTubeAPI:
     # Cache invalidation API
     # -----------------------
     async def invalidate_direct_cache(self, vid_or_link: Optional[str]) -> None:
-        """
-        Best-effort: remove direct-cache entries related to a given video id or link.
-        Accepts either a raw 11-char vid, or a youtube link containing the id, or any substring.
-        """
         if not vid_or_link:
             return
-        # try to extract 11-char vid if possible
         vid = None
         try:
-            # common patterns
             m = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)', vid_or_link)
             if m:
                 vid = m.group(1)
@@ -193,7 +188,6 @@ class YouTubeAPI:
         except Exception:
             vid = None
 
-        # best-effort removal
         try:
             async with _direct_cache_lock:
                 keys = list(_direct_cache.keys())
@@ -202,40 +196,21 @@ class YouTubeAPI:
                         if vid and vid in k:
                             _direct_cache.pop(k, None)
                             continue
-                        # also remove if normalized link substring matches
                         if vid_or_link in k:
                             _direct_cache.pop(k, None)
                     except Exception:
                         continue
         except Exception:
-            # fallback: try without lock (best-effort)
-            try:
-                keys = list(_direct_cache.keys())
-                for k in keys:
-                    try:
-                        if vid and vid in k:
-                            _direct_cache.pop(k, None)
-                            continue
-                        if vid_or_link in k:
-                            _direct_cache.pop(k, None)
-                    except Exception:
-                        continue
-            except Exception:
-                pass
+            pass
 
     async def clear_direct_cache(self) -> None:
-        """Clear entire direct-cache (useful for debugging)."""
         try:
             async with _direct_cache_lock:
                 _direct_cache.clear()
         except Exception:
-            try:
-                _direct_cache.clear()
-            except Exception:
-                pass
+            pass
 
     async def url(self, message) -> Optional[str]:
-        """Extract URL from a pyrogram Message-like object (robust)."""
         if not message:
             return None
         msgs = [message]
@@ -258,9 +233,7 @@ class YouTubeAPI:
                     continue
         return None
 
-    # 🛑 الدالة الجديدة: بحث القائمة (Search 10)
     async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
-        """Returns a list of videos [{title, vidid}] for the list command."""
         cmd = [
             "yt-dlp",
             "--dump-json",
@@ -289,7 +262,6 @@ class YouTubeAPI:
         return results
 
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
-        """Return basic metadata (cached) and vid id."""
         prepared = _normalize_link(link, videoid)
         key = "q:" + (prepared or "")
         now = time.time()
@@ -301,10 +273,9 @@ class YouTubeAPI:
                     return data, vid
                 _meta_cache.pop(key, None)
 
-        # fast path: youtubesearchpython (optional)
         results = []
         try:
-            from youtubesearchpython.aio import VideosSearch  # type: ignore
+            from youtubesearchpython.aio import VideosSearch
             try:
                 res = await VideosSearch(prepared, limit=1).next()
                 results = res.get("result", [])
@@ -328,7 +299,6 @@ class YouTubeAPI:
                 _meta_cache[key] = (now, details, data.get("id", ""))
             return details, data.get("id", "")
 
-        # fallback: yt-dlp --dump-json (simple)
         cmd = ["yt-dlp", "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
         if self.cookie:
             cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
@@ -351,7 +321,6 @@ class YouTubeAPI:
             except Exception:
                 log.debug("dump-json parse failed; stderr=%s", (err.decode() if err else ""))
 
-        # second fallback: dump-json with remote-components (EJS GitHub)
         cmd2 = ["yt-dlp", "--remote-components", "ejs:github", "--dump-json", prepared, "--no-warnings"]
         if self.cookie:
             cmd2 = ["yt-dlp", "--cookies", self.cookie, "--remote-components", "ejs:github", "--dump-json", prepared, "--no-warnings"]
@@ -372,7 +341,7 @@ class YouTubeAPI:
                     _meta_cache[key] = (now, details, info.get("id", ""))
                 return details, info.get("id", "")
             except Exception:
-                log.debug("remote dump-json parse failed; stderr=%s", (err2.decode() if err2 else ""))
+                pass
 
         return {"title": "Unknown", "link": prepared, "vidid": "", "duration_min": None, "thumb": "", "cookiefile": self.cookie}, ""
 
@@ -396,21 +365,14 @@ class YouTubeAPI:
         d, _ = await self.track(link, videoid)
         return d.get("thumb", "")
     
-    # -------------------------------------------------------------
-    # ✅ FIX: Added download_thumb method for song.py compatibility
-    # -------------------------------------------------------------
     async def download_thumb(self, url: str) -> Optional[str]:
-        """Downloads the thumbnail to a temp path and returns the path."""
         if not url:
             return None
         try:
-            # Ensure downloads dir exists
             base_dir = "downloads"
             if not os.path.exists(base_dir):
                 os.makedirs(base_dir, exist_ok=True)
-            
             path = os.path.join(base_dir, f"thumb_{int(time.time())}.jpg")
-            
             session = await _ensure_aio_session()
             async with session.get(url) as resp:
                 if resp.status == 200:
@@ -426,7 +388,6 @@ class YouTubeAPI:
         if not t:
             return 0
         try:
-            # if already int
             if isinstance(t, int):
                 return t
             parts = [int(p) for p in str(t).split(":")]
@@ -463,17 +424,12 @@ class YouTubeAPI:
         return out, prepared
 
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
-        """
-        Return a direct playable URL quickly, or None.
-        prefer_audio=True recommended for audio-only calls (faster).
-        """
         prepared = _normalize_link(link)
         if not prepared:
             return None
         key = prepared + ("::audio" if prefer_audio else "::video")
         now = int(time.time())
 
-        # cache check
         async with _direct_cache_lock:
             cached = _direct_cache.get(key)
             if cached:
@@ -484,7 +440,6 @@ class YouTubeAPI:
                 else:
                     _direct_cache.pop(key, None)
 
-        # extraction with yt-dlp API in threadpool guarded by semaphore
         async with self.sema:
             loop = asyncio.get_running_loop()
 
@@ -500,7 +455,6 @@ class YouTubeAPI:
                 if self.cookie:
                     ydl_opts["cookiefile"] = self.cookie
                 if self.impersonate:
-                    # Python API uses 'impersonate' option when curl_cffi present
                     ydl_opts["impersonate"] = "chrome"
                 try:
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -510,10 +464,8 @@ class YouTubeAPI:
 
             info = await loop.run_in_executor(self.pool, _extract_info_blocking)
 
-        # fallback to subprocess -g if API failed
         if not info or (isinstance(info, dict) and info.get("_err")):
             log.debug("yt-dlp API failed for %s: %s", prepared, info.get("_err") if isinstance(info, dict) else repr(info))
-            # try simple -g
             try:
                 cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", prepared]
                 if self.cookie:
@@ -530,7 +482,6 @@ class YouTubeAPI:
                         return candidate
             except Exception:
                 pass
-            # try -g with remote-components ejs:github
             try:
                 cmd = ["yt-dlp", "-g", "--no-warnings", "--remote-components", "ejs:github", "--force-ipv4", prepared]
                 if self.cookie:
@@ -549,10 +500,7 @@ class YouTubeAPI:
                 pass
             return None
 
-        # inspect info
         fmts: List[dict] = info.get("formats") or []
-
-        # top-level url quick try
         top_url = info.get("url")
         if top_url:
             ok, _ = await _probe_url(top_url)
@@ -563,7 +511,6 @@ class YouTubeAPI:
                     _direct_cache[key] = (expiry, top_url)
                 return top_url
 
-        # if no formats, attempt dump-json with remote components
         if not fmts:
             try:
                 cmd = ["yt-dlp", "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
@@ -576,7 +523,6 @@ class YouTubeAPI:
             except Exception:
                 fmts = []
 
-        # build and score candidates
         candidates: List[Tuple[int, str]] = []
         for f in fmts:
             url = f.get("url")
@@ -587,7 +533,6 @@ class YouTubeAPI:
                 continue
             if prefer_audio and (f.get("acodec") or "") == "none":
                 continue
-            # prefer muxed if video requested
             if not prefer_audio and (f.get("vcodec") or "") != "none" and (f.get("acodec") or "") != "none":
                 candidates.append((_score_format(f, prefer_audio), url)); continue
             if (f.get("acodec") or "") != "none":
@@ -597,13 +542,18 @@ class YouTubeAPI:
 
         candidates.sort(key=lambda x: x[0], reverse=True)
 
-        # probe top candidates
         tries = 0
         for _score, cand in candidates:
             if tries >= 6:
                 break
             tries += 1
-            ok, _ctype = await _probe_url(cand)
+            # Simple retry mechanism
+            for retry in range(2):
+                ok, _ctype = await _probe_url(cand)
+                if ok:
+                    break
+                await asyncio.sleep(0.5)
+
             if ok:
                 expiry = _parse_expire(cand) or (now + CACHE_DEFAULT_TTL)
                 expiry = int(expiry) - 3
@@ -611,7 +561,6 @@ class YouTubeAPI:
                     _direct_cache[key] = (expiry, cand)
                 return cand
 
-        # if failed and prefer_audio was False, try audio fallback
         if not prefer_audio:
             return await self.get_direct_link(link, prefer_audio=True)
 
@@ -628,15 +577,10 @@ class YouTubeAPI:
         format_id: Union[bool, str] = None,
         title: Union[bool, str] = None,
     ) -> Tuple[Optional[str], bool]:
-        """
-        Return (path_or_direct_url_or_None, is_direct_flag)
-        """
         is_video = bool(video or songvideo)
         prepared = _normalize_link(link, videoid)
 
-        # compute vid
         try:
-            # Only accept videoid if it's a valid 11-char string
             if isinstance(videoid, str) and re.match(r'^[0-9A-Za-z_-]{11}$', videoid):
                 vid = str(videoid)
             elif "v=" in prepared:
@@ -652,7 +596,6 @@ class YouTubeAPI:
         ram_base = os.path.join(downloads_base, vid)
         os.makedirs(os.path.dirname(ram_base), exist_ok=True)
 
-        # 1) RAM cache check
         for ext in (".mp4", ".m4a", ".mp3", ".webm"):
             cand = f"{ram_base}{ext}"
             try:
@@ -663,7 +606,6 @@ class YouTubeAPI:
 
         loop = asyncio.get_running_loop()
 
-        # 2) format_id specific
         if format_id:
             def _specific():
                 try:
@@ -693,7 +635,6 @@ class YouTubeAPI:
             res = await loop.run_in_executor(self.pool, _specific)
             return (res, False) if res else (None, False)
 
-        # 3) try direct fast-path
         try:
             direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
         except Exception as e:
@@ -701,7 +642,6 @@ class YouTubeAPI:
             direct = None
 
         if direct:
-            # schedule background cache
             def _delayed_cache():
                 try:
                     time.sleep(6)
@@ -712,7 +652,6 @@ class YouTubeAPI:
             loop.run_in_executor(self.pool, _delayed_cache)
             return direct, True
 
-        # 4) fallback: download to RAM immediately
         def _fallback():
             try:
                 fmt = "best[ext=mp4]/best" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
@@ -790,6 +729,87 @@ class YouTubeAPI:
         except Exception:
             result = []
         return result
+
+    # =========================================================
+    # 🔥 New Feature: YouTube Recommendations (Autoplay)
+    # Ported from YukkiMusic Go to Python
+    # =========================================================
+    async def get_recommendations(self, videoid: str) -> List[Dict[str, str]]:
+        if not videoid:
+            return []
+
+        innertube_key = "AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
+        url = f"https://www.youtube.com/youtubei/v1/next?key={innertube_key}"
+        
+        json_data = {
+            "context": {
+                "client": {
+                    "clientName": "WEB",
+                    "clientVersion": "2.20250101.01.00",
+                    "hl": "en",
+                    "gl": "EG",
+                }
+            },
+            "videoId": videoid,
+            "playlistId": f"RD{videoid}"
+        }
+
+        try:
+            sess = await _ensure_aio_session()
+            async with sess.post(url, json=json_data, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+                if resp.status != 200:
+                    return []
+                data = await resp.json()
+            
+            tracks = []
+            
+            def dig(obj, *keys):
+                for key in keys:
+                    if isinstance(obj, dict):
+                        obj = obj.get(key)
+                    elif isinstance(obj, list) and isinstance(key, int):
+                        if 0 <= key < len(obj):
+                            obj = obj[key]
+                        else:
+                            return None
+                    else:
+                        return None
+                    if obj is None: return None
+                return obj
+
+            contents = dig(data, "contents", "twoColumnWatchNextResults", "playlist", "playlist", "contents")
+            
+            if not contents:
+                return []
+
+            for item in contents:
+                renderer = item.get("playlistPanelVideoRenderer")
+                if not renderer:
+                    continue
+                
+                vid = renderer.get("videoId")
+                title_obj = renderer.get("title", {})
+                title = title_obj.get("simpleText") or dig(title_obj, "runs", 0, "text")
+                
+                length_text = renderer.get("lengthText", {})
+                duration = length_text.get("simpleText") or dig(length_text, "runs", 0, "text")
+
+                if vid and title and vid != videoid:
+                    tracks.append({
+                        "title": title,
+                        "vidid": vid,
+                        "duration": duration,
+                        "link": f"https://www.youtube.com/watch?v={vid}"
+                    })
+                    
+                    if len(tracks) >= 5:
+                        break
+            
+            return tracks
+
+        except Exception as e:
+            log.error(f"Error fetching recommendations: {e}")
+            return []
 
 # exported instance
 YouTube = YouTubeAPI()
