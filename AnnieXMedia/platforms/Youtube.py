@@ -1,14 +1,12 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
 # Fixed: Added download_thumb method logic & Search Function & Keep-Alive
-# Change: added invalidate_direct_cache and clear_direct_cache helpers
 
 import asyncio
 import contextlib
 import json
 import logging
 import os
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -89,13 +87,8 @@ async def _exec_proc(*args: str, timeout: int = 10) -> Tuple[bytes, bytes]:
         return b"", b"timeout"
 
 def _normalize_link(link: str, videoid: Union[bool, str, None] = None) -> str:
-    # Only treat videoid as an explicit id if it's a string of 11 youtube-id chars.
-    try:
-        if isinstance(videoid, str) and re.match(r'^[0-9A-Za-z_-]{11}$', videoid):
-            return "https://www.youtube.com/watch?v=" + videoid
-    except Exception:
-        pass
-
+    if videoid:
+        return "https://www.youtube.com/watch?v=" + str(videoid)
     if not link:
         return ""
     link = link.strip()
@@ -170,69 +163,6 @@ class YouTubeAPI:
             self.impersonate = True
         except Exception:
             self.impersonate = False
-
-    # -----------------------
-    # Cache invalidation API
-    # -----------------------
-    async def invalidate_direct_cache(self, vid_or_link: Optional[str]) -> None:
-        """
-        Best-effort: remove direct-cache entries related to a given video id or link.
-        Accepts either a raw 11-char vid, or a youtube link containing the id, or any substring.
-        """
-        if not vid_or_link:
-            return
-        # try to extract 11-char vid if possible
-        vid = None
-        try:
-            # common patterns
-            m = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)', vid_or_link)
-            if m:
-                vid = m.group(1)
-            elif len(vid_or_link.strip()) == 11 and re.match(r'^[0-9A-Za-z_-]{11}$', vid_or_link.strip()):
-                vid = vid_or_link.strip()
-        except Exception:
-            vid = None
-
-        # best-effort removal
-        try:
-            async with _direct_cache_lock:
-                keys = list(_direct_cache.keys())
-                for k in keys:
-                    try:
-                        if vid and vid in k:
-                            _direct_cache.pop(k, None)
-                            continue
-                        # also remove if normalized link substring matches
-                        if vid_or_link in k:
-                            _direct_cache.pop(k, None)
-                    except Exception:
-                        continue
-        except Exception:
-            # fallback: try without lock (best-effort)
-            try:
-                keys = list(_direct_cache.keys())
-                for k in keys:
-                    try:
-                        if vid and vid in k:
-                            _direct_cache.pop(k, None)
-                            continue
-                        if vid_or_link in k:
-                            _direct_cache.pop(k, None)
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-
-    async def clear_direct_cache(self) -> None:
-        """Clear entire direct-cache (useful for debugging)."""
-        try:
-            async with _direct_cache_lock:
-                _direct_cache.clear()
-        except Exception:
-            try:
-                _direct_cache.clear()
-            except Exception:
-                pass
 
     async def url(self, message) -> Optional[str]:
         """Extract URL from a pyrogram Message-like object (robust)."""
@@ -622,7 +552,7 @@ class YouTubeAPI:
         link: str,
         mystic: Any,
         video: Union[bool, str] = None,
-        videoid: Union[bool, str, None] = None,
+        videoid: Union[bool, str] = None,
         songaudio: Union[bool, str] = None,
         songvideo: Union[bool, str] = None,
         format_id: Union[bool, str] = None,
@@ -636,8 +566,7 @@ class YouTubeAPI:
 
         # compute vid
         try:
-            # Only accept videoid if it's a valid 11-char string
-            if isinstance(videoid, str) and re.match(r'^[0-9A-Za-z_-]{11}$', videoid):
+            if videoid:
                 vid = str(videoid)
             elif "v=" in prepared:
                 vid = prepared.split("v=")[1].split("&")[0]
