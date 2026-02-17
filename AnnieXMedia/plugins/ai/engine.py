@@ -1,16 +1,14 @@
 # file: AnnieXMedia/plugins/ai/engine.py
 # Authored By Certified Coders (c) 2026
-# G4F Engine (GPT-4 Optimized) - H200 Optimized
-# Fixes: ImportError toggle_model, ENGINE, No Emojis
+# G4F Engine - Architecture Verified (Scan Result: Sync Generator)
+# Fixes: 'async_generator can't be used in await'
 
-import os
 import logging
-import json
 import time
 import asyncio
-from typing import Dict, List, Callable, Any, Optional
+from typing import Dict, List, Callable, Any
 
-# Try importing g4f
+# Dynamic Import to prevent startup crashes
 try:
     import g4f
     from g4f.client import AsyncClient
@@ -24,17 +22,17 @@ except ImportError:
 logger = logging.getLogger("AnnieX_Engine")
 logger.setLevel(logging.INFO)
 
-# Target Model (GPT-4 based on Termux tests)
+# Default Model (Fallback to gpt-4 as tested)
 TARGET_MODEL = "gpt-4"
 
-# RAM Memory
-# Structure: {user_id: [{"role": "user", "content": "..."}, ...]}
+# Memory Structure: {user_id: [{"role": "user", "content": "..."}, ...]}
 _MEMORY: Dict[int, List[Dict[str, str]]] = {}
 
 # Engine State
 _IS_ENABLED = True
 
-# Initialize G4F Client
+# Initialize Client
+# Note: Providers are auto-selected by g4f
 _client = AsyncClient() if G4F_AVAILABLE else None
 
 # ------------------------------------------------------------------
@@ -47,112 +45,98 @@ async def ask_ollama_stream(
     on_update: Callable[[str], Any] = None
 ) -> str:
     """
-    Main chat function supporting memory and streaming.
-    Uses G4F backend but keeps the original name for compatibility.
+    Main chat function.
+    Architecture Note: Based on scan, 'create' is Sync but returns AsyncGenerator.
     """
     if not _IS_ENABLED:
-        return "AI is currently disabled for maintenance."
-
+        return "AI module is currently disabled."
+    
     if not G4F_AVAILABLE:
-        return "G4F library not found. Please install it using pip install g4f"
+        return "G4F library is missing. Install via pip."
 
-    # 1. Prepare Memory
+    # 1. Memory Management
     if user_id not in _MEMORY:
         _MEMORY[user_id] = []
-        # System Prompt (Strict No-Emoji)
         _MEMORY[user_id].append({
             "role": "system", 
-            "content": (
-                "You are Annie, an advanced AI assistant. "
-                "Answer directly, accurately, and briefly in Arabic. "
-                "Do NOT use emojis strictly."
-            )
+            "content": "You are Annie, a helpful assistant. Reply concisely in Arabic."
         })
     
-    # Add user message
     _MEMORY[user_id].append({"role": "user", "content": prompt})
     
-    # Keep only last 12 messages
-    if len(_MEMORY[user_id]) > 12:
+    # Trim Memory (Keep last 8 messages context)
+    if len(_MEMORY[user_id]) > 9:
         sys_msg = _MEMORY[user_id][0]
-        recent = _MEMORY[user_id][-11:]
+        recent = _MEMORY[user_id][-8:]
         _MEMORY[user_id] = [sys_msg] + recent
 
     full_response = ""
     last_update_time = time.time()
-    
+
     try:
-        # Request to G4F Provider
-        response = await _client.chat.completions.create(
+        # 2. Request Creation (THE FIX)
+        # Based on scan: create() is Sync, returns AsyncGenerator.
+        # DO NOT USE 'await' HERE.
+        response_generator = _client.chat.completions.create(
             model=TARGET_MODEL,
             messages=_MEMORY[user_id],
             stream=True
         )
 
-        async for chunk in response:
+        # 3. Stream Consumption
+        # Iterate over the generator asynchronously
+        async for chunk in response_generator:
             if chunk.choices and chunk.choices[0].delta.content:
                 content = chunk.choices[0].delta.content
                 full_response += content
                 
-                # Update every 0.8s to avoid FloodWait
+                # Rate limit updates (prevents FloodWait)
                 now = time.time()
-                if on_update and (now - last_update_time > 0.8):
+                if on_update and (now - last_update_time > 1.2):
                     try:
-                        await on_update(full_response + " ...")
+                        await on_update(full_response + " ◾️")
                         last_update_time = now
-                    except:
+                    except Exception:
                         pass
-        
-        # 3. Save Assistant Response
+
+        # 4. Finalize
         if full_response.strip():
             _MEMORY[user_id].append({"role": "assistant", "content": full_response})
             return full_response
         else:
-            return "No response received from server."
+            return "No response received. Try a different model or provider."
 
     except Exception as e:
-        logger.error(f"G4F Error: {e}")
-        return "An error occurred while connecting to the AI engine."
+        logger.error(f"G4F Logic Error: {e}")
+        return f"AI Error: {str(e)[:100]}"
 
 def clear_user_memory(user_id: int):
-    """Clear memory for a specific user"""
     if user_id in _MEMORY:
         del _MEMORY[user_id]
 
 def get_engine_status():
-    """Get engine status for stats"""
     return {
         "enabled": _IS_ENABLED,
+        "backend": "G4F (AsyncClient)",
         "model": TARGET_MODEL,
         "active_users": len(_MEMORY)
     }
 
 def set_engine_state(state: bool):
-    """Enable or disable AI"""
     global _IS_ENABLED
     _IS_ENABLED = state
 
 # ------------------------------------------------------------------
-# Missing Function Fix (toggle_model)
+# COMPATIBILITY LAYER
 # ------------------------------------------------------------------
 def toggle_model(model_name: str = None) -> str:
-    """
-    Function to change model dynamically.
-    """
     global TARGET_MODEL
     if model_name:
         TARGET_MODEL = model_name
-        return f"Model changed to: {TARGET_MODEL}"
-    return f"Current model: {TARGET_MODEL}"
+        return f"Model switched to: {TARGET_MODEL}"
+    return f"Current Model: {TARGET_MODEL}"
 
-# ------------------------------------------------------------------
-# COMPATIBILITY LAYER (Fixes ImportError ENGINE)
-# ------------------------------------------------------------------
 class LegacyEngineWrapper:
-    """
-    Wrapper class to satisfy legacy imports.
-    Prevents error: cannot import name 'ENGINE'
-    """
     def __init__(self):
         self.is_running = True
         self.memory = _MEMORY
@@ -161,10 +145,8 @@ class LegacyEngineWrapper:
     def model(self):
         return TARGET_MODEL
 
-# Dummy Engine Object
 ENGINE = LegacyEngineWrapper()
 
-# Export all necessary functions
 __all__ = [
     "ask_ollama_stream", 
     "clear_user_memory", 
