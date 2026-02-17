@@ -1,6 +1,6 @@
 # file: AnnieXMedia/plugins/ai/engine.py
 # Authored By Certified Coders (c) 2026
-# DeepSeek-R1 Engine (Ollama Async) - H200 Optimized
+# G4F Engine (GPT-4 Optimized) - H200 Optimized
 # Fixes: ImportError toggle_model, ENGINE, No Emojis
 
 import os
@@ -8,29 +8,37 @@ import logging
 import json
 import time
 import asyncio
-import aiohttp
 from typing import Dict, List, Callable, Any, Optional
 
+# Try importing g4f
+try:
+    import g4f
+    from g4f.client import AsyncClient
+    G4F_AVAILABLE = True
+except ImportError:
+    G4F_AVAILABLE = False
+
 # ------------------------------------------------------------------
-# ⚙️ CONFIGURATION
+# CONFIGURATION
 # ------------------------------------------------------------------
 logger = logging.getLogger("AnnieX_Engine")
 logger.setLevel(logging.INFO)
 
-# إعدادات الاتصال بـ Ollama (داخل الدوكر)
-OLLAMA_HOST = "http://localhost:11434"
-OLLAMA_CHAT_API = f"{OLLAMA_HOST}/api/chat"
-TARGET_MODEL = "deepseek-r1:70b"
+# Target Model (GPT-4 based on Termux tests)
+TARGET_MODEL = "gpt-4"
 
-# الذاكرة المؤقتة (RAM)
+# RAM Memory
 # Structure: {user_id: [{"role": "user", "content": "..."}, ...]}
 _MEMORY: Dict[int, List[Dict[str, str]]] = {}
 
-# حالة المحرك
+# Engine State
 _IS_ENABLED = True
 
+# Initialize G4F Client
+_client = AsyncClient() if G4F_AVAILABLE else None
+
 # ------------------------------------------------------------------
-# 🛠️ CORE FUNCTIONS (API)
+# CORE FUNCTIONS (API)
 # ------------------------------------------------------------------
 
 async def ask_ollama_stream(
@@ -39,13 +47,16 @@ async def ask_ollama_stream(
     on_update: Callable[[str], Any] = None
 ) -> str:
     """
-    دالة المحادثة الرئيسية مع دعم الذاكرة والرد المتتابع (Streaming).
-    تستخدم aiohttp مباشرة لسرعة H200.
+    Main chat function supporting memory and streaming.
+    Uses G4F backend but keeps the original name for compatibility.
     """
     if not _IS_ENABLED:
-        return "الذكاء الاصطناعي معطل حاليا للصيانة."
+        return "AI is currently disabled for maintenance."
 
-    # 1. تجهيز الذاكرة
+    if not G4F_AVAILABLE:
+        return "G4F library not found. Please install it using pip install g4f"
+
+    # 1. Prepare Memory
     if user_id not in _MEMORY:
         _MEMORY[user_id] = []
         # System Prompt (Strict No-Emoji)
@@ -58,12 +69,11 @@ async def ask_ollama_stream(
             )
         })
     
-    # إضافة رسالة المستخدم
+    # Add user message
     _MEMORY[user_id].append({"role": "user", "content": prompt})
     
-    # الاحتفاظ بآخر 12 رسالة فقط لتوفير الذاكرة
+    # Keep only last 12 messages
     if len(_MEMORY[user_id]) > 12:
-        # نحافظ على الـ System Prompt (index 0) ونقص الباقي
         sys_msg = _MEMORY[user_id][0]
         recent = _MEMORY[user_id][-11:]
         _MEMORY[user_id] = [sys_msg] + recent
@@ -71,58 +81,46 @@ async def ask_ollama_stream(
     full_response = ""
     last_update_time = time.time()
     
-    payload = {
-        "model": TARGET_MODEL,
-        "messages": _MEMORY[user_id],
-        "stream": True,
-        "options": {
-            "temperature": 0.6,
-            "num_ctx": 8192  # حجم سياق كبير للـ H200
-        }
-    }
-
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(OLLAMA_CHAT_API, json=payload) as response:
+        # Request to G4F Provider
+        response = await _client.chat.completions.create(
+            model=TARGET_MODEL,
+            messages=_MEMORY[user_id],
+            stream=True
+        )
+
+        async for chunk in response:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                full_response += content
                 
-                if response.status != 200:
-                    return f"خطأ من الخادم: {response.status}"
-
-                async for line in response.content:
-                    if not line: continue
-                    
+                # Update every 0.8s to avoid FloodWait
+                now = time.time()
+                if on_update and (now - last_update_time > 0.8):
                     try:
-                        chunk = json.loads(line)
-                        if "message" in chunk:
-                            content = chunk["message"].get("content", "")
-                            full_response += content
-                            
-                            # تحديث الرسالة كل 0.8 ثانية لتجنب FloodWait
-                            now = time.time()
-                            if on_update and (now - last_update_time > 0.8):
-                                await on_update(full_response + " ...")
-                                last_update_time = now
-                        
-                        if chunk.get("done", False):
-                            break
-                            
-                    except: pass
-
-        # 3. حفظ رد البوت في الذاكرة
-        _MEMORY[user_id].append({"role": "assistant", "content": full_response})
-        return full_response
+                        await on_update(full_response + " ...")
+                        last_update_time = now
+                    except:
+                        pass
+        
+        # 3. Save Assistant Response
+        if full_response.strip():
+            _MEMORY[user_id].append({"role": "assistant", "content": full_response})
+            return full_response
+        else:
+            return "No response received from server."
 
     except Exception as e:
-        logger.error(f"Ollama Error: {e}")
-        return "حدث خطأ في الاتصال بمحرك الذكاء الاصطناعي."
+        logger.error(f"G4F Error: {e}")
+        return "An error occurred while connecting to the AI engine."
 
 def clear_user_memory(user_id: int):
-    """مسح ذاكرة مستخدم معين"""
+    """Clear memory for a specific user"""
     if user_id in _MEMORY:
         del _MEMORY[user_id]
 
 def get_engine_status():
-    """جلب حالة المحرك للإحصائيات"""
+    """Get engine status for stats"""
     return {
         "enabled": _IS_ENABLED,
         "model": TARGET_MODEL,
@@ -130,37 +128,43 @@ def get_engine_status():
     }
 
 def set_engine_state(state: bool):
-    """تفعيل أو تعطيل الذكاء"""
+    """Enable or disable AI"""
     global _IS_ENABLED
     _IS_ENABLED = state
 
 # ------------------------------------------------------------------
-# 🛑 Missing Function Fix (toggle_model)
+# Missing Function Fix (toggle_model)
 # ------------------------------------------------------------------
 def toggle_model(model_name: str = None) -> str:
     """
-    دالة وهمية لإصلاح خطأ الاستيراد في ملفات البوت القديمة.
-    نحن نستخدم DeepSeek فقط، لذا لا داعي للتبديل.
+    Function to change model dynamically.
     """
-    return f"الموديل مثبت تلقائيا على: {TARGET_MODEL}"
+    global TARGET_MODEL
+    if model_name:
+        TARGET_MODEL = model_name
+        return f"Model changed to: {TARGET_MODEL}"
+    return f"Current model: {TARGET_MODEL}"
 
 # ------------------------------------------------------------------
-# 🛡️ COMPATIBILITY LAYER (حل مشكلة ImportError ENGINE)
+# COMPATIBILITY LAYER (Fixes ImportError ENGINE)
 # ------------------------------------------------------------------
 class LegacyEngineWrapper:
     """
-    كلاس وهمي لإرضاء ملف __init__.py القديم
-    يمنع خطأ: cannot import name 'ENGINE'
+    Wrapper class to satisfy legacy imports.
+    Prevents error: cannot import name 'ENGINE'
     """
     def __init__(self):
-        self.model = TARGET_MODEL
         self.is_running = True
         self.memory = _MEMORY
+    
+    @property
+    def model(self):
+        return TARGET_MODEL
 
-# ✅ كائن المحرك الوهمي
+# Dummy Engine Object
 ENGINE = LegacyEngineWrapper()
 
-# تصدير جميع الدوال والكائنات الضرورية
+# Export all necessary functions
 __all__ = [
     "ask_ollama_stream", 
     "clear_user_memory", 
