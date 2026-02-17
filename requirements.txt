@@ -1,4 +1,4 @@
-# ===== Core Async & Perforance (أقصى سرعة) ====
+# ===== Core Async & Performance (أقصى سرعة) ====
 uvloop==0.22.1
 aiofiles
 # تفعيل تسريع DNS و C-Parsin
@@ -95,4 +95,4 @@ curl_cffi>=0.14.0
 pytz
 py-yt-search
 # ===== YouTube Search (patched fork) =====
-git+https://github.com/b07849185-lang/youtube-search-python.git
+git+https://github.com/q058961234-web/youtube-search-python.git
