@@ -1,7 +1,7 @@
 # ===== Core Async & Performance (أقصى سرعة) ====
 uvloop==0.22.1
 aiofiles
-# تفعيل تسريع DNS و C-Parsing
+# تفعيل تسريع DNS و C-Parsin
 aiohttp[speedups]
 httpx[http2,brotli]>=0.28.1
 psutil
