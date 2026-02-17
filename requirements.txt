@@ -1,4 +1,4 @@
-# ===== Core Async & Performance (أقصى سرعة) ====
+# ===== Core Async & Perforance (أقصى سرعة) ====
 uvloop==0.22.1
 aiofiles
 # تفعيل تسريع DNS و C-Parsin
