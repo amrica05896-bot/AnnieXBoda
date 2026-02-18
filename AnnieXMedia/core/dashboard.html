@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AnnieX Enterprise | Liquid Control</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;500;700&family=Poppins:wght@300;400;600&display=swap');
+
+:root {
+    --glass-bg: rgba(18, 18, 28, 0.65);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-highlight: rgba(255, 255, 255, 0.15);
+    --neon-blue: #00f3ff;
+    --neon-purple: #bc13fe;
+    --neon-red: #ff0055;
+    --text-main: #ffffff;
+    --text-sec: #a0a0b0;
+    --card-bg: rgba(30, 30, 40, 0.4);
+}
+
+* {
+    box-sizing: border_box;
+    margin: 0;
+    padding: 0;
+    outline: none;
+    user-select: none;
+}
+
+body {
+    background: #050505;
+    color: var(--text-main);
+    font-family: 'Poppins', sans-serif;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+}
+
+.liquid-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    overflow: hidden;
+    background: radial-gradient(circle at 50% 50%, #1a1a2e 0%, #000000 100%);
+}
+
+.orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.6;
+    animation: float 20s infinite ease-in-out;
+}
+
+.orb-1 { width: 400px; height: 400px; background: var(--neon-purple); top: -100px; left: -100px; animation-delay: 0s; }
+.orb-2 { width: 500px; height: 500px; background: var(--neon-blue); bottom: -150px; right: -150px; animation-delay: -5s; }
+.orb-3 { width: 300px; height: 300px; background: var(--neon-red); top: 40%; left: 40%; animation-delay: -10s; filter: blur(100px); opacity: 0.4; }
+
+@keyframes float {
+    0%, 100% { transform: translate(0, 0); }
+    33% { transform: translate(30px, -50px) scale(1.1); }
+    66% { transform: translate(-20px, 20px) scale(0.9); }
+}
+
+.sidebar {
+    width: 280px;
+    height: 100%;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid var(--glass-border);
+    display: flex;
+    flex-direction: column;
+    padding: 30px;
+    z-index: 10;
+    transition: 0.3s;
+}
+
+.brand {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 50px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    text-shadow: 0 0 15px var(--neon-blue);
+}
+
+.brand span { color: var(--neon-blue); }
+
+.nav-links { list-style: none; display: flex; flex-direction: column; gap: 15px; }
+
+.nav-item {
+    padding: 15px 20px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: 0.3s;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    color: var(--text-sec);
+    font-weight: 500;
+    position: relative;
+    overflow: hidden;
+}
+
+.nav-item svg { width: 24px; height: 24px; fill: currentColor; }
+
+.nav-item:hover, .nav-item.active {
+    background: var(--glass-highlight);
+    color: var(--text-main);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+
+.nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 4px;
+    background: var(--neon-blue);
+    box-shadow: 0 0 10px var(--neon-blue);
+}
+
+.main-content {
+    flex: 1;
+    position: relative;
+    overflow-y: auto;
+    padding: 40px;
+    scroll-behavior: smooth;
+}
+
+.main-content::-webkit-scrollbar { width: 8px; }
+.main-content::-webkit-scrollbar-track { background: transparent; }
+.main-content::-webkit-scrollbar-thumb { background: var(--glass-highlight); border-radius: 10px; }
+
+.top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 40px;
+}
+
+.page-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 36px;
+    font-weight: 700;
+}
+
+.status-indicator {
+    padding: 8px 20px;
+    border-radius: 50px;
+    background: rgba(0, 255, 136, 0.1);
+    border: 1px solid rgba(0, 255, 136, 0.3);
+    color: #00ff88;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 0 15px rgba(0, 255, 136, 0.1);
+}
+
+.dot {
+    width: 8px;
+    height: 8px;
+    background: #00ff88;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(0, 255, 136, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(0, 255, 136, 0); } 100% { box-shadow: 0 0 0 0 rgba(0, 255, 136, 0); } }
+
+.tab-content { display: none; animation: fadeIn 0.4s ease; }
+.tab-content.active { display: block; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 25px;
+    margin-bottom: 40px;
+}
+
+.stat-card {
+    background: var(--card-bg);
+    border: 1px solid var(--glass-border);
+    padding: 25px;
+    border-radius: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    backdrop-filter: blur(10px);
+    transition: 0.3s;
+}
+
+.stat-card:hover { transform: translateY(-5px); background: rgba(255,255,255,0.05); border-color: var(--neon-blue); }
+.stat-value { font-size: 38px; font-weight: 700; font-family: 'Rajdhani'; }
+.stat-label { color: var(--text-sec); font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
+
+.section-header { margin-bottom: 25px; font-size: 20px; font-weight: 600; color: var(--text-sec); display: flex; align-items: center; gap: 10px; }
+.section-header::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--glass-border), transparent); }
+
+.calls-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 30px; }
+
+.call-card {
+    background: linear-gradient(145deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    padding: 25px;
+    position: relative;
+    overflow: hidden;
+    transition: 0.3s;
+}
+
+.call-card::before {
+    content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 4px;
+    background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple));
+}
+
+.call-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
+.chat-id { font-family: 'Rajdhani'; font-size: 20px; font-weight: 700; color: var(--text-main); }
+.call-badge { font-size: 12px; padding: 4px 10px; border-radius: 8px; background: rgba(0, 243, 255, 0.1); color: var(--neon-blue); border: 1px solid rgba(0, 243, 255, 0.2); }
+
+.track-info { display: flex; align-items: center; gap: 15px; margin-bottom: 25px; }
+.track-art { width: 60px; height: 60px; border-radius: 12px; background: #000; overflow: hidden; position: relative; }
+.track-art img { width: 100%; height: 100%; object-fit: cover; }
+.track-details { display: flex; flex-direction: column; gap: 5px; }
+.track-title { font-weight: 600; font-size: 16px; width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-meta { font-size: 12px; color: var(--text-sec); }
+
+.controls-row { display: flex; gap: 10px; margin-bottom: 20px; }
+.c-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    transition: 0.2s;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-pause { background: rgba(255, 187, 0, 0.15); color: #ffbb00; border: 1px solid rgba(255, 187, 0, 0.3); }
+.btn-resume { background: rgba(0, 243, 255, 0.15); color: #00f3ff; border: 1px solid rgba(0, 243, 255, 0.3); }
+.btn-stop { background: rgba(255, 0, 85, 0.15); color: #ff0055; border: 1px solid rgba(255, 0, 85, 0.3); }
+
+.c-btn:hover { transform: scale(1.05); filter: brightness(1.2); }
+
+.volume-container { background: rgba(0,0,0,0.2); padding: 15px; border-radius: 15px; display: flex; align-items: center; gap: 15px; }
+.vol-slider {
+    flex: 1; -webkit-appearance: none; height: 6px; background: #333; border-radius: 5px; outline: none;
+}
+.vol-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px; background: var(--text-main); border-radius: 50%; cursor: pointer; box-shadow: 0 0 10px rgba(255,255,255,0.5);
+}
+
+.input-group {
+    background: var(--card-bg);
+    border: 1px solid var(--glass-border);
+    padding: 30px;
+    border-radius: 20px;
+    margin-bottom: 30px;
+    display: flex;
+    gap: 15px;
+}
+
+.glass-input {
+    flex: 1;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid var(--glass-border);
+    padding: 15px 20px;
+    border-radius: 12px;
+    color: #fff;
+    font-family: 'Poppins';
+    font-size: 16px;
+    transition: 0.3s;
+}
+
+.glass-input:focus { border-color: var(--neon-blue); box-shadow: 0 0 15px rgba(0, 243, 255, 0.1); }
+
+.action-btn {
+    padding: 0 30px;
+    background: linear-gradient(45deg, var(--neon-blue), #00aaff);
+    border: none;
+    border-radius: 12px;
+    color: #000;
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 16px;
+    transition: 0.3s;
+}
+
+.action-btn:hover { box-shadow: 0 0 20px var(--neon-blue); transform: translateY(-2px); }
+
+@media (max-width: 768px) {
+    body { flex-direction: column; overflow-y: auto; }
+    .sidebar { width: 100%; height: auto; flex-direction: row; justify-content: space-between; padding: 15px; overflow-x: auto; }
+    .brand { font-size: 24px; margin: 0; }
+    .nav-links { flex-direction: row; }
+    .nav-item span { display: none; }
+    .main-content { padding: 20px; }
+    .stats-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="liquid-bg">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+</div>
+
+<div class="sidebar">
+    <div class="brand">
+        <svg viewBox="0 0 24 24" style="width:32px;height:32px;fill:var(--neon-blue)"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14.5c-2.49 0-4.5-2.01-4.5-4.5S9.51 7.5 12 7.5s4.5 2.01 4.5 4.5-2.01 4.5-4.5 4.5zm0-5.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1z"/></svg>
+        <span>AnnieX</span>Media
+    </div>
+    <ul class="nav-links">
+        <li class="nav-item active" onclick="switchTab('dashboard', this)">
+            <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+            <span>Dashboard</span>
+        </li>
+        <li class="nav-item" onclick="switchTab('player', this)">
+            <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+            <span>Web Player</span>
+        </li>
+        <li class="nav-item" onclick="switchTab('console', this)">
+            <svg viewBox="0 0 24 24"><path d="M20 19V7H4v12h16zM4 5h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V7c0-1.1.9-2 2-2zm-1 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm3 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm3 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1z"/></svg>
+            <span>Console</span>
+        </li>
+    </ul>
+</div>
+
+<div class="main-content">
+    <div class="top-bar">
+        <div class="page-title" id="page-header">Dashboard</div>
+        <div class="status-indicator" id="connection-status">
+            <div class="dot"></div> System Online
+        </div>
+    </div>
+
+    <div id="dashboard" class="tab-content active">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="active-count">0</div>
+                <div class="stat-label">Active Streams</div>
+            </div>
+            <div class="stat-card" style="border-color: rgba(188, 19, 254, 0.3)">
+                <div class="stat-value" id="uptime">00:00</div>
+                <div class="stat-label">Session Uptime</div>
+            </div>
+            <div class="stat-card" style="border-color: rgba(255, 0, 85, 0.3)">
+                <div class="stat-value" id="latency">24ms</div>
+                <div class="stat-label">Core Latency</div>
+            </div>
+        </div>
+
+        <div class="section-header">Live Active Calls</div>
+        <div class="calls-grid" id="calls-container">
+            </div>
+    </div>
+
+    <div id="player" class="tab-content">
+        <div class="input-group">
+            <input type="number" class="glass-input" id="target-chat" placeholder="Target Chat ID (e.g. -100123456)">
+            <input type="text" class="glass-input" id="search-query" placeholder="Enter Song Name or Youtube Link...">
+            <button class="action-btn" onclick="sendPlay()">Play Now</button>
+        </div>
+        <div class="section-header">Queue Management (Preview)</div>
+        <div style="text-align: center; color: var(--text-sec); padding: 50px;">
+            Select a Chat ID to view queue details.
+        </div>
+    </div>
+
+    <div id="console" class="tab-content">
+        <div style="background: #000; padding: 20px; border-radius: 15px; font-family: monospace; height: 400px; overflow-y: scroll; border: 1px solid #333; color: #0f0;">
+            <div>[System] Dashboard Initialized...</div>
+            <div>[System] Connecting to PyTgCalls v3.0 Core...</div>
+            <div>[System] Connected successfully.</div>
+            <div id="console-logs"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_BASE = ""; 
+    let startTime = Date.now();
+
+    // Tab Switching Logic
+    function switchTab(tabId, element) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        document.getElementById(tabId).classList.add('active');
+        element.classList.add('active');
+        document.getElementById('page-header').innerText = tabId.charAt(0).toUpperCase() + tabId.slice(1);
+    }
+
+    // Update Uptime
+    setInterval(() => {
+        const diff = Math.floor((Date.now() - startTime) / 1000);
+        const h = Math.floor(diff / 3600).toString().padStart(2, '0');
+        const m = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
+        document.getElementById('uptime').innerText = `${h}:${m}`;
+    }, 1000);
+
+    // Fetch Status from API
+    async function updateDashboard() {
+        try {
+            const res = await fetch(`${API_BASE}/status_json`);
+            if(!res.ok) throw new Error("API Offline");
+            const data = await res.json();
+            
+            // Update Stats
+            document.getElementById('active-count').innerText = data.count;
+            document.getElementById('active-count').style.color = data.count > 0 ? 'var(--neon-blue)' : '#fff';
+            document.getElementById('connection-status').innerHTML = `<div class="dot"></div> Online (${data.version})`;
+            document.getElementById('connection-status').style.color = '#00ff88';
+
+            renderCalls(data.chats);
+
+        } catch (e) {
+            document.getElementById('connection-status').innerHTML = `<div class="dot" style="background:red;animation:none"></div> Offline`;
+            document.getElementById('connection-status').style.color = 'red';
+            console.log(e);
+        }
+    }
+
+    // Render Cards
+    function renderCalls(chats) {
+        const container = document.getElementById('calls-container');
+        container.innerHTML = "";
+
+        if(chats.length === 0) {
+            container.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:50px;color:var(--text-sec)">No active streams detected.</div>`;
+            return;
+        }
+
+        chats.forEach(chat => {
+            // Random gradient for art placeholder since we don't have real thumb url in basic status
+            const card = document.createElement('div');
+            card.className = 'call-card';
+            card.innerHTML = `
+                <div class="call-header">
+                    <div class="chat-id">${chat}</div>
+                    <div class="call-badge">LIVE</div>
+                </div>
+                <div class="track-info">
+                    <div class="track-art">
+                        <div style="width:100%;height:100%;background:linear-gradient(45deg, #333, #555)"></div>
+                    </div>
+                    <div class="track-details">
+                        <div class="track-title">Streaming Active</div>
+                        <div class="track-meta">Audio: STUDIO | Video: 720p</div>
+                    </div>
+                </div>
+                <div class="controls-row">
+                    <button class="c-btn btn-pause" onclick="control(${chat}, 'pause')">
+                        <svg viewBox="0 0 24 24" style="width:18px"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Pause
+                    </button>
+                    <button class="c-btn btn-resume" onclick="control(${chat}, 'resume')">
+                        <svg viewBox="0 0 24 24" style="width:18px"><path d="M8 5v14l11-7z"/></svg> Play
+                    </button>
+                    <button class="c-btn btn-stop" onclick="control(${chat}, 'stop')">
+                        <svg viewBox="0 0 24 24" style="width:18px"><path d="M6 6h12v12H6z"/></svg> Stop
+                    </button>
+                </div>
+                <div class="volume-container">
+                    <svg viewBox="0 0 24 24" style="width:20px;fill:#fff"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                    <input type="range" class="vol-slider" min="0" max="200" value="100" onchange="control(${chat}, 'volume', this.value)">
+                </div>
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    // API Control
+    async function control(chatId, action, val=0) {
+        log(`Sending ${action} command to ${chatId}...`);
+        try {
+            await fetch(`${API_BASE}/control`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({chat_id: chatId, action: action, value: val})
+            });
+            setTimeout(updateDashboard, 500);
+            log(`Success: ${action}`);
+        } catch (e) {
+            log(`Error: ${e}`);
+        }
+    }
+
+    async function sendPlay() {
+        // Placeholder for future /play integration if exposed in API
+        alert("This feature requires the /play endpoint to be exposed in api.py");
+    }
+
+    function log(msg) {
+        const d = new Date().toLocaleTimeString();
+        const line = document.createElement('div');
+        line.innerHTML = `<span style="color:#888">[${d}]</span> ${msg}`;
+        document.getElementById('console-logs').prepend(line);
+    }
+
+    // Init
+    updateDashboard();
+    setInterval(updateDashboard, 2000); // Fast polling
+</script>
+
+</body>
+</html>
