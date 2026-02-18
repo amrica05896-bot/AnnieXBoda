@@ -1,18 +1,14 @@
-# Call controller + minimal API for change_stream
 # Authored By Certified Coders © 2026
 # System: Call Controller (PyTgCalls v3.0 Native)
-# Features added: change_stream (safe), API endpoint /api/change_stream (token-protected)
-# Fixes: Added ping() and change_volume_call()
+# Fixes: Queue (StreamEnded Filter), Seek (FFmpeg Offset), Auto-Start
 
 import asyncio
-import os
-import time
 from datetime import datetime, timedelta
 from typing import Union, Optional
 
 import yt_dlp
 from pyrogram.types import InlineKeyboardMarkup
-from pyrogram.errors import ChatAdminRequired, FloodWait
+from pyrogram.errors import ChatAdminRequired
 
 # Imports based on PyTgCalls v3.0 Docs
 from pytgcalls import PyTgCalls, filters
@@ -23,14 +19,14 @@ from pytgcalls.types import (
     GroupCallConfig,
     Update,
     ChatUpdate,
-    StreamEnded,
+    StreamEnded
 )
 from pytgcalls.exceptions import (
     NoActiveGroupCall,
     NotInCallError,
     NoAudioSourceFound,
     NoVideoSourceFound,
-    PyTgCallsAlreadyRunning,
+    PyTgCallsAlreadyRunning
 )
 
 import config
@@ -54,23 +50,15 @@ from AnnieXMedia.utils.stream.autoclear import auto_clean
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
-# For API
-from aiohttp import web
-from aiohttp.web import Response, json_response
-
-# ---------------- Globals ----------------
 autoend = {}
 counter = {}
-# prevent rapid duplicate change_streams: {(chat_id, vidid): timestamp}
-_recent_change_streams: dict[tuple[int, str], float] = {}
 
 # ===============================
 # Helper Functions
 # ===============================
 
 async def get_direct_link(videoid: str, video: bool = False):
-    if not videoid:
-        return None
+    if not videoid: return None
     link = f"https://www.youtube.com/watch?v={videoid}"
     fmt = "best[ext=mp4]/best" if video else "bestaudio/best"
     opts = {
@@ -87,8 +75,7 @@ async def get_direct_link(videoid: str, video: bool = False):
                 info = ydl.extract_info(link, download=False)
                 return info.get("url")
         return await loop.run_in_executor(None, _extract)
-    except: 
-        return link
+    except: return link
 
 def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> MediaStream:
     """
@@ -99,6 +86,8 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
     is_url = path.startswith("http")
     
     # 1. Base FFmpeg parameters
+    # -threads 2: Optimization
+    # -probesize/-analyzeduration: Low latency
     base_flags = (
         "-threads 2 "
         "-probesize 10M -analyzeduration 10M "
@@ -107,41 +96,33 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
     
     # 2. Input specific flags
     if is_url:
+        # Network reconnection logic
         base_flags += "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
     else:
+        # Local files must be read at native speed (-re)
         base_flags += "-re "
 
+    # 3. Add Custom Opts (like Seek -ss)
     final_ffmpeg = base_flags + ffmpeg_opts
 
+    # 4. Return the Universal MediaStream Object
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.HIGH,
-        video_parameters=VideoQuality.HD_720p,
+        audio_parameters=AudioQuality.HIGH, # 48kHz Stereo
+        video_parameters=VideoQuality.HD_720p, # 720p
+        # Strict Flags based on requested mode
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
         ffmpeg_parameters=final_ffmpeg,
     )
 
-def extract_vidid_from_link(link: str) -> Optional[str]:
-    if not link: return None
-    try:
-        if "watch?v=" in link:
-            return link.split("watch?v=")[-1].split("&")[0]
-        if "youtu.be/" in link:
-            return link.split("youtu.be/")[-1].split("?")[0]
-    except Exception:
-        return None
-    return None
-
 async def _clear_(chat_id: int) -> None:
     popped = db.pop(chat_id, None)
     if popped: await auto_clean(popped)
     db[chat_id] = []
-    try:
-        await remove_active_video_chat(chat_id)
-        await remove_active_chat(chat_id)
-        await set_loop(chat_id, 0)
-    except: pass
+    await remove_active_video_chat(chat_id)
+    await remove_active_chat(chat_id)
+    await set_loop(chat_id, 0)
 
 # ===============================
 # The Controller Class
@@ -162,20 +143,6 @@ class Call:
         self.five = PyTgCalls(self.userbot5) if self.userbot5 else None
 
         self.active_calls: set[int] = set()
-        self._locks: dict[int, asyncio.Lock] = {}
-
-    def _get_lock(self, chat_id: int) -> asyncio.Lock:
-        if chat_id not in self._locks:
-            self._locks[chat_id] = asyncio.Lock()
-        return self._locks[chat_id]
-
-    # --- System Health Check (FIXED) ---
-    async def ping(self) -> str:
-        """
-        Used by API to check if the Call Controller is responsive.
-        Fixes: AttributeError: 'Call' object has no attribute 'ping'
-        """
-        return "PONG"
 
     # --- Standard Controls ---
     async def pause_stream(self, chat_id: int) -> None:
@@ -218,95 +185,40 @@ class Call:
         finally:
             self.active_calls.discard(chat_id)
 
-    # --- Volume Control (FIXED) ---
-    async def change_volume_call(self, chat_id: int, volume: int) -> None:
-        """
-        Changes the volume of the ongoing call.
-        Fixes: AttributeError: 'Call' object has no attribute 'change_volume_call'
-        """
-        # Get the assistant currently serving this chat
-        assistant = await group_assistant(self, chat_id)
-        try:
-            # Call the method on the specific PyTgCalls client
-            await assistant.change_volume_call(chat_id, volume)
-        except Exception as e:
-            LOGGER(__name__).error(f"Failed to change volume for {chat_id}: {e}")
-            raise AssistantErr(f"Failed to change volume: {e}")
-
     # --- Advanced Controls (Seek & Skip) ---
     async def seek_stream(self, chat_id: int, file_path: str, to_seek: int, duration: int, mode: str) -> None:
+        """
+        Implements seeking via FFmpeg offset parameter.
+        Used by seek.py
+        """
         assistant = await group_assistant(self, chat_id)
+        
+        # FFmpeg syntax: -ss <seconds>
         ffmpeg_opts = f"-ss {to_seek} "
         is_video = (mode == "video")
+        
         stream = _build_stream(file_path, video=is_video, ffmpeg_opts=ffmpeg_opts)
-        await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=True))
+        
+        # 'play' handles stream switching seamlessly
+        await assistant.play(
+            chat_id,
+            stream,
+            config=GroupCallConfig(auto_start=True)
+        )
 
     async def skip_stream(self, chat_id: int, link: str, video: bool = False) -> None:
+        """
+        Implements skipping/forcing a specific stream.
+        Used by skip.py
+        """
         assistant = await group_assistant(self, chat_id)
         stream = _build_stream(link, video=video)
-        await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=True))
-
-    # --- NEW: change_stream (safe switching) ---
-    async def change_stream(self, chat_id: int, link: str, video: bool = False, title: str = None) -> None:
-        """
-        Immediately switch current playing stream to `link` safely.
-        """
-        lock = self._get_lock(chat_id)
-        async with lock:
-            vidid = extract_vidid_from_link(link)
-            key = (chat_id, vidid or link)
-            now_ts = time.time()
-            # dedupe: if same request within 2 seconds, ignore
-            recent = _recent_change_streams.get(key)
-            if recent and (now_ts - recent) < 2.0:
-                LOGGER(__name__).info(f"Duplicate rapid change_stream ignored for {key}")
-                return
-            _recent_change_streams[key] = now_ts
-
-            assistant = await group_assistant(self, chat_id)
-            final_link = link
-            if vidid:
-                try:
-                    direct = await get_direct_link(vidid, video=video)
-                    if direct:
-                        final_link = direct
-                except Exception:
-                    pass
-
-            stream = _build_stream(final_link, video=video)
-            try:
-                # try the preferred play API
-                await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=True))
-            except Exception as e:
-                # fallback to join_group_call if available
-                fn = getattr(assistant, "join_group_call", None)
-                if callable(fn):
-                    try:
-                        await fn(chat_id, stream)
-                    except Exception as e2:
-                        LOGGER(__name__).error(f"change_stream fallback join failed: {e2}")
-                        raise AssistantErr(f"Failed to switch stream: {e2}")
-                else:
-                    LOGGER(__name__).error(f"change_stream failed: {e}")
-                    raise AssistantErr(f"Failed to switch stream: {e}")
-
-            # update internal state + db UI entry if any
-            self.active_calls.add(chat_id)
-            q = db.get(chat_id)
-            if isinstance(q, list) and len(q) > 0:
-                # update current entry to reflect new stream so UI/queue match
-                q[0]["file"] = final_link
-                if vidid:
-                    q[0]["vidid"] = vidid
-                if title:
-                    q[0]["title"] = title
-                db[chat_id] = q
-
-            # mark video state
-            if video:
-                await add_active_video_chat(chat_id)
-            else:
-                await remove_active_video_chat(chat_id)
+        
+        await assistant.play(
+            chat_id,
+            stream,
+            config=GroupCallConfig(auto_start=True)
+        )
 
     # --- Core Join/Play Logic ---
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: bool = False, image: str = None) -> None:
@@ -314,19 +226,31 @@ class Call:
         lang = await get_lang(chat_id)
         _ = get_string(lang)
 
+        # Resolve YouTube Direct Links if needed
         final_link = link
         if "youtube" in str(link) or "youtu.be" in str(link):
+            # Assumes link is valid or handled by stream.py beforehand
             pass
 
+        # Build Stream
         stream = _build_stream(final_link, video=video)
 
         try:
-            await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=True))
+            # play() with auto_start=True replaces join_group_call + change_stream
+            await assistant.play(
+                chat_id,
+                stream,
+                config=GroupCallConfig(auto_start=True)
+            )
+            
+            # Update Internal State
             self.active_calls.add(chat_id)
             await add_active_chat(chat_id)
             await music_on(chat_id)
             if video:
                 await add_active_video_chat(chat_id)
+            
+            # Auto-End Logic
             if await is_autoend():
                 counter[chat_id] = {}
                 try:
@@ -334,6 +258,7 @@ class Call:
                     if users == 1:
                         autoend[chat_id] = datetime.now() + timedelta(minutes=1)
                 except: pass
+                    
         except NoActiveGroupCall:
              raise AssistantErr(_["call_8"])
         except ChatAdminRequired:
@@ -360,24 +285,28 @@ class Call:
             # 1. Stream Ended -> Play Next (Queue)
             @assistant.on_update(filters.stream_end())
             async def stream_end_handler(client, update: Update):
-                chat_id = getattr(update, "chat_id", None)
-                if chat_id is None:
-                    return
+                chat_id = update.chat_id
                 LOGGER(__name__).info(f"Stream ended for chat {chat_id}")
                 await self.play(client, chat_id)
 
-            # attach chat_update handlers defensively
-            try:
-                assistant.on_update(filters.chat_update())(lambda c, u: asyncio.create_task(self.stop_stream(getattr(u, "chat_id", None))))
-            except Exception:
-                try:
-                    assistant.on_update(lambda c, u: asyncio.create_task(self.stop_stream(getattr(u, "chat_id", None))))
-                except Exception:
-                    LOGGER(__name__).warning("Could not attach chat_update handler for an assistant")
+            # 2. Left Call -> Stop & Clean
+            @assistant.on_update(filters.chat_update(ChatUpdate.Status.LEFT_CALL))
+            async def left_call_handler(client, update: Update):
+                chat_id = update.chat_id
+                await self.stop_stream(chat_id)
+            
+            # 3. Kicked -> Stop & Clean
+            @assistant.on_update(filters.chat_update(ChatUpdate.Status.KICKED))
+            async def kicked_handler(client, update: Update):
+                chat_id = update.chat_id
+                await self.stop_stream(chat_id)
 
     # --- Queue Processing ---
     @capture_internal_err
     async def play(self, client, chat_id: int) -> None:
+        """
+        Handles the queue when a song ends.
+        """
         check = db.get(chat_id)
         if not check:
             await _clear_(chat_id)
@@ -467,84 +396,4 @@ class Call:
             await _clear_(chat_id)
             await app.send_message(original_chat_id, "Failed to switch stream.")
 
-# global instance (keep existing name)
 StreamController = Call()
-
-# ---------------- Minimal API for change_stream ----------------
-class MinimalApi:
-    def __init__(self):
-        self.app = web.Application(client_max_size=1024**2*50)
-        self.setup_routes()
-        self.runner = None
-        self.site = None
-
-    def setup_routes(self):
-        self.app.router.add_post("/api/change_stream", self.change_stream_api)
-        self.app.router.add_post("/api/auth", self.authenticate)
-        self.app.router.add_get("/", self.ping)
-
-    async def authenticate(self, request):
-        try:
-            data = await request.json()
-            token = data.get("token")
-            if token == getattr(config, "BOT_TOKEN", None):
-                return json_response({"status": "ok"}, headers={"Access-Control-Allow-Origin":"*"})
-            return json_response({"error": "Unauthorized"}, status=401, headers={"Access-Control-Allow-Origin":"*"})
-        except Exception:
-            return json_response({"error":"Bad Request"}, status=400, headers={"Access-Control-Allow-Origin":"*"})
-
-    async def change_stream_api(self, request):
-        try:
-            data = await request.json()
-            token = data.get("token")
-            if token != getattr(config, "BOT_TOKEN", None):
-                return json_response({"error":"Unauthorized"}, status=401, headers={"Access-Control-Allow-Origin":"*"})
-            chat_id = int(data.get("chat_id"))
-            link = data.get("link")
-            video = bool(data.get("video", False))
-            title = data.get("title", None)
-
-            if not link:
-                return json_response({"error":"Missing link"}, status=400, headers={"Access-Control-Allow-Origin":"*"})
-            # If chat not active we can attempt a join_call instead of change_stream
-            try:
-                if chat_id not in StreamController.active_calls:
-                    # create minimal queue entry so UI doesn't break
-                    db[chat_id] = [{
-                        "chat_id": chat_id,
-                        "file": link,
-                        "vidid": extract_vidid_from_link(link) or "",
-                        "title": title or "API Stream",
-                        "dur": "00:00",
-                        "by": "API",
-                        "streamtype": "video" if video else "audio"
-                    }]
-                    await StreamController.join_call(chat_id, chat_id, link, video=video)
-                    return json_response({"status":"playing", "chat_id": chat_id}, headers={"Access-Control-Allow-Origin":"*"})
-                else:
-                    await StreamController.change_stream(chat_id, link, video=video, title=title)
-                    return json_response({"status":"changed", "chat_id": chat_id}, headers={"Access-Control-Allow-Origin":"*"})
-            except Exception as e:
-                return json_response({"error": str(e)}, status=500, headers={"Access-Control-Allow-Origin":"*"})
-        except Exception as e:
-            return json_response({"error": str(e)}, status=500, headers={"Access-Control-Allow-Origin":"*"})
-
-    async def ping(self, request):
-        """
-        Health Check Endpoint.
-        """
-        # We can also call StreamController.ping() here to verify the controller is alive
-        try:
-            await StreamController.ping()
-        except:
-            pass
-        return json_response({"status":"ok"}, headers={"Access-Control-Allow-Origin":"*"})
-
-    async def start(self, host="0.0.0.0", port=8080):
-        self.runner = web.AppRunner(self.app)
-        await self.runner.setup()
-        self.site = web.TCPSite(self.runner, host, port)
-        await self.site.start()
-
-# instantiate api (optional - only start it where you normally start services)
-BotAPI = MinimalApi()
