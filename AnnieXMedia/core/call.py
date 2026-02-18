@@ -8,7 +8,7 @@ import os
 from datetime import datetime, timedelta
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple, Any
 
 import yt_dlp
 from pyrogram.types import InlineKeyboardMarkup
@@ -148,7 +148,7 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
     return MediaStream(
         media_path=path,
         # 🔥 REQUESTED: 720p (High) + Studio Audio
-        audio_parameters=AudioQuality.STUDIO, 
+        audio_parameters=AudioQuality.STUDIO,
         video_parameters=VideoQuality.HD_720p,
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
@@ -166,6 +166,47 @@ async def _clear_(chat_id: int) -> None:
         await remove_active_chat(chat_id)
         await set_loop(chat_id, 0)
     except: pass
+
+# -------------------- Compatibility Helper for chat_update filter --------------------
+def make_chat_update_filter(*flags_values: Any):
+    """
+    Create filters.chat_update() in a backward/forward-compatible way.
+    Accepts either:
+      - positional int/IntFlag combined (e.g. ChatUpdate.Status.LEFT_CALL | ChatUpdate.Status.KICKED)
+      - keyword `flags=` if required by implementation
+    Falls back to filters.chat_update() if neither signature is accepted.
+    """
+    # Combine all passed flags (if any)
+    combined = 0
+    for v in flags_values:
+        try:
+            combined |= int(v)
+        except Exception:
+            # ignore non-int convertible
+            pass
+
+    # If no flags passed, just try default call
+    if combined == 0:
+        try:
+            return filters.chat_update()
+        except TypeError:
+            try:
+                return filters.chat_update(flags=None)
+            except Exception:
+                return filters.chat_update
+
+    # Try positional first, then keyword `flags=`, else fallback
+    try:
+        return filters.chat_update(combined)
+    except TypeError:
+        try:
+            return filters.chat_update(flags=combined)
+        except TypeError:
+            try:
+                return filters.chat_update()
+            except Exception:
+                # As ultimate fallback, return the bare filter callable (may error later)
+                return filters.chat_update
 
 # -------------------- Controller Class --------------------
 class Call:
@@ -401,13 +442,20 @@ class Call:
 
         async def connection_handler(client, update: Update):
             # 🔥 SPEC APPLIED: Full Chat Update Handling
-            chat_id = update.chat_id
-            if update.status in [
-                ChatUpdate.Status.LEFT_CALL, 
-                ChatUpdate.Status.KICKED, 
-                ChatUpdate.Status.CLOSED_VOICE_CHAT
+            # be defensive: sometimes update may not have status attribute
+            chat_id = getattr(update, "chat_id", None)
+            status = getattr(update, "status", None)
+            if chat_id is None:
+                return
+            if status in [
+                getattr(ChatUpdate, "Status", None) and ChatUpdate.Status.LEFT_CALL,
+                getattr(ChatUpdate, "Status", None) and ChatUpdate.Status.KICKED,
+                getattr(ChatUpdate, "Status", None) and ChatUpdate.Status.CLOSED_VOICE_CHAT
             ]:
-                await self.stop_stream(chat_id)
+                try:
+                    await self.stop_stream(chat_id)
+                except Exception:
+                    pass
 
         async def participant_change_handler(client, update: Update):
             # 🔥 SPEC APPLIED: Participant Monitoring
@@ -423,9 +471,29 @@ class Call:
 
         assistants = list(filter(None, [self.one, self.two, self.three, self.four, self.five]))
 
+        # build a compatible chat_update filter instance
+        chat_update_filter = make_chat_update_filter(
+            getattr(ChatUpdate, "Status", 0) and ChatUpdate.Status.LEFT_CALL |
+            getattr(ChatUpdate, "Status", 0) and ChatUpdate.Status.KICKED |
+            getattr(ChatUpdate, "Status", 0) and ChatUpdate.Status.CLOSED_VOICE_CHAT
+        )
+
         for assistant in assistants:
             assistant.on_update(filters.stream_end())(stream_end_handler)
-            assistant.on_update(filters.chat_update())(connection_handler)
+            # use the compatibility filter
+            try:
+                assistant.on_update(chat_update_filter)(connection_handler)
+            except Exception:
+                # fallback: try calling chat_update without args (older API)
+                try:
+                    assistant.on_update(filters.chat_update())(connection_handler)
+                except Exception:
+                    # as a last resort, attach no filter to connection_handler (less ideal)
+                    try:
+                        assistant.on_update(connection_handler)
+                    except Exception:
+                        # give up silently to avoid crash during startup
+                        LOGGER(__name__).warning("Failed to attach chat_update handler for an assistant.")
             try:
                 assistant.on_update(filters.call_participants())(participant_change_handler)
             except: pass
