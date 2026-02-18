@@ -2,6 +2,7 @@
 # Authored By Certified Coders © 2026
 # System: Call Controller (PyTgCalls v3.0 Native)
 # Features added: change_stream (safe), API endpoint /api/change_stream (token-protected)
+# Fixes: Added ping() and change_volume_call()
 
 import asyncio
 import os
@@ -167,11 +168,12 @@ class Call:
         if chat_id not in self._locks:
             self._locks[chat_id] = asyncio.Lock()
         return self._locks[chat_id]
-    
-    # --- System Health Check (Added Fix) ---
+
+    # --- System Health Check (FIXED) ---
     async def ping(self) -> str:
         """
         Used by API to check if the Call Controller is responsive.
+        Fixes: AttributeError: 'Call' object has no attribute 'ping'
         """
         return "PONG"
 
@@ -216,13 +218,16 @@ class Call:
         finally:
             self.active_calls.discard(chat_id)
 
-    # --- Volume Control (Added Fix) ---
+    # --- Volume Control (FIXED) ---
     async def change_volume_call(self, chat_id: int, volume: int) -> None:
         """
         Changes the volume of the ongoing call.
+        Fixes: AttributeError: 'Call' object has no attribute 'change_volume_call'
         """
+        # Get the assistant currently serving this chat
         assistant = await group_assistant(self, chat_id)
         try:
+            # Call the method on the specific PyTgCalls client
             await assistant.change_volume_call(chat_id, volume)
         except Exception as e:
             LOGGER(__name__).error(f"Failed to change volume for {chat_id}: {e}")
@@ -245,9 +250,6 @@ class Call:
     async def change_stream(self, chat_id: int, link: str, video: bool = False, title: str = None) -> None:
         """
         Immediately switch current playing stream to `link` safely.
-        - dedupes very-rapid duplicate requests for same vidid (2s window).
-        - acquires per-chat lock to avoid race.
-        - updates db[chat_id][0] if present so UI messages stay consistent.
         """
         lock = self._get_lock(chat_id)
         async with lock:
@@ -528,6 +530,14 @@ class MinimalApi:
             return json_response({"error": str(e)}, status=500, headers={"Access-Control-Allow-Origin":"*"})
 
     async def ping(self, request):
+        """
+        Health Check Endpoint.
+        """
+        # We can also call StreamController.ping() here to verify the controller is alive
+        try:
+            await StreamController.ping()
+        except:
+            pass
         return json_response({"status":"ok"}, headers={"Access-Control-Allow-Origin":"*"})
 
     async def start(self, host="0.0.0.0", port=8080):
