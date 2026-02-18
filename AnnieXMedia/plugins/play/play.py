@@ -1,5 +1,5 @@
 # Authored By Certified Coders © 2026
-# System: Play Command Handler (Full Version - DB Lock & Multi-Platform)
+# System: Play Command Handler (Fixed Live Stream Logic)
 # Compatibility: PyTgCalls v3.0 Native Chain
 
 import asyncio
@@ -348,26 +348,38 @@ async def play_command(
     # ==========================
     if str(playmode) == "Direct":
         if not plist_type:
-            if details.get("duration_min"):
+            # 🔥 Fix: Live Stream Condition
+            # If duration is valid AND not "Live", check limit.
+            if details.get("duration_min") and str(details.get("duration_min")).lower() != "live":
                 duration_sec = time_to_seconds(details["duration_min"])
                 if duration_sec and duration_sec > config.DURATION_LIMIT:
                     return await mystic.edit_text(_["play_6"].format(config.DURATION_LIMIT_MIN, app.mention))
-            
-            try:
-                # Calls the new stream logic (v3.0 compatible)
-                await stream(
-                    _, mystic, user_id, details, chat_id, user_name, message.chat.id,
-                    video=bool(video), streamtype=internal_type, spotify=spotify, forceplay=bool(fplay)
-                )
-            except AssistantErr as e:
-                await _safe_delete_msg(mystic)
-                return await app.send_message(chat_id, str(e))
-            except Exception as e:
-                await _safe_delete_msg(mystic)
-                return await app.send_message(chat_id, _["general_2"].format(type(e).__name__))
+                
+                try:
+                    await stream(
+                        _, mystic, user_id, details, chat_id, user_name, message.chat.id,
+                        video=bool(video), streamtype=internal_type, spotify=spotify, forceplay=bool(fplay)
+                    )
+                except AssistantErr as e:
+                    await _safe_delete_msg(mystic)
+                    return await app.send_message(chat_id, str(e))
+                except Exception as e:
+                    await _safe_delete_msg(mystic)
+                    return await app.send_message(chat_id, _["general_2"].format(type(e).__name__))
 
-            await _safe_delete_msg(mystic)
-            return await play_logs(message, streamtype=log_label)
+                await _safe_delete_msg(mystic)
+                return await play_logs(message, streamtype=log_label)
+            
+            else:
+                # This is a Live Stream -> Show Buttons
+                buttons = livestream_markup(_, track_id, user_id, "v" if video else "a", "c" if channel else "g", "f" if fplay else "d")
+                img = details.get("thumb", config.YOUTUBE_IMG_URL)
+                await _safe_delete_msg(mystic)
+                return await message.reply_photo(
+                    photo=img,
+                    caption=_["play_13"],
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                )
 
         else:
             # Playlist UI
@@ -427,22 +439,24 @@ async def play_music_cb(client, CallbackQuery, _):
 
         details, track_id = await YouTube.track(vidid, videoid=vidid)
 
-        if details.get("duration_min"):
+        # 🔥 Fix: Live Stream Condition (Buttons)
+        if details.get("duration_min") and str(details.get("duration_min")).lower() != "live":
             duration_sec = time_to_seconds(details["duration_min"])
             if duration_sec and duration_sec > config.DURATION_LIMIT:
                 return await mystic.edit_text(_["play_6"].format(config.DURATION_LIMIT_MIN, app.mention))
+            
+            video = mode == "v"
+            forceplay = fplay == "f"
+
+            await stream(
+                _, mystic, CallbackQuery.from_user.id, details, chat_id, user_name,
+                CallbackQuery.message.chat.id, bool(video), streamtype="youtube", forceplay=bool(forceplay)
+            )
+            await _safe_delete_msg(mystic)
         else:
+            # If Live, Show Confirmation Buttons
             buttons = livestream_markup(_, track_id, CallbackQuery.from_user.id, mode, "c" if cplay == "c" else "g", "f" if fplay else "d")
             return await mystic.edit_text(_["play_13"], reply_markup=InlineKeyboardMarkup(buttons))
-
-        video = mode == "v"
-        forceplay = fplay == "f"
-
-        await stream(
-            _, mystic, CallbackQuery.from_user.id, details, chat_id, user_name,
-            CallbackQuery.message.chat.id, bool(video), streamtype="youtube", forceplay=bool(forceplay)
-        )
-        await _safe_delete_msg(mystic)
 
     except Exception as e:
         await _safe_delete_msg(mystic)
