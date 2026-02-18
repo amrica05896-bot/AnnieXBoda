@@ -1,523 +1,779 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="ar">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AnnieX Enterprise | Liquid Control</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AnnieX Enterprise | Liquid Control — Expanded Player</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;500;700&family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;500;700&family=Poppins:wght@300;400;600&display=swap');
-
-:root {
-    --glass-bg: rgba(18, 18, 28, 0.65);
-    --glass-border: rgba(255, 255, 255, 0.08);
-    --glass-highlight: rgba(255, 255, 255, 0.15);
-    --neon-blue: #00f3ff;
-    --neon-purple: #bc13fe;
-    --neon-red: #ff0055;
-    --text-main: #ffffff;
-    --text-sec: #a0a0b0;
-    --card-bg: rgba(30, 30, 40, 0.4);
+:root{
+  --glass-bg: rgba(18,18,28,0.66);
+  --glass-border: rgba(255,255,255,0.06);
+  --glass-highlight: rgba(255,255,255,0.12);
+  --neon-blue:#00f3ff;
+  --neon-purple:#bc13fe;
+  --neon-red:#ff0055;
+  --text-main:#eaf2ff;
+  --text-sec:#9aa0b2;
+  --accent:#00f3ff;
+  --card-bg:rgba(28,28,36,0.42);
+  --glass-radius:18px;
+  --glass-padding:18px;
+  --transition:all .28s cubic-bezier(.2,.9,.2,1);
+  --max-width:1400px;
 }
-
-* {
-    box-sizing: border_box;
-    margin: 0;
-    padding: 0;
-    outline: none;
-    user-select: none;
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:'Poppins',sans-serif;
+  background:#03030a;
+  color:var(--text-main);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  overflow:hidden;
+  display:flex;
+  justify-content:center;
+  align-items:stretch;
 }
-
-body {
-    background: #050505;
-    color: var(--text-main);
-    font-family: 'Poppins', sans-serif;
-    height: 100vh;
-    overflow: hidden;
-    display: flex;
+.wrapper{
+  width:100%;
+  max-width:var(--max-width);
+  height:100vh;
+  display:grid;
+  grid-template-columns:320px 1fr;
+  gap:24px;
+  padding:26px;
+  align-items:stretch;
+  position:relative;
 }
-
-.liquid-bg {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: -1;
-    overflow: hidden;
-    background: radial-gradient(circle at 50% 50%, #1a1a2e 0%, #000000 100%);
+.bg-orbs{position:absolute;inset:0;z-index:-2;pointer-events:none;overflow:hidden}
+.orb{
+  position:absolute;border-radius:50%;filter:blur(110px);opacity:.6;mix-blend-mode:screen;animation:float 26s ease-in-out infinite;
 }
-
-.orb {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(80px);
-    opacity: 0.6;
-    animation: float 20s infinite ease-in-out;
+.orb.o1{width:520px;height:520px;background:linear-gradient(135deg,var(--neon-purple),#6f2aff);left:-120px;top:-160px}
+.orb.o2{width:640px;height:640px;background:linear-gradient(135deg,var(--neon-blue),#3de3ff);right:-160px;bottom:-200px;animation-duration:30s}
+.orb.o3{width:320px;height:320px;background:linear-gradient(135deg,var(--neon-red),#ff46a3);left:40%;top:40%;opacity:.35;filter:blur(120px)}
+@keyframes float{0%{transform:translateY(0) rotate(0)}33%{transform:translateY(-40px) rotate(12deg) scale(1.06)}66%{transform:translateY(20px) rotate(-6deg) scale(.98)}100%{transform:translateY(0) rotate(0)}}
+.sidebar{
+  background:var(--glass-bg);
+  border:1px solid var(--glass-border);
+  border-radius:20px;
+  padding:26px;
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+  box-shadow:0 10px 30px rgba(0,0,0,.5);
+  overflow:auto;
 }
-
-.orb-1 { width: 400px; height: 400px; background: var(--neon-purple); top: -100px; left: -100px; animation-delay: 0s; }
-.orb-2 { width: 500px; height: 500px; background: var(--neon-blue); bottom: -150px; right: -150px; animation-delay: -5s; }
-.orb-3 { width: 300px; height: 300px; background: var(--neon-red); top: 40%; left: 40%; animation-delay: -10s; filter: blur(100px); opacity: 0.4; }
-
-@keyframes float {
-    0%, 100% { transform: translate(0, 0); }
-    33% { transform: translate(30px, -50px) scale(1.1); }
-    66% { transform: translate(-20px, 20px) scale(0.9); }
+.brand{display:flex;gap:12px;align-items:center;font-family:'Rajdhani',sans-serif;font-weight:700;font-size:20px;color:var(--text-main);text-shadow:0 0 16px rgba(0,243,255,.06)}
+.brand svg{width:36px;height:36px;flex-shrink:0;filter:drop-shadow(0 6px 18px rgba(0,0,0,.6))}
+.logo-tag{color:var(--neon-blue);font-weight:800}
+.user-panel{display:flex;gap:12px;align-items:center}
+.avatar{width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,#0f0f14,#1b1b22);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;border:1px solid rgba(255,255,255,.04)}
+.user-info{display:flex;flex-direction:column}
+.user-info .name{font-weight:700}
+.user-info .meta{font-size:13px;color:var(--text-sec)}
+.search-box{display:flex;gap:8px;padding:10px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border:1px solid var(--glass-border)}
+.search-box input{flex:1;background:transparent;border:none;color:var(--text-main);font-size:14px;padding:6px;outline:none}
+.controls{display:flex;flex-direction:column;gap:12px}
+.nav{display:flex;flex-direction:column;gap:8px}
+.nav button{display:flex;gap:12px;align-items:center;padding:12px;border-radius:12px;background:transparent;border:1px solid transparent;color:var(--text-sec);cursor:pointer;transition:var(--transition);font-weight:600}
+.nav button.active{background:var(--glass-highlight);color:var(--text-main);border-color:var(--glass-border);box-shadow:0 6px 22px rgba(0,0,0,.5)}
+.section-title{font-size:13px;color:var(--text-sec);text-transform:uppercase;letter-spacing:1px}
+.quick-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{padding:12px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border:1px solid var(--glass-border);display:flex;flex-direction:column;gap:6px}
+.stat .n{font-family:'Rajdhani';font-size:18px}
+.stat .l{font-size:12px;color:var(--text-sec)}
+.footer-actions{margin-top:auto;display:flex;gap:10px;flex-direction:column}
+.footer-actions button{padding:12px;border-radius:12px;border:none;background:linear-gradient(90deg,var(--neon-blue),var(--neon-purple));color:#06060a;font-weight:800;cursor:pointer;transition:var(--transition)}
+.footer-actions .ghost{background:transparent;border:1px solid var(--glass-border);color:var(--text-sec);font-weight:700}
+.main{
+  background:linear-gradient(180deg,rgba(255,255,255,0.01),rgba(255,255,255,0.00));
+  border:1px solid var(--glass-border);
+  border-radius:20px;
+  padding:22px;
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+  overflow:hidden;
 }
-
-.sidebar {
-    width: 280px;
-    height: 100%;
-    background: var(--glass-bg);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-right: 1px solid var(--glass-border);
-    display: flex;
-    flex-direction: column;
-    padding: 30px;
-    z-index: 10;
-    transition: 0.3s;
+.top-row{display:flex;gap:18px;align-items:center}
+.title{font-family:'Rajdhani';font-size:28px;font-weight:800;letter-spacing:.6px}
+.status-pill{margin-left:auto;padding:8px 14px;border-radius:999px;background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,.12);color:#a8ffd8;font-weight:700;display:flex;gap:8px;align-items:center}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:18px;height:calc(100% - 92px);overflow:hidden}
+.left-panel{display:flex;flex-direction:column;gap:14px;overflow:auto;padding-right:6px}
+.right-panel{display:flex;flex-direction:column;gap:14px;overflow:auto;padding-left:6px}
+.card{background:var(--card-bg);border-radius:16px;padding:18px;border:1px solid var(--glass-border);display:flex;flex-direction:column;gap:12px}
+.player{
+  display:flex;
+  gap:12px;
+  align-items:flex-start;
+  padding:14px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));
+  border:1px solid rgba(255,255,255,0.02);
 }
-
-.brand {
-    font-family: 'Rajdhani', sans-serif;
-    font-size: 32px;
-    font-weight: 700;
-    color: var(--text-main);
-    margin-bottom: 50px;
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    text-shadow: 0 0 15px var(--neon-blue);
-}
-
-.brand span { color: var(--neon-blue); }
-
-.nav-links { list-style: none; display: flex; flex-direction: column; gap: 15px; }
-
-.nav-item {
-    padding: 15px 20px;
-    border-radius: 12px;
-    cursor: pointer;
-    transition: 0.3s;
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    color: var(--text-sec);
-    font-weight: 500;
-    position: relative;
-    overflow: hidden;
-}
-
-.nav-item svg { width: 24px; height: 24px; fill: currentColor; }
-
-.nav-item:hover, .nav-item.active {
-    background: var(--glass-highlight);
-    color: var(--text-main);
-    border: 1px solid var(--glass-border);
-    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-}
-
-.nav-item.active::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    height: 100%;
-    width: 4px;
-    background: var(--neon-blue);
-    box-shadow: 0 0 10px var(--neon-blue);
-}
-
-.main-content {
-    flex: 1;
-    position: relative;
-    overflow-y: auto;
-    padding: 40px;
-    scroll-behavior: smooth;
-}
-
-.main-content::-webkit-scrollbar { width: 8px; }
-.main-content::-webkit-scrollbar-track { background: transparent; }
-.main-content::-webkit-scrollbar-thumb { background: var(--glass-highlight); border-radius: 10px; }
-
-.top-bar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 40px;
-}
-
-.page-title {
-    font-family: 'Rajdhani', sans-serif;
-    font-size: 36px;
-    font-weight: 700;
-}
-
-.status-indicator {
-    padding: 8px 20px;
-    border-radius: 50px;
-    background: rgba(0, 255, 136, 0.1);
-    border: 1px solid rgba(0, 255, 136, 0.3);
-    color: #00ff88;
-    font-size: 14px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    box-shadow: 0 0 15px rgba(0, 255, 136, 0.1);
-}
-
-.dot {
-    width: 8px;
-    height: 8px;
-    background: #00ff88;
-    border-radius: 50%;
-    animation: pulse 2s infinite;
-}
-
-@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(0, 255, 136, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(0, 255, 136, 0); } 100% { box-shadow: 0 0 0 0 rgba(0, 255, 136, 0); } }
-
-.tab-content { display: none; animation: fadeIn 0.4s ease; }
-.tab-content.active { display: block; }
-
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 25px;
-    margin-bottom: 40px;
-}
-
-.stat-card {
-    background: var(--card-bg);
-    border: 1px solid var(--glass-border);
-    padding: 25px;
-    border-radius: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    backdrop-filter: blur(10px);
-    transition: 0.3s;
-}
-
-.stat-card:hover { transform: translateY(-5px); background: rgba(255,255,255,0.05); border-color: var(--neon-blue); }
-.stat-value { font-size: 38px; font-weight: 700; font-family: 'Rajdhani'; }
-.stat-label { color: var(--text-sec); font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
-
-.section-header { margin-bottom: 25px; font-size: 20px; font-weight: 600; color: var(--text-sec); display: flex; align-items: center; gap: 10px; }
-.section-header::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--glass-border), transparent); }
-
-.calls-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 30px; }
-
-.call-card {
-    background: linear-gradient(145deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
-    border: 1px solid var(--glass-border);
-    border-radius: 24px;
-    padding: 25px;
-    position: relative;
-    overflow: hidden;
-    transition: 0.3s;
-}
-
-.call-card::before {
-    content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 4px;
-    background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple));
-}
-
-.call-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
-.chat-id { font-family: 'Rajdhani'; font-size: 20px; font-weight: 700; color: var(--text-main); }
-.call-badge { font-size: 12px; padding: 4px 10px; border-radius: 8px; background: rgba(0, 243, 255, 0.1); color: var(--neon-blue); border: 1px solid rgba(0, 243, 255, 0.2); }
-
-.track-info { display: flex; align-items: center; gap: 15px; margin-bottom: 25px; }
-.track-art { width: 60px; height: 60px; border-radius: 12px; background: #000; overflow: hidden; position: relative; }
-.track-art img { width: 100%; height: 100%; object-fit: cover; }
-.track-details { display: flex; flex-direction: column; gap: 5px; }
-.track-title { font-weight: 600; font-size: 16px; width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.track-meta { font-size: 12px; color: var(--text-sec); }
-
-.controls-row { display: flex; gap: 10px; margin-bottom: 20px; }
-.c-btn {
-    flex: 1;
-    padding: 10px;
-    border-radius: 10px;
-    border: none;
-    cursor: pointer;
-    font-weight: 600;
-    transition: 0.2s;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 8px;
-}
-
-.btn-pause { background: rgba(255, 187, 0, 0.15); color: #ffbb00; border: 1px solid rgba(255, 187, 0, 0.3); }
-.btn-resume { background: rgba(0, 243, 255, 0.15); color: #00f3ff; border: 1px solid rgba(0, 243, 255, 0.3); }
-.btn-stop { background: rgba(255, 0, 85, 0.15); color: #ff0055; border: 1px solid rgba(255, 0, 85, 0.3); }
-
-.c-btn:hover { transform: scale(1.05); filter: brightness(1.2); }
-
-.volume-container { background: rgba(0,0,0,0.2); padding: 15px; border-radius: 15px; display: flex; align-items: center; gap: 15px; }
-.vol-slider {
-    flex: 1; -webkit-appearance: none; height: 6px; background: #333; border-radius: 5px; outline: none;
-}
-.vol-slider::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 16px; height: 16px; background: var(--text-main); border-radius: 50%; cursor: pointer; box-shadow: 0 0 10px rgba(255,255,255,0.5);
-}
-
-.input-group {
-    background: var(--card-bg);
-    border: 1px solid var(--glass-border);
-    padding: 30px;
-    border-radius: 20px;
-    margin-bottom: 30px;
-    display: flex;
-    gap: 15px;
-}
-
-.glass-input {
-    flex: 1;
-    background: rgba(0,0,0,0.2);
-    border: 1px solid var(--glass-border);
-    padding: 15px 20px;
-    border-radius: 12px;
-    color: #fff;
-    font-family: 'Poppins';
-    font-size: 16px;
-    transition: 0.3s;
-}
-
-.glass-input:focus { border-color: var(--neon-blue); box-shadow: 0 0 15px rgba(0, 243, 255, 0.1); }
-
-.action-btn {
-    padding: 0 30px;
-    background: linear-gradient(45deg, var(--neon-blue), #00aaff);
-    border: none;
-    border-radius: 12px;
-    color: #000;
-    font-weight: 700;
-    cursor: pointer;
-    font-size: 16px;
-    transition: 0.3s;
-}
-
-.action-btn:hover { box-shadow: 0 0 20px var(--neon-blue); transform: translateY(-2px); }
-
-@media (max-width: 768px) {
-    body { flex-direction: column; overflow-y: auto; }
-    .sidebar { width: 100%; height: auto; flex-direction: row; justify-content: space-between; padding: 15px; overflow-x: auto; }
-    .brand { font-size: 24px; margin: 0; }
-    .nav-links { flex-direction: row; }
-    .nav-item span { display: none; }
-    .main-content { padding: 20px; }
-    .stats-grid { grid-template-columns: 1fr; }
+.player .preview{width:160px;height:90px;border-radius:10px;background:#000;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.player .meta{display:flex;flex-direction:column;gap:6px}
+.player .meta .title{font-weight:700}
+.player .meta .sub{font-size:13px;color:var(--text-sec)}
+.controls-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.btn{padding:10px 14px;border-radius:10px;border:none;background:linear-gradient(90deg,var(--neon-blue),var(--neon-purple));color:#000;font-weight:800;cursor:pointer;transition:var(--transition)}
+.btn.ghost{background:transparent;border:1px solid var(--glass-border);color:var(--text-main)}
+.btn.icon{display:flex;gap:8px;align-items:center;padding:10px;border-radius:10px}
+.queue-list{display:flex;flex-direction:column;gap:8px;overflow:auto;padding:4px}
+.queue-item{display:flex;gap:10px;align-items:center;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.02);background:linear-gradient(180deg,transparent,rgba(255,255,255,0.01));cursor:grab}
+.queue-item.dragging{opacity:.45;transform:scale(.995)}
+.queue-item .thumb{width:64px;height:48px;border-radius:8px;background:#111;flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.queue-item .meta{flex:1;display:flex;flex-direction:column}
+.queue-item .meta .t{font-weight:700}
+.queue-item .meta .s{font-size:12px;color:var(--text-sec)}
+.queue-item .actions{display:flex;gap:6px}
+.small{font-size:13px;color:var(--text-sec)}
+.search-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;overflow:auto;padding:8px}
+.result{padding:10px;border-radius:10px;border:1px solid var(--glass-border);display:flex;gap:8px;align-items:center;cursor:pointer}
+.result .thumb{width:84px;height:56px;border-radius:8px;background:#000;flex-shrink:0;overflow:hidden}
+.controls-advanced{display:flex;flex-wrap:wrap;gap:8px}
+.range{display:flex;gap:8px;align-items:center}
+.range input[type=range]{flex:1}
+.equalizer{display:flex;gap:8px;align-items:center}
+.eq-band{display:flex;flex-direction:column;gap:6px;align-items:center}
+.eq-band input{writing-mode:bt-lr;transform:rotate(-90deg);width:90px}
+.player-box{position:relative}
+.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:linear-gradient(0deg,rgba(3,3,6,.6),rgba(3,3,6,.6));z-index:9999}
+.modal.open{display:flex}
+.modal .sheet{width:min(1100px,98%);border-radius:18px;padding:0;background:transparent;border:none}
+.youtube-container{height:560px;background:#000;border-radius:16px;overflow:hidden;position:relative}
+.youtube-controls{display:flex;gap:8px;align-items:center;padding:12px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border-top:1px solid var(--glass-border)}
+.hint{font-size:13px;color:var(--text-sec)}
+.visualizer{height:120px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,0.01),transparent);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.canvas{width:100%;height:100%}
+.footer{display:flex;align-items:center;justify-content:space-between;padding:8px 6px;border-top:1px solid var(--glass-border);font-size:13px;color:var(--text-sec)}
+.toast{position:fixed;right:26px;bottom:26px;padding:12px 18px;border-radius:12px;background:linear-gradient(90deg,var(--neon-blue),var(--neon-purple));color:#000;font-weight:800;box-shadow:0 10px 30px rgba(0,0,0,.6)}
+@media (max-width:1100px){
+  .wrapper{grid-template-columns:1fr;grid-template-rows:auto 1fr;padding:12px}
+  .grid{grid-template-columns:1fr;height:auto}
+  .orb.o1,.orb.o2{display:none}
 }
 </style>
 </head>
 <body>
-
-<div class="liquid-bg">
-    <div class="orb orb-1"></div>
-    <div class="orb orb-2"></div>
-    <div class="orb orb-3"></div>
+<div class="bg-orbs">
+  <div class="orb o1"></div>
+  <div class="orb o2"></div>
+  <div class="orb o3"></div>
 </div>
-
-<div class="sidebar">
+<div class="wrapper" role="application">
+  <aside class="sidebar" id="sidebar">
     <div class="brand">
-        <svg viewBox="0 0 24 24" style="width:32px;height:32px;fill:var(--neon-blue)"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14.5c-2.49 0-4.5-2.01-4.5-4.5S9.51 7.5 12 7.5s4.5 2.01 4.5 4.5-2.01 4.5-4.5 4.5zm0-5.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1z"/></svg>
-        <span>AnnieX</span>Media
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><defs></defs><path d="M12 2C7 2 3 6 3 11s4 9 9 9 9-4 9-9S17 2 12 2z" fill="url(#g)"/><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#00f3ff"/><stop offset="1" stop-color="#bc13fe"/></linearGradient></svg>
+      <div><span class="logo-tag">AnnieX</span>Media</div>
     </div>
-    <ul class="nav-links">
-        <li class="nav-item active" onclick="switchTab('dashboard', this)">
-            <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
-            <span>Dashboard</span>
-        </li>
-        <li class="nav-item" onclick="switchTab('player', this)">
-            <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-            <span>Web Player</span>
-        </li>
-        <li class="nav-item" onclick="switchTab('console', this)">
-            <svg viewBox="0 0 24 24"><path d="M20 19V7H4v12h16zM4 5h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V7c0-1.1.9-2 2-2zm-1 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm3 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm3 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1z"/></svg>
-            <span>Console</span>
-        </li>
-    </ul>
+    <div class="user-panel">
+      <div class="avatar" id="avatar">AX</div>
+      <div class="user-info">
+        <div class="name" id="user-name">Operator</div>
+        <div class="meta" id="user-role">Liquid Control</div>
+      </div>
+    </div>
+    <div class="search-box">
+      <input id="global-search" placeholder="ابحث عن يوتيوب، عنوان أغنية أو رابط..." />
+      <button class="btn ghost" id="btn-search">بحث</button>
+    </div>
+    <div class="controls">
+      <div class="nav">
+        <button class="active" data-tab="dashboard" id="nav-dashboard">Dashboard</button>
+        <button data-tab="webplayer" id="nav-player">Web Player</button>
+        <button data-tab="queue" id="nav-queue">Queue</button>
+        <button data-tab="console" id="nav-console">Console</button>
+        <button data-tab="settings" id="nav-settings">Settings</button>
+      </div>
+      <div class="section-title">Quick Stats</div>
+      <div class="quick-stats">
+        <div class="stat">
+          <div class="n" id="stat-active">0</div>
+          <div class="l">Active Streams</div>
+        </div>
+        <div class="stat">
+          <div class="n" id="stat-uptime">00:00</div>
+          <div class="l">Uptime</div>
+        </div>
+      </div>
+    </div>
+    <div class="footer-actions">
+      <button id="btn-connect">Connect API</button>
+      <button class="ghost" id="btn-export">Export Queue</button>
+      <button class="ghost" id="btn-import">Import Playlist</button>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <div class="top-row">
+      <div class="title" id="page-title">Dashboard • Liquid Control</div>
+      <div class="status-pill" id="conn-status">System Offline</div>
+    </div>
+
+    <div class="grid">
+      <div class="left-panel">
+        <div class="card player-box" id="player-card">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="player preview" id="mini-player">
+                <div class="preview" id="preview-thumb"></div>
+                <div class="meta">
+                  <div class="title" id="track-title">لا يوجد تشغيل</div>
+                  <div class="sub" id="track-source">—</div>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="small">Volume</div>
+              <div style="width:160px">
+                <input type="range" id="master-volume" min="0" max="200" value="100">
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+            <div style="display:flex;gap:8px">
+              <button class="btn icon" id="btn-prev">Prev</button>
+              <button class="btn" id="btn-play">Play</button>
+              <button class="btn ghost" id="btn-pause">Pause</button>
+              <button class="btn ghost" id="btn-stop">Stop</button>
+              <button class="btn icon" id="btn-next">Next</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="small">Speed</div>
+              <select id="playback-rate" class="small">
+                <option value="0.5">0.5x</option>
+                <option value="0.75">0.75x</option>
+                <option value="1" selected>1x</option>
+                <option value="1.25">1.25x</option>
+                <option value="1.5">1.5x</option>
+                <option value="2">2x</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="controls-advanced" style="margin-top:12px">
+            <div class="range" style="flex:1;min-width:220px">
+              <div class="small">Crossfade</div>
+              <input type="range" id="crossfade-duration" min="0" max="10" value="2">
+            </div>
+            <div class="equalizer">
+              <div class="small">EQ</div>
+              <div style="display:flex;gap:6px;align-items:center">
+                <div class="eq-band"><input type="range" data-band="60" class="eq-range" min="-12" max="12" value="0"><div class="small">60Hz</div></div>
+                <div class="eq-band"><input type="range" data-band="170" class="eq-range" min="-12" max="12" value="0"><div class="small">170Hz</div></div>
+                <div class="eq-band"><input type="range" data-band="1000" class="eq-range" min="-12" max="12" value="0"><div class="small">1kHz</div></div>
+                <div class="eq-band"><input type="range" data-band="3500" class="eq-range" min="-12" max="12" value="0"><div class="small">3.5k</div></div>
+                <div class="eq-band"><input type="range" data-band="10000" class="eq-range" min="-12" max="12" value="0"><div class="small">10k</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="visualizer card" id="visualizer">
+            <canvas class="canvas" id="viz-canvas"></canvas>
+          </div>
+
+          <div style="display:flex;gap:10px;align-items:center;justify-content:space-between">
+            <div class="small">Now Playing</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn ghost" id="btn-open-youtube">Open YouTube Player</button>
+              <button class="btn ghost" id="btn-toggle-video">Toggle Video</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="search-card">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div class="section-title">Search Results</div>
+            <div class="small hint" id="search-hint">اختر نتيجة لإضافتها إلى الطابور</div>
+          </div>
+          <div class="search-results" id="search-results"></div>
+        </div>
+
+        <div class="card" id="console-card" style="height:220px;overflow:auto;font-family:monospace;color:#9fffae">
+          <div class="section-title">Console</div>
+          <div id="console-log" style="white-space:pre-wrap"></div>
+        </div>
+      </div>
+
+      <div class="right-panel">
+        <div class="card" id="queue-card" style="flex:1;min-height:220px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div class="section-title">Queue</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn ghost" id="btn-clear-queue">Clear</button>
+              <button class="btn" id="btn-shuffle">Shuffle</button>
+            </div>
+          </div>
+          <div class="queue-list" id="queue-list"></div>
+        </div>
+
+        <div class="card" id="playlist-card" style="min-height:160px">
+          <div class="section-title">Playlist Import / Export</div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <textarea id="playlist-json" style="flex:1;height:120px;background:transparent;border:1px dashed var(--glass-border);padding:8px;color:var(--text-main)"></textarea>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn" id="btn-load-json">Load</button>
+            <button class="btn ghost" id="btn-download-json">Download</button>
+          </div>
+        </div>
+
+        <div class="card" id="settings-card" style="min-height:140px">
+          <div class="section-title">Connection</div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <input id="api-base-input" placeholder="API_BASE (مثال: https://example.com/api)" style="flex:1;padding:8px;background:transparent;border:1px solid var(--glass-border);border-radius:8px;color:var(--text-main)">
+            <button class="btn" id="btn-save-api">Save</button>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button class="btn ghost" id="btn-open-ws">Open WebSocket</button>
+            <button class="btn ghost" id="btn-close-ws">Close WebSocket</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="footer">
+      <div>© AnnieXMedia</div>
+      <div class="small">Liquid Control • Built for live streaming & audio management</div>
+    </div>
+  </main>
 </div>
 
-<div class="main-content">
-    <div class="top-bar">
-        <div class="page-title" id="page-header">Dashboard</div>
-        <div class="status-indicator" id="connection-status">
-            <div class="dot"></div> System Online
-        </div>
+<div class="modal" id="modal-youtube">
+  <div class="sheet">
+    <div class="youtube-container" id="youtube-shell">
+      <div id="youtube-player" style="width:100%;height:100%"></div>
     </div>
-
-    <div id="dashboard" class="tab-content active">
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-value" id="active-count">0</div>
-                <div class="stat-label">Active Streams</div>
-            </div>
-            <div class="stat-card" style="border-color: rgba(188, 19, 254, 0.3)">
-                <div class="stat-value" id="uptime">00:00</div>
-                <div class="stat-label">Session Uptime</div>
-            </div>
-            <div class="stat-card" style="border-color: rgba(255, 0, 85, 0.3)">
-                <div class="stat-value" id="latency">24ms</div>
-                <div class="stat-label">Core Latency</div>
-            </div>
-        </div>
-
-        <div class="section-header">Live Active Calls</div>
-        <div class="calls-grid" id="calls-container">
-            </div>
+    <div class="youtube-controls">
+      <div class="small" id="yt-status">YouTube Player</div>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <select id="yt-quality">
+          <option value="default">default</option>
+          <option value="highres">highres</option>
+          <option value="hd1080">hd1080</option>
+          <option value="hd720">hd720</option>
+          <option value="large">large</option>
+          <option value="medium">medium</option>
+          <option value="small">small</option>
+        </select>
+        <button class="btn ghost" id="btn-yt-close">Close</button>
+      </div>
     </div>
-
-    <div id="player" class="tab-content">
-        <div class="input-group">
-            <input type="number" class="glass-input" id="target-chat" placeholder="Target Chat ID (e.g. -100123456)">
-            <input type="text" class="glass-input" id="search-query" placeholder="Enter Song Name or Youtube Link...">
-            <button class="action-btn" onclick="sendPlay()">Play Now</button>
-        </div>
-        <div class="section-header">Queue Management (Preview)</div>
-        <div style="text-align: center; color: var(--text-sec); padding: 50px;">
-            Select a Chat ID to view queue details.
-        </div>
-    </div>
-
-    <div id="console" class="tab-content">
-        <div style="background: #000; padding: 20px; border-radius: 15px; font-family: monospace; height: 400px; overflow-y: scroll; border: 1px solid #333; color: #0f0;">
-            <div>[System] Dashboard Initialized...</div>
-            <div>[System] Connecting to PyTgCalls v3.0 Core...</div>
-            <div>[System] Connected successfully.</div>
-            <div id="console-logs"></div>
-        </div>
-    </div>
+  </div>
 </div>
+
+<div class="toast" id="toast" style="display:none">Ready</div>
 
 <script>
-    const API_BASE = ""; 
-    let startTime = Date.now();
+  const API_BASE_KEY = "annie_api_base";
+  let API_BASE = "";
+  let WS = null;
+  let player = null;
+  let ytPlayer = null;
+  let queue = [];
+  let nowPlaying = null;
+  let audioCtx = null;
+  let masterGain = null;
+  let analyser = null;
+  let eqNodes = {};
+  let sourceNode = null;
+  let currentSourceElement = null;
+  let isPlaying = false;
+  let crossfadeDuration = 2;
+  let playbackRate = 1;
+  let masterVolume = 1;
+  let vInterval = null;
+  let vizCanvas = document.getElementById("viz-canvas");
+  let vizCtx = vizCanvas.getContext("2d");
+  let dragIndex = null;
 
-    // Tab Switching Logic
-    function switchTab(tabId, element) {
-        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-        document.getElementById(tabId).classList.add('active');
-        element.classList.add('active');
-        document.getElementById('page-header').innerText = tabId.charAt(0).toUpperCase() + tabId.slice(1);
+  function init(){
+    const saved = localStorage.getItem(API_BASE_KEY);
+    if(saved){API_BASE = saved;document.getElementById("api-base-input").value = API_BASE}
+    bindUI();
+    setupAudioContext();
+    resizeVisualizer();
+    window.addEventListener("resize",resizeVisualizer);
+    loadState();
+    renderQueue();
+    log("Interface initialized");
+  }
+
+  function bindUI(){
+    document.getElementById("btn-search").addEventListener("click",onSearch);
+    document.getElementById("global-search").addEventListener("keydown",e=>{if(e.key==="Enter") onSearch()});
+    document.querySelectorAll(".nav button").forEach(b=>b.addEventListener("click",e=>{document.querySelectorAll(".nav button").forEach(x=>x.classList.remove("active"));b.classList.add("active");switchTab(b.dataset.tab)}));
+    document.getElementById("btn-play").addEventListener("click",playNow);
+    document.getElementById("btn-pause").addEventListener("click",pauseNow);
+    document.getElementById("btn-stop").addEventListener("click",stopNow);
+    document.getElementById("btn-next").addEventListener("click",nextTrack);
+    document.getElementById("btn-prev").addEventListener("click",prevTrack);
+    document.getElementById("btn-open-youtube").addEventListener("click",()=>openYoutubeModal(nowPlaying));
+    document.getElementById("btn-toggle-video").addEventListener("click",toggleVideo);
+    document.getElementById("btn-clear-queue").addEventListener("click",()=>{queue=[];saveState();renderQueue();toast("Queue cleared")});
+    document.getElementById("btn-shuffle").addEventListener("click",shuffleQueue);
+    document.getElementById("btn-download-json").addEventListener("click",downloadQueue);
+    document.getElementById("btn-load-json").addEventListener("click",importFromTextarea);
+    document.getElementById("btn-save-api").addEventListener("click",saveApiBase);
+    document.getElementById("btn-open-ws").addEventListener("click",openWebSocket);
+    document.getElementById("btn-close-ws").addEventListener("click",closeWebSocket);
+    document.getElementById("master-volume").addEventListener("input",e=>{masterVolume = e.target.value/100;updateMasterVolume()});
+    document.getElementById("playback-rate").addEventListener("change",e=>{playbackRate = parseFloat(e.target.value);applyPlaybackRate()});
+    document.getElementById("crossfade-duration").addEventListener("input",e=>{crossfadeDuration = parseFloat(e.target.value)});
+    document.getElementById("btn-yt-close").addEventListener("click",closeYoutubeModal);
+    document.getElementById("yt-quality").addEventListener("change",e=>setYtQuality(e.target.value));
+    document.getElementById("btn-export").addEventListener("click",exportQueue);
+    document.getElementById("btn-import").addEventListener("click",()=>document.getElementById("playlist-json").focus());
+    document.getElementById("btn-connect").addEventListener("click",()=>{if(API_BASE){toast("Testing API...");pingApi();} else toast("حط رابط API أولا")});
+    document.getElementById("btn-clear-queue").addEventListener("click",()=>{queue=[];saveState();renderQueue()});
+    document.getElementById("btn-prev").addEventListener("click",prevTrack);
+    document.getElementById("queue-list").addEventListener("dragstart",onDragStart);
+    document.getElementById("queue-list").addEventListener("dragover",onDragOver);
+    document.getElementById("queue-list").addEventListener("drop",onDrop);
+    document.getElementById("queue-list").addEventListener("dragend",onDragEnd);
+    document.getElementById("avatar").addEventListener("click",()=>{toast("Operator: AnnieX")});
+    document.getElementById("global-search").value = "";
+    document.getElementById("stat-uptime").innerText = "00:00";
+    setInterval(updateUptime,1000);
+    document.querySelectorAll(".eq-range").forEach(r=>r.addEventListener("input",applyEq));
+    window.addEventListener("visibilitychange",()=>{if(document.hidden) pauseViz()});
+  }
+
+  function switchTab(t){
+    const tabs = {dashboard:"main",webplayer:"player-card",queue:"queue-card",console:"console-card",settings:"settings-card"};
+    Object.values(tabs).forEach(id=>document.getElementById(id).style.display="none");
+    const target = tabs[t] || "main";
+    document.getElementById(target).style.display="block";
+  }
+
+  function log(msg){
+    const el = document.getElementById("console-log");
+    const time = new Date().toLocaleTimeString();
+    el.innerText = `[${time}] ${msg}\n` + el.innerText;
+  }
+
+  function toast(msg,timeout=3000){
+    const t = document.getElementById("toast");
+    t.innerText = msg;
+    t.style.display = "block";
+    t.style.opacity = "1";
+    clearTimeout(t._h);
+    t._h = setTimeout(()=>{t.style.opacity="0";t.style.display="none"},timeout);
+  }
+
+  function saveApiBase(){
+    API_BASE = document.getElementById("api-base-input").value.trim();
+    if(API_BASE){localStorage.setItem(API_BASE_KEY,API_BASE);toast("API saved");log("API_BASE set to "+API_BASE)}
+    else {toast("API فارغ");}
+  }
+
+  async function pingApi(){
+    try{
+      const res = await fetch(`${API_BASE}/status_json`);
+      if(!res.ok) throw new Error("offline");
+      const data = await res.json();
+      document.getElementById("conn-status").innerText = "Connected • " + (data.version || "API");
+      document.getElementById("stat-active").innerText = data.count || 0;
+      toast("API متصل");
+      log("API responded");
+    }catch(e){
+      document.getElementById("conn-status").innerText = "API Offline";
+      toast("API Offline");
+      log("API ping failed");
     }
+  }
 
-    // Update Uptime
-    setInterval(() => {
-        const diff = Math.floor((Date.now() - startTime) / 1000);
-        const h = Math.floor(diff / 3600).toString().padStart(2, '0');
-        const m = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
-        document.getElementById('uptime').innerText = `${h}:${m}`;
-    }, 1000);
+  function openWebSocket(){
+    if(!API_BASE){toast("حدد API_BASE أولاً");return}
+    try{
+      const wsUrl = API_BASE.replace(/^http/,"ws")+"/ws";
+      WS = new WebSocket(wsUrl);
+      WS.onopen = ()=>{toast("WebSocket مفتوح");log("WS opened");document.getElementById("conn-status").innerText = "WS Connected"};
+      WS.onmessage = e=>{handleWs(JSON.parse(e.data))};
+      WS.onerror = e=>{log("WS error");toast("WS Error")};
+      WS.onclose = ()=>{log("WS closed");document.getElementById("conn-status").innerText="WS Closed"};
+    }catch(e){log("WS open exception");toast("خطأ في إنشاء WS")}
+  }
 
-    // Fetch Status from API
-    async function updateDashboard() {
-        try {
-            const res = await fetch(`${API_BASE}/status_json`);
-            if(!res.ok) throw new Error("API Offline");
-            const data = await res.json();
-            
-            // Update Stats
-            document.getElementById('active-count').innerText = data.count;
-            document.getElementById('active-count').style.color = data.count > 0 ? 'var(--neon-blue)' : '#fff';
-            document.getElementById('connection-status').innerHTML = `<div class="dot"></div> Online (${data.version})`;
-            document.getElementById('connection-status').style.color = '#00ff88';
+  function closeWebSocket(){if(WS){WS.close();WS=null;toast("WS closed")}}
 
-            renderCalls(data.chats);
+  function handleWs(msg){
+    if(msg.type==="status"){document.getElementById("stat-active").innerText = msg.count || 0}
+    if(msg.type==="event" && msg.event==="new_track"){queue.unshift(msg.track);saveState();renderQueue();toast("New track from WS")}
+  }
 
-        } catch (e) {
-            document.getElementById('connection-status').innerHTML = `<div class="dot" style="background:red;animation:none"></div> Offline`;
-            document.getElementById('connection-status').style.color = 'red';
-            console.log(e);
+  function setupAudioContext(){
+    try{
+      audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 1;
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      masterGain.connect(analyser);
+      analyser.connect(audioCtx.destination);
+      const freqs = [60,170,1000,3500,10000];
+      freqs.forEach(f=>{
+        const b = audioCtx.createBiquadFilter();
+        b.type = "peaking";
+        b.frequency.value = f;
+        b.gain.value = 0;
+        b.Q.value = 1;
+        b.connect(masterGain);
+        eqNodes[f]=b;
+      });
+      log("AudioContext ready");
+    }catch(e){log("AudioContext failed")}
+  }
+
+  function applyEq(){
+    document.querySelectorAll(".eq-range").forEach(r=>{
+      const f = r.dataset.band;
+      const val = parseFloat(r.value);
+      if(eqNodes[f]) eqNodes[f].gain.value = val;
+    });
+  }
+
+  function updateMasterVolume(){if(masterGain) masterGain.gain.value = masterVolume}
+  function applyPlaybackRate(){if(currentSourceElement) currentSourceElement.playbackRate = playbackRate; if(ytPlayer) ytPlayer.setPlaybackRate(playbackRate)}
+
+  function onSearch(){
+    const q = document.getElementById("global-search").value.trim();
+    if(!q) return;
+    if(q.startsWith("http") && q.includes("youtube")){const id = extractYtId(q);if(id) addToQueue({id,source:"youtube",title:"YouTube Link",thumb:`https://i.ytimg.com/vi/${id}/hqdefault.jpg`});return}
+    searchYouTube(q);
+  }
+
+  function extractYtId(url){
+    try{
+      const u = new URL(url);
+      if(u.hostname.includes("youtu.be")) return u.pathname.slice(1);
+      if(u.searchParams.has("v")) return u.searchParams.get("v");
+      const p = u.pathname.split("/").pop();
+      return p;
+    }catch(e){return null}
+  }
+
+  async function searchYouTube(q){
+    renderSearchResults([{title:"نتيجة تجريبية 1",id:"dQw4w9WgXcQ",thumb:"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"},{title:"نتيجة تجريبية 2",id:"3JZ_D3ELwOQ",thumb:"https://i.ytimg.com/vi/3JZ_D3ELwOQ/hqdefault.jpg"}]);
+    toast("تم تعبئة نتائج تجريبية");
+    try{
+      if(!API_BASE) return;
+      const res = await fetch(`${API_BASE}/youtube_search?q=${encodeURIComponent(q)}`);
+      if(res.ok){
+        const data = await res.json();
+        if(Array.isArray(data.items)){
+          const mapped = data.items.map(it=>({title:it.title,id:it.id,thumb:it.thumb || `https://i.ytimg.com/vi/${it.id}/hqdefault.jpg`,duration:it.duration||"0:00"}));
+          renderSearchResults(mapped);
+          toast("نتائج من API");
         }
+      }
+    }catch(e){log("search error")}
+  }
+
+  function renderSearchResults(list){
+    const container = document.getElementById("search-results");
+    container.innerHTML = "";
+    list.forEach(item=>{
+      const el = document.createElement("div");
+      el.className = "result";
+      el.innerHTML = `<div class="thumb" style="background-image:url('${item.thumb}');background-size:cover;background-position:center"></div><div style="flex:1"><div style="font-weight:700">${escapeHtml(item.title)}</div><div class="small">${item.duration || ""}</div></div>`;
+      el.addEventListener("click",()=>{addToQueue({id:item.id,source:"youtube",title:item.title,thumb:item.thumb});toast("Added to queue")});
+      container.appendChild(el);
+    });
+  }
+
+  function addToQueue(track){
+    const k = {id:track.id,source:track.source||"youtube",title:track.title||"Unknown",thumb:track.thumb||"",meta:track.meta||{}};
+    queue.push(k);
+    saveState();
+    renderQueue();
+    if(!isPlaying) playNext();
+  }
+
+  function renderQueue(){
+    const list = document.getElementById("queue-list");
+    list.innerHTML = "";
+    queue.forEach((t,i)=>{
+      const el = document.createElement("div");
+      el.className = "queue-item";
+      el.draggable = true;
+      el.dataset.index = i;
+      el.innerHTML = `<div class="thumb" style="background-image:url('${t.thumb}');background-size:cover;background-position:center"></div><div class="meta"><div class="t">${escapeHtml(t.title)}</div><div class="s">${t.source}</div></div><div class="actions"><button class="btn ghost" data-action="play" data-index="${i}">Play</button><button class="btn ghost" data-action="remove" data-index="${i}">Remove</button></div>`;
+      el.querySelectorAll("button[data-action]").forEach(b=>b.addEventListener("click",(ev)=>{const a=b.dataset.action;const idx=parseInt(b.dataset.index);if(a==="play"){playIndex(idx)}else if(a==="remove"){queue.splice(idx,1);saveState();renderQueue()}}));
+      el.addEventListener("dblclick",()=>playIndex(i));
+      list.appendChild(el);
+    });
+  }
+
+  function playIndex(i){
+    if(i<0||i>=queue.length) return;
+    nowPlaying = queue[i];
+    queue.splice(i,1);
+    saveState();
+    renderQueue();
+    startPlayback(nowPlaying);
+  }
+
+  function playNow(){if(!nowPlaying){if(queue.length>0){nowPlaying=queue.shift();startPlayback(nowPlaying)}else{toast("لا توجد أغاني في الطابور")}}else{resumeNow()}}
+  async function startPlayback(track){
+    isPlaying = true;
+    document.getElementById("track-title").innerText = track.title || "Unknown";
+    document.getElementById("track-source").innerText = track.source || "source";
+    if(track.source==="youtube"){
+      ensureYouTubePlayer();
+      const id = track.id;
+      ytPlayer.loadVideoById({videoId:id, suggestedQuality:"default"});
+      openYoutubeModal(track);
+      log("Playing YouTube: "+track.id);
+    }else{
+      if(currentSourceElement) stopNow();
+      const audio = new Audio(track.url || track.id);
+      currentSourceElement = audio;
+      audio.crossOrigin = "anonymous";
+      audio.loop = false;
+      audio.volume = masterVolume;
+      audio.playbackRate = playbackRate;
+      const src = audioCtx.createMediaElementSource(audio);
+      Object.values(eqNodes).forEach(n=>src.connect(n));
+      src.connect(masterGain);
+      audio.play().then(()=>{log("Audio started");isPlaying=true}).catch(e=>{log("Audio play failed")});
+      audio.onended = ()=>{isPlaying=false;nextTrack()};
+      vizStart();
     }
+    updateNowPlayingDisplay();
+  }
 
-    // Render Cards
-    function renderCalls(chats) {
-        const container = document.getElementById('calls-container');
-        container.innerHTML = "";
+  function resumeNow(){if(currentSourceElement){currentSourceElement.play();isPlaying=true;vizStart();log("Resumed audio")}}
+  function pauseNow(){if(ytPlayer && ytPlayer.getPlayerState && ytPlayer.getPlayerState()===1){ytPlayer.pauseVideo();isPlaying=false}else if(currentSourceElement){currentSourceElement.pause();isPlaying=false}vizStop();log("Paused")}
+  function stopNow(){if(ytPlayer){try{ytPlayer.stopVideo()}catch(e){} } if(currentSourceElement){currentSourceElement.pause();currentSourceElement.currentTime=0; currentSourceElement=null} isPlaying=false;vizStop();updateNowPlayingDisplay();log("Stopped")}
+  function nextTrack(){if(queue.length>0){nowPlaying = queue.shift();saveState();renderQueue();startPlayback(nowPlaying)}else{nowPlaying=null;stopNow();toast("Queue ended")}}
+  function prevTrack(){toast("Prev not available")}
+  function playNext(){if(queue.length>0){nowPlaying=queue.shift();saveState();renderQueue();startPlayback(nowPlaying)}}
+  function shuffleQueue(){for(let i=queue.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[queue[i],queue[j]]=[queue[j],queue[i]]}renderQueue();saveState();toast("Shuffled")}
 
-        if(chats.length === 0) {
-            container.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:50px;color:var(--text-sec)">No active streams detected.</div>`;
-            return;
-        }
-
-        chats.forEach(chat => {
-            // Random gradient for art placeholder since we don't have real thumb url in basic status
-            const card = document.createElement('div');
-            card.className = 'call-card';
-            card.innerHTML = `
-                <div class="call-header">
-                    <div class="chat-id">${chat}</div>
-                    <div class="call-badge">LIVE</div>
-                </div>
-                <div class="track-info">
-                    <div class="track-art">
-                        <div style="width:100%;height:100%;background:linear-gradient(45deg, #333, #555)"></div>
-                    </div>
-                    <div class="track-details">
-                        <div class="track-title">Streaming Active</div>
-                        <div class="track-meta">Audio: STUDIO | Video: 720p</div>
-                    </div>
-                </div>
-                <div class="controls-row">
-                    <button class="c-btn btn-pause" onclick="control(${chat}, 'pause')">
-                        <svg viewBox="0 0 24 24" style="width:18px"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Pause
-                    </button>
-                    <button class="c-btn btn-resume" onclick="control(${chat}, 'resume')">
-                        <svg viewBox="0 0 24 24" style="width:18px"><path d="M8 5v14l11-7z"/></svg> Play
-                    </button>
-                    <button class="c-btn btn-stop" onclick="control(${chat}, 'stop')">
-                        <svg viewBox="0 0 24 24" style="width:18px"><path d="M6 6h12v12H6z"/></svg> Stop
-                    </button>
-                </div>
-                <div class="volume-container">
-                    <svg viewBox="0 0 24 24" style="width:20px;fill:#fff"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-                    <input type="range" class="vol-slider" min="0" max="200" value="100" onchange="control(${chat}, 'volume', this.value)">
-                </div>
-            `;
-            container.appendChild(card);
-        });
+  function updateNowPlayingDisplay(){
+    if(nowPlaying){
+      document.getElementById("preview-thumb").style.backgroundImage = `url('${nowPlaying.thumb}')`;
+      document.getElementById("track-title").innerText = nowPlaying.title;
+      document.getElementById("track-source").innerText = nowPlaying.source;
+    }else{
+      document.getElementById("preview-thumb").style.backgroundImage = "";
+      document.getElementById("track-title").innerText = "لا يوجد تشغيل";
+      document.getElementById("track-source").innerText = "—";
     }
+  }
 
-    // API Control
-    async function control(chatId, action, val=0) {
-        log(`Sending ${action} command to ${chatId}...`);
-        try {
-            await fetch(`${API_BASE}/control`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({chat_id: chatId, action: action, value: val})
-            });
-            setTimeout(updateDashboard, 500);
-            log(`Success: ${action}`);
-        } catch (e) {
-            log(`Error: ${e}`);
-        }
+  function saveState(){localStorage.setItem("annie_queue",JSON.stringify(queue));localStorage.setItem("annie_now",JSON.stringify(nowPlaying))}
+  function loadState(){const q = localStorage.getItem("annie_queue");if(q){try{queue = JSON.parse(q)}catch(e){queue=[]}} const n = localStorage.getItem("annie_now"); if(n){try{nowPlaying = JSON.parse(n)}catch(e){nowPlaying=null}}}
+
+  function exportQueue(){const data = {queue,now:nowPlaying,ts:Date.now()}; const txt = JSON.stringify(data, null, 2); document.getElementById("playlist-json").value = txt; toast("Exported to textarea")}
+  function importFromTextarea(){try{const txt = document.getElementById("playlist-json").value; const parsed = JSON.parse(txt); if(parsed.queue) queue = parsed.queue; if(parsed.now) nowPlaying = parsed.now; saveState();renderQueue();updateNowPlayingDisplay();toast("Imported")}catch(e){toast("Invalid JSON")}}
+  function downloadQueue(){const blob = new Blob([JSON.stringify({queue,now:nowPlaying},null,2)],{type:"application/json"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "annie_queue.json"; a.click(); URL.revokeObjectURL(url); toast("Downloaded")}
+
+  function importFromFile(file){const reader = new FileReader(); reader.onload = ()=>{try{const data = JSON.parse(reader.result); if(Array.isArray(data)){queue = data; saveState(); renderQueue(); toast("Imported list") } else toast("Invalid file");}catch(e){toast("Parse error")}};reader.readAsText(file)}
+  function exportQueueToApi(){if(!API_BASE){toast("API_BASE required");return} fetch(`${API_BASE}/push_queue`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({queue})}).then(r=>r.ok?toast("Pushed to API"):toast("API push failed"))}
+
+  function ensureYouTubePlayer(){
+    if(window.YT && window.YT.Player && !ytPlayer){
+      ytPlayer = new YT.Player("youtube-player",{height:"100%",width:"100%",playerVars:{controls:1,rel:0,showinfo:0},events:{onReady:onYtReady,onStateChange:onYtState}});
+    }else if(!window.YT){
+      const s = document.createElement("script");
+      s.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(s);
+      window.onYouTubeIframeAPIReady = ()=>{ytPlayer = new YT.Player("youtube-player",{height:"100%",width:"100%",playerVars:{controls:1,rel:0,showinfo:0},events:{onReady:onYtReady,onStateChange:onYtState}})}
     }
+  }
 
-    async function sendPlay() {
-        // Placeholder for future /play integration if exposed in API
-        alert("This feature requires the /play endpoint to be exposed in api.py");
+  function onYtReady(){log("YT ready");if(nowPlaying && nowPlaying.source==="youtube"){ytPlayer.loadVideoById(nowPlaying.id)}}
+  function onYtState(e){if(e.data===YT.PlayerState.ENDED){log("YT ended");nextTrack()} if(e.data===YT.PlayerState.PLAYING){isPlaying=true;vizStart()} if(e.data===YT.PlayerState.PAUSED){isPlaying=false;vizStop()}}
+  function setYtQuality(q){try{ytPlayer.setPlaybackQuality(q);toast("YT quality "+q)}catch(e){toast("Quality change failed")}}
+
+  function openYoutubeModal(track){ensureYouTubePlayer();document.getElementById("modal-youtube").classList.add("open");if(track && track.source==="youtube" && ytPlayer){ytPlayer.loadVideoById(track.id)}}
+  function closeYoutubeModal(){document.getElementById("modal-youtube").classList.remove("open")}
+
+  function toggleVideo(){if(document.getElementById("modal-youtube").classList.contains("open")) closeYoutubeModal(); else openYoutubeModal(nowPlaying)}
+
+  function vizStart(){
+    if(!audioCtx || !analyser) return;
+    if(vInterval) return;
+    analyser.fftSize = 2048;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    vizCanvas.width = vizCanvas.clientWidth * devicePixelRatio;
+    vizCanvas.height = vizCanvas.clientHeight * devicePixelRatio;
+    const ctx = vizCtx;
+    function draw(){
+      vInterval = requestAnimationFrame(draw);
+      analyser.getByteFrequencyData(dataArray);
+      ctx.clearRect(0,0,vizCanvas.width,vizCanvas.height);
+      const w = vizCanvas.width;
+      const h = vizCanvas.height;
+      const barWidth = (w / bufferLength) * 2.5;
+      let x = 0;
+      for(let i=0;i<bufferLength;i++){
+        const v = dataArray[i];
+        const barHeight = (v / 255) * h;
+        ctx.fillStyle = `rgba(${Math.min(255,v*1.5)}, ${Math.max(50, 255-v)}, ${Math.min(255, 200+v/2)}, 0.85)`;
+        ctx.fillRect(x, h-barHeight, barWidth, barHeight);
+        x += barWidth + 1;
+      }
     }
+    draw();
+  }
 
-    function log(msg) {
-        const d = new Date().toLocaleTimeString();
-        const line = document.createElement('div');
-        line.innerHTML = `<span style="color:#888">[${d}]</span> ${msg}`;
-        document.getElementById('console-logs').prepend(line);
-    }
+  function vizStop(){if(vInterval){cancelAnimationFrame(vInterval);vInterval=null;vizCtx.clearRect(0,0,vizCanvas.width,vizCanvas.height)}}
+  function pauseViz(){vizStop()}
 
-    // Init
-    updateDashboard();
-    setInterval(updateDashboard, 2000); // Fast polling
+  function resizeVisualizer(){vizCanvas.width = vizCanvas.clientWidth * devicePixelRatio; vizCanvas.height = vizCanvas.clientHeight * devicePixelRatio; vizCtx.scale(devicePixelRatio,devicePixelRatio)}
+
+  function onDragStart(e){const el = e.target.closest(".queue-item"); if(!el) return; dragIndex = parseInt(el.dataset.index); el.classList.add("dragging"); e.dataTransfer.effectAllowed="move"}
+  function onDragOver(e){e.preventDefault(); const el = e.target.closest(".queue-item"); if(!el) return; const idx = parseInt(el.dataset.index); const list = document.getElementById("queue-list"); if(idx!==dragIndex){const dragged = queue.splice(dragIndex,1)[0]; queue.splice(idx,0,dragged); dragIndex = idx; renderQueue();}}
+  function onDrop(e){dragIndex = null; renderQueue()}
+  function onDragEnd(e){document.querySelectorAll(".queue-item").forEach(x=>x.classList.remove("dragging")); saveState()}
+
+  function playIndexFromApi(track){addToQueue(track); if(!isPlaying)playNext()}
+  function exportQueue(){
+    if(!API_BASE) {toast("حدد API_BASE"); return}
+    fetch(`${API_BASE}/import_queue`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({queue})}).then(r=>r.ok?toast("Sent to API"):toast("API error"))
+  }
+
+  function escapeHtml(str){if(!str) return ""; return String(str).replace(/[&<>"']/g, s=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[s]))}
+
+  function loadState(){const q = localStorage.getItem("annie_queue"); if(q){try{queue = JSON.parse(q)}catch(e){queue=[]}} const n = localStorage.getItem("annie_now"); if(n){try{nowPlaying = JSON.parse(n)}catch(e){nowPlaying=null}} renderQueue(); updateNowPlayingDisplay()}
+
+  function updateUptime(){const start = performance.timing?performance.timing.navigationStart:Date.now(); const diff = Math.floor((Date.now()-start)/1000); const h = Math.floor(diff/3600).toString().padStart(2,"0"); const m = Math.floor((diff%3600)/60).toString().padStart(2,"0"); document.getElementById("stat-uptime").innerText = `${h}:${m}`}
+
+  function downloadAsFile(content,filename){const blob=new Blob([content],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url)}
+
+  function importFromText(text){try{const json=JSON.parse(text); if(json.queue) {queue=json.queue; saveState(); renderQueue(); toast("Imported") } else toast("Invalid") }catch(e){toast("JSON Error")}}
+
+  function playIndex(i){playIndex(i)} // placeholder to maintain compatibility
+
+  window.addEventListener("load",init);
+
+  // small demo seed to show UI populated
+  (function seedDemo(){
+    if(localStorage.getItem("annie_queue")) return;
+    queue = [
+      {id:"dQw4w9WgXcQ",source:"youtube",title:"Demo Track 1 — Rick",thumb:"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"},
+      {id:"3JZ_D3ELwOQ",source:"youtube",title:"Demo Track 2 — Sample",thumb:"https://i.ytimg.com/vi/3JZ_D3ELwOQ/hqdefault.jpg"},
+      {id:"https://cdn.pixabay.com/download/audio/2021/08/04/audio_4c0f3b5b8a.mp3",source:"direct",title:"Sample MP3",thumb:""}
+    ];
+    saveState();
+    renderQueue();
+  })();
+
+  // YouTube API helper
+  function onYouTubeIframeAPIReady(){}
 </script>
-
 </body>
 </html>
