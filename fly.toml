@@ -1,3 +1,7 @@
+# Authored By Certified Coders © 2026
+# Project: AnnieX Media Enterprise
+# Deployment: Fly.io Optimized for High-Performance Streaming
+
 app = "anniexboda-mxodcg"
 primary_region = "iad"
 
@@ -8,21 +12,20 @@ primary_region = "iad"
   dockerfile = "Dockerfile"
 
 # ===============================
-# Environment Variables ([env])
+# Environment Variables
 # ===============================
 [env]
-  # تحسينات بايثون العامة
+  # بايثون بدون تخزين مؤقت للوجات لسرعة الاستجابة
   PYTHONUNBUFFERED = "1"
   PYTHONDONTWRITEBYTECODE = "1"
   
-  # توجيه الملفات المؤقتة للرام ديسك (ضروري مع الكود الجديد)
+  # الرام ديسك للملفات المؤقتة
   TMPDIR = "/dev/shm"
 
-  # ⚠️ إجبار النظام على استخدام IPv4 فقط
-  # هذا أهم سطر لمنع حظر يوتيوب (HTTP 429 Errors)
+  # إجبار IPv4 لمنع مشاكل الـ 429 مع يوتيوب
   IP_VERSION = "4"
 
-  # CPU Acceleration (للاستفادة من الـ 16 كور في OpenCV و Numpy)
+  # استغلال الـ 16 كور بالكامل
   OMP_NUM_THREADS = "16"
   MKL_NUM_THREADS = "16"
   NUMEXPR_NUM_THREADS = "16"
@@ -31,24 +34,52 @@ primary_region = "iad"
 # Network Tuning (YouTube Booster) 🚀
 # ===============================
 [sysctl]
-  # تفعيل خوارزمية BBR (صاروخ يوتيوب)
+  # تفعيل خوارزمية BBR لتقليل الـ Latency في البث
   "net.core.default_qdisc" = "fq"
   "net.ipv4.tcp_congestion_control" = "bbr"
 
-  # فتح صنبور الداتا (Buffers) لاستغلال الرام الـ 100 جيجا
+  # زيادة مساحة الـ Buffers لاستيعاب الـ 128 جيجا رام
   "net.core.rmem_max" = "16777216"
   "net.core.wmem_max" = "16777216"
   "net.ipv4.tcp_rmem" = "4096 87380 16777216"
   "net.ipv4.tcp_wmem" = "4096 65536 16777216"
   
-  # منع التقطيع عند الضغط
+  # تسريع بروتوكول TCP
   "net.ipv4.tcp_window_scaling" = "1"
   "net.ipv4.tcp_slow_start_after_idle" = "0"
 
 # ===============================
-# Machine Specs (The Beast)
+# Machine Specs (The Ultimate Beast)
 # ===============================
 [[vm]]
   cpu_kind = "performance"
   cpus = 16
   memory_mb = 131072
+
+# ===============================
+# HTTP Service (Web Dashboard & API)
+# ===============================
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  # توجيه ترافيك الـ HTTP العادي لـ HTTPS آمن
+  [[services.ports]]
+    force_https = true
+    handlers = ["http"]
+    port = 80
+
+  # فتح بوابة الـ SSL الآمنة
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  # نظام فحص الصحة (Health Check) لمراقبة استقرار البوت
+  [[services.http_checks]]
+    interval = "10s"
+    grace_period = "5s"
+    method = "get"
+    path = "/api/stats"
+    protocol = "http"
+    timeout = "2s"
+    tls_skip_verify = false
