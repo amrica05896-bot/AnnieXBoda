@@ -1,1024 +1,615 @@
-<!doctype html>
-<html lang="ar">
+<!DOCTYPE html>
+<html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>AnnieXMedia • Liquid Control — Extended</title>
-<meta name="description" content="AnnieXMedia Liquid Control — full dashboard for YouTube/audio playback, queue, API & websocket control, responsive mobile/desktop layouts.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="theme-color" content="#05050a">
+<title>AnnieX • TitanOS Liquid Control</title>
+<meta name="description" content="TitanOS Enterprise Dashboard - Full Control Suite">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;500;700&family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;500;700;800&family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
 <style>
-:root{
-  --bg:#05050a;
-  --glass:rgba(18,18,28,0.66);
-  --glass-2:rgba(28,28,36,0.44);
-  --glass-border:rgba(255,255,255,0.06);
-  --glass-highlight:rgba(255,255,255,0.09);
-  --accent-blue:#00f3ff;
-  --accent-purple:#bc13fe;
-  --accent-red:#ff0055;
-  --muted:#9aa0b2;
-  --main:#eaf2ff;
-  --glass-radius:16px;
-  --transition:all .28s cubic-bezier(.2,.9,.2,1);
-  --max-width:1560px;
-  --shadow:0 12px 40px rgba(0,0,0,.6);
-  --mono:ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace;
+/* --------------------------------------------------
+   CORE VARIABLES & RESET
+   --------------------------------------------------
+*/
+:root {
+  --bg: #05050a;
+  --glass: rgba(18, 18, 28, 0.75);
+  --glass-2: rgba(30, 30, 40, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.12);
+  --neon-blue: #00f3ff;
+  --neon-purple: #bc13fe;
+  --neon-red: #ff0055;
+  --neon-green: #00ff88;
+  --neon-gold: #ffaa00;
+  --text-main: #ffffff;
+  --text-muted: #9aa0b2;
+  --radius: 16px;
+  --shadow: 0 10px 40px rgba(0,0,0,0.5);
+  --font-head: 'Rajdhani', sans-serif;
+  --font-body: 'Poppins', sans-serif;
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-/* layout baseline */
-*{box-sizing:border-box}
-html,body{height:100%;margin:0;font-family:'Poppins',sans-serif;background:linear-gradient(180deg,#03030a,#070712);color:var(--main);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-.app{
-  width:100%;
-  min-height:100vh;
-  display:flex;
-  align-items:stretch;
-  justify-content:center;
-  padding:22px;
-  gap:22px;
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; user-select: none; }
+html, body { height: 100%; margin: 0; padding: 0; background: var(--bg); color: var(--text-main); font-family: var(--font-body); overflow: hidden; }
+
+/* SCROLLBARS */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* --------------------------------------------------
+   ANIMATED BACKGROUND
+   --------------------------------------------------
+*/
+.bg-fx { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.orb { position: absolute; border-radius: 50%; filter: blur(100px); opacity: 0.4; animation: float 20s infinite alternate ease-in-out; }
+.orb.one { width: 600px; height: 600px; background: radial-gradient(circle, var(--neon-purple), transparent 60%); top: -200px; left: -200px; }
+.orb.two { width: 500px; height: 500px; background: radial-gradient(circle, var(--neon-blue), transparent 60%); bottom: -150px; right: -150px; animation-delay: -5s; }
+.orb.three { width: 300px; height: 300px; background: radial-gradient(circle, var(--neon-red), transparent 60%); top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.2; animation-duration: 15s; }
+
+@keyframes float {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(30px, -50px) scale(1.1); }
+  100% { transform: translate(-20px, 40px) scale(0.9); }
 }
 
-/* container */
-.container{
-  width:100%;
-  max-width:var(--max-width);
-  display:grid;
-  grid-template-columns:320px 1fr 420px;
-  gap:20px;
-  align-items:start;
-  padding:20px;
+/* --------------------------------------------------
+   LAYOUT STRUCTURE
+   --------------------------------------------------
+*/
+.app-layout { display: flex; width: 100%; height: 100%; gap: 20px; padding: 20px; }
+.sidebar { width: 280px; display: flex; flex-direction: column; gap: 20px; z-index: 10; transition: 0.4s var(--ease); }
+.main-area { flex: 1; display: flex; flex-direction: column; gap: 20px; position: relative; overflow: hidden; transition: 0.4s var(--ease); }
+.right-panel { width: 320px; display: flex; flex-direction: column; gap: 20px; z-index: 10; transition: 0.4s var(--ease); }
+
+/* PANELS & CARDS */
+.glass-panel {
+  background: var(--glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
 }
 
-/* orbs background */
-.bg-orbs{position:fixed;inset:0;z-index:-10;pointer-events:none;overflow:hidden}
-.orb{position:absolute;border-radius:50%;filter:blur(120px);opacity:.6;mix-blend-mode:screen}
-.orb.one{width:680px;height:680px;background:radial-gradient(circle at 30% 30%,var(--accent-purple),transparent 40%);left:-180px;top:-260px}
-.orb.two{width:720px;height:720px;background:radial-gradient(circle at 70% 70%,var(--accent-blue),transparent);right:-220px;bottom:-300px}
+/* --------------------------------------------------
+   SIDEBAR COMPONENTS
+   --------------------------------------------------
+*/
+.brand { display: flex; align-items: center; gap: 15px; margin-bottom: 10px; }
+.brand-logo { 
+    width: 50px; height: 50px; background: linear-gradient(135deg, var(--neon-blue), var(--neon-purple)); 
+    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-head); font-weight: 800; font-size: 24px; color: #000;
+    box-shadow: 0 0 20px rgba(0, 243, 255, 0.3);
+}
+.brand-text h1 { margin: 0; font-family: var(--font-head); font-size: 24px; font-weight: 700; line-height: 1; letter-spacing: 1px; }
+.brand-text span { font-size: 12px; color: var(--neon-blue); letter-spacing: 2px; text-transform: uppercase; font-weight: 600; }
 
-/* Sidebar */
-.sidebar{
-  height:calc(100vh - 44px);
-  background:var(--glass);
-  border:1px solid var(--glass-border);
-  border-radius:18px;
-  padding:18px;
-  display:flex;
-  flex-direction:column;
-  gap:14px;
-  backdrop-filter:blur(16px);
-  box-shadow:var(--shadow);
-  overflow:auto;
+.nav-menu { display: flex; flex-direction: column; gap: 8px; flex: 1; overflow-y: auto; }
+.nav-item {
+    display: flex; align-items: center; gap: 15px; padding: 14px; border-radius: 12px;
+    color: var(--text-muted); cursor: pointer; transition: 0.2s; border: 1px solid transparent;
+}
+.nav-item svg { width: 20px; height: 20px; fill: currentColor; }
+.nav-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
+.nav-item.active { 
+    background: linear-gradient(90deg, rgba(0,243,255,0.1), transparent); 
+    border-color: rgba(0,243,255,0.2); color: var(--neon-blue); 
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
 }
 
-/* Brand */
-.brand{display:flex;gap:12px;align-items:center}
-.logo{
-  width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--accent-blue),var(--accent-purple));
-  display:flex;align-items:center;justify-content:center;font-family:'Rajdhani',sans-serif;font-weight:800;color:#03030a;box-shadow:0 10px 28px rgba(0,0,0,.5)
+.user-card { display: flex; align-items: center; gap: 12px; padding-top: 20px; border-top: 1px solid var(--glass-border); }
+.avatar { width: 40px; height: 40px; border-radius: 50%; background: #222; border: 2px solid var(--neon-green); }
+.user-info div:first-child { font-weight: 600; font-size: 14px; }
+.user-info div:last-child { font-size: 11px; color: var(--neon-green); }
+
+/* --------------------------------------------------
+   MAIN AREA COMPONENTS
+   --------------------------------------------------
+*/
+.header { display: flex; justify-content: space-between; align-items: center; height: 50px; }
+.page-title { font-family: var(--font-head); font-size: 32px; font-weight: 700; }
+.status-badge { 
+    padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+    background: rgba(0, 255, 136, 0.1); border: 1px solid var(--neon-green); color: var(--neon-green);
+    display: flex; align-items: center; gap: 8px;
 }
-.brand h1{font-size:16px;margin:0;letter-spacing:.4px}
+.pulse-dot { width: 8px; height: 8px; background: currentColor; border-radius: 50%; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(0,255,136,0.7); } 70% { box-shadow: 0 0 0 10px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
 
-/* nav */
-.nav{display:flex;flex-direction:column;gap:8px}
-.nav .item{
-  display:flex;align-items:center;gap:12px;padding:10px;border-radius:12px;cursor:pointer;color:var(--muted);font-weight:600;border:1px solid transparent;transition:var(--transition)
-}
-.nav .item:hover{background:var(--glass-highlight);color:var(--main);border-color:var(--glass-border)}
-.nav .item.active{background:linear-gradient(90deg,rgba(0,243,255,.06),rgba(188,19,254,.04));color:var(--main);box-shadow:0 12px 30px rgba(0,0,0,.5);border-color:rgba(255,255,255,.03)}
+/* TABS SYSTEM */
+.tab-content { display: none; height: 100%; flex-direction: column; animation: fadeUp 0.4s var(--ease); }
+.tab-content.active { display: flex; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 
-/* quick panels */
-.panel{background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border:1px solid var(--glass-border);padding:12px;border-radius:12px}
-.user{display:flex;gap:12px;align-items:center}
-.avatar{width:56px;height:56px;border-radius:12px;background:#0b0b0f;display:flex;align-items:center;justify-content:center;font-weight:800}
-.user .info{display:flex;flex-direction:column}
-.user .info .name{font-weight:700}
-.user .info .role{font-size:13px;color:var(--muted)}
-
-/* main content center column */
-.center{
-  min-height:calc(100vh - 44px);
-  overflow:auto;
-  border-radius:18px;
-  background:linear-gradient(180deg,rgba(255,255,255,0.01),transparent);
-  border:1px solid var(--glass-border);
-  padding:18px;
-  box-shadow:var(--shadow);
-  display:flex;
-  flex-direction:column;
-  gap:12px;
+/* DASHBOARD GRID */
+.grid-cards { 
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; 
+    overflow-y: auto; padding-bottom: 20px; height: 100%;
 }
 
-/* header area */
-.header{display:flex;align-items:center;gap:12px}
-.header h2{font-family:'Rajdhani',sans-serif;margin:0;font-size:22px}
-.header .status{margin-left:auto;padding:8px 14px;border-radius:999px;background:rgba(0,255,136,.06);border:1px solid rgba(0,255,136,.12);color:#a8ffd8;font-weight:700}
+.live-card {
+    background: var(--glass-2); border: 1px solid var(--glass-border); border-radius: 18px; padding: 20px;
+    position: relative; overflow: hidden; transition: 0.3s;
+}
+.live-card:hover { transform: translateY(-5px); border-color: var(--neon-blue); }
+.card-header { display: flex; justify-content: space-between; margin-bottom: 15px; }
+.chat-tag { font-family: var(--font-head); font-size: 18px; font-weight: 700; color: #fff; }
+.type-tag { font-size: 10px; background: var(--neon-purple); padding: 2px 8px; border-radius: 4px; color: #fff; font-weight: 700; }
 
-/* layout panels inside center */
-.center-grid{display:grid;grid-template-columns:1fr 360px;gap:12px;align-items:start}
-.left-zone{display:flex;flex-direction:column;gap:12px;min-height:300px}
-.right-zone{display:flex;flex-direction:column;gap:12px;min-height:300px}
+.song-meta { display: flex; gap: 15px; margin-bottom: 20px; }
+.song-thumb { width: 70px; height: 70px; border-radius: 10px; background: #000; background-size: cover; background-position: center; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+.song-details { display: flex; flex-direction: column; justify-content: center; flex: 1; overflow: hidden; }
+.song-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px; }
+.song-artist { font-size: 12px; color: var(--text-muted); }
 
-/* player card */
-.player-card{display:flex;flex-direction:column;gap:12px;padding:14px;border-radius:12px;background:var(--glass-2);border:1px solid var(--glass-border)}
-.player-top{display:flex;gap:12px}
-.player-thumb{width:160px;height:100px;border-radius:8px;background:#000;overflow:hidden}
-.player-meta{display:flex;flex-direction:column;gap:6px}
-.player-meta .title{font-weight:800}
-.player-meta .sub{font-size:13px;color:var(--muted)}
+.controls-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+.btn-ctrl { 
+    border: none; border-radius: 8px; padding: 10px; cursor: pointer; color: #fff; font-weight: 600; transition: 0.2s;
+    display: flex; align-items: center; justify-content: center;
+}
+.btn-ctrl:hover { filter: brightness(1.2); transform: scale(1.05); }
+.btn-pause { background: rgba(255, 170, 0, 0.15); color: var(--neon-gold); border: 1px solid rgba(255, 170, 0, 0.3); }
+.btn-resume { background: rgba(0, 243, 255, 0.15); color: var(--neon-blue); border: 1px solid rgba(0, 243, 255, 0.3); }
+.btn-stop { background: rgba(255, 0, 85, 0.15); color: var(--neon-red); border: 1px solid rgba(255, 0, 85, 0.3); }
 
-/* controls row */
-.controls{display:flex;gap:8px;align-items:center}
-.btn{padding:10px 12px;border-radius:10px;border:none;background:linear-gradient(90deg,var(--accent-blue),var(--accent-purple));color:#04040a;font-weight:800;cursor:pointer;transition:var(--transition)}
-.btn.ghost{background:transparent;border:1px solid var(--glass-border);color:var(--main)}
-.btn.small{padding:6px 8px;font-size:13px}
+.watch-btn {
+    width: 100%; background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple));
+    border: none; padding: 12px; border-radius: 10px; color: #000; font-weight: 800; text-transform: uppercase;
+    cursor: pointer; position: relative; overflow: hidden; font-family: var(--font-head); letter-spacing: 1px;
+}
+.watch-btn::after {
+    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: linear-gradient(45deg, transparent, rgba(255,255,255,0.4), transparent);
+    transform: rotate(45deg); animation: shine 3s infinite;
+}
+@keyframes shine { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 
-/* queue */
-.queue{display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:auto}
-.queue-item{display:flex;gap:10px;align-items:center;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.02);background:linear-gradient(180deg,transparent,rgba(255,255,255,0.01));cursor:grab}
-.queue-item .thumb{width:84px;height:56px;background:#0b0b0f;border-radius:8px;flex-shrink:0;background-size:cover;background-position:center}
-.queue-item .meta{flex:1;display:flex;flex-direction:column}
-.queue-item .meta .t{font-weight:700}
-.queue-item .meta .s{font-size:12px;color:var(--muted)}
-.queue-item .actions{display:flex;gap:6px}
+/* --------------------------------------------------
+   RIGHT PANEL COMPONENTS
+   --------------------------------------------------
+*/
+.stat-box { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 15px; margin-bottom: 15px; border: 1px solid var(--glass-border); }
+.stat-label { font-size: 12px; color: var(--text-muted); margin-bottom: 5px; text-transform: uppercase; }
+.stat-value { font-family: var(--font-head); font-size: 28px; font-weight: 700; color: #fff; }
 
-/* search results */
-.search-bar{display:flex;gap:8px;align-items:center}
-.input{flex:1;padding:10px;border-radius:10px;background:transparent;border:1px solid var(--glass-border);color:var(--main)}
-.results-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;max-height:280px;overflow:auto;padding:8px}
+.console-box { 
+    flex: 1; background: #080808; border-radius: 12px; border: 1px solid var(--glass-border); padding: 15px; 
+    font-family: monospace; font-size: 11px; overflow-y: auto; color: var(--neon-green); 
+}
+.log-entry { margin-bottom: 4px; border-bottom: 1px solid #111; padding-bottom: 2px; }
+.log-ts { color: #555; margin-right: 8px; }
 
-/* right column cards */
-.card{background:var(--glass-2);border-radius:12px;padding:12px;border:1px solid var(--glass-border)}
-.card h3{margin:0;font-size:14px}
-.small{font-size:13px;color:var(--muted)}
+/* --------------------------------------------------
+   MODALS
+   --------------------------------------------------
+*/
+.modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000;
+    display: none; align-items: center; justify-content: center; backdrop-filter: blur(10px);
+}
+.modal-overlay.open { display: flex; animation: fadeIn 0.3s; }
+.modal-content {
+    width: 90%; max-width: 1000px; background: var(--glass); border: 1px solid var(--glass-border);
+    border-radius: 20px; overflow: hidden; position: relative; box-shadow: 0 0 50px rgba(0,243,255,0.2);
+}
+.close-modal {
+    position: absolute; top: 15px; right: 20px; font-size: 24px; color: #fff; cursor: pointer; z-index: 10;
+}
+.video-frame { width: 100%; aspect-ratio: 16/9; background: #000; border: none; }
 
-/* console */
-.console{height:240px;overflow:auto;background:#000;padding:12px;border-radius:8px;color:#7fffb8;font-family:var(--mono);font-size:12px;border:1px solid #222}
+/* --------------------------------------------------
+   VISUALIZER (Canvas)
+   --------------------------------------------------
+*/
+.viz-container { height: 100px; width: 100%; margin-top: 10px; position: relative; }
+.viz-canvas { width: 100%; height: 100%; }
 
-/* visualizer */
-.visualizer{height:120px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,0.01),transparent);display:flex;align-items:center;justify-content:center;overflow:hidden}
-canvas.viz{width:100%;height:100%}
+/* --------------------------------------------------
+   MOBILE RESPONSIVENESS
+   --------------------------------------------------
+*/
+.mobile-nav { display: none; }
 
-/* settings area */
-.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.input-small{padding:8px;border-radius:8px;border:1px solid var(--glass-border);background:transparent;color:var(--main)}
-
-/* footer */
-.footer{padding:10px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--muted)}
-
-/* responsive: mobile layout */
-@media (max-width:1100px){
-  .container{grid-template-columns:1fr;grid-template-rows:auto 1fr;overflow:auto;padding:12px}
-  .center-grid{grid-template-columns:1fr;gap:8px}
-  .right-zone{order:2}
-  .sidebar{height:auto;position:sticky;top:12px}
+@media (max-width: 1024px) {
+    .right-panel { display: none; }
 }
 
-/* accessibility focus */
-.nav .item:focus{outline:2px solid rgba(255,255,255,.06);outline-offset:2px}
+@media (max-width: 768px) {
+    .app-layout { padding: 0; gap: 0; flex-direction: column; }
+    .sidebar { display: none; }
+    .main-area { padding: 20px 20px 80px 20px; }
+    .header { margin-bottom: 20px; }
+    
+    /* Mobile Bottom Nav */
+    .mobile-nav {
+        display: flex; position: fixed; bottom: 0; left: 0; width: 100%; height: 70px;
+        background: rgba(10, 10, 15, 0.95); backdrop-filter: blur(20px); border-top: 1px solid var(--glass-border);
+        justify-content: space-around; align-items: center; z-index: 900;
+    }
+    .mn-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-muted); font-size: 10px; }
+    .mn-item svg { width: 24px; height: 24px; }
+    .mn-item.active { color: var(--neon-blue); }
+}
 
-/* long-form utilities to increase file length (reusable utilities repeated intentionally) */
-.u-row{display:flex;gap:8px;align-items:center}
-.u-col{display:flex;flex-direction:column;gap:6px}
-.kv{display:flex;justify-content:space-between;align-items:center;padding:6px;border-radius:8px;border:1px solid transparent}
-.kv strong{font-weight:800}
-.kv span{color:var(--muted);font-size:13px}
-
-/* repeated blocks to satisfy structural completeness; these are legitimate UI extras */
-.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.stat-box{padding:12px;border-radius:10px;background:linear-gradient(180deg,transparent,rgba(255,255,255,0.01));border:1px solid var(--glass-border)}
-.stat-box .v{font-family:'Rajdhani';font-size:20px;font-weight:800}
-.stat-box .l{font-size:12px;color:var(--muted)}
-
-/* extra modals */
-.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:linear-gradient(0deg,rgba(3,3,6,.6),rgba(3,3,6,.6));z-index:9999}
-.modal.open{display:flex}
-.sheet{width:min(1000px,98%);background:var(--glass);border-radius:14px;padding:12px;border:1px solid var(--glass-border)}
-
-/* form controls repeated */
-.select{padding:10px;border-radius:8px;border:1px solid var(--glass-border);background:transparent;color:var(--main)}
-.toggle{width:44px;height:24px;border-radius:99px;background:#111;display:inline-flex;align-items:center;padding:3px;cursor:pointer}
-.toggle .dot{width:18px;height:18px;border-radius:50%;background:#fff;transform:translateX(0);transition:var(--transition)}
-.toggle.on{background:linear-gradient(90deg,var(--accent-blue),var(--accent-purple))}
-.toggle.on .dot{transform:translateX(20px)}
-
-/* large utility block: repeated CSS rules for different components to extend file size */
-.component-block{padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.02);background:linear-gradient(180deg,transparent,rgba(255,255,255,0.01))}
-.component-block .row{display:flex;gap:8px;align-items:center}
-.component-block .col{display:flex;flex-direction:column;gap:6px}
-.component-block .muted{color:var(--muted);font-size:13px}
-
-/* end of styles */
+@keyframes fadeIn { from{opacity:0} to{opacity:1} }
 </style>
 </head>
 <body>
-<div class="bg-orbs"><div class="orb one"></div><div class="orb two"></div></div>
-<div class="app" role="application" aria-label="AnnieXMedia Liquid Control">
-  <div class="container" id="app-container">
 
-    <!-- SIDEBAR -->
-    <aside class="sidebar" id="sidebar" aria-label="sidebar">
-      <div class="brand">
-        <div class="logo">AX</div>
-        <div>
-          <h1>AnnieXMedia</h1>
-          <div class="small">Liquid Control</div>
-        </div>
-      </div>
-
-      <div class="user panel">
-        <div class="avatar" id="user-avatar">AX</div>
-        <div class="info">
-          <div class="name" id="user-name">Operator</div>
-          <div class="role small" id="user-role">Master Control</div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="search-bar">
-          <input id="search-input" class="input" placeholder="ابحث يوتيوب، عنوان أو رابط" />
-          <button class="btn small" id="btn-search">بحث</button>
-        </div>
-        <div class="small" style="margin-top:8px;color:var(--muted)">أدخل رابط يوتيوب أو اسم الأغنية</div>
-      </div>
-
-      <nav class="nav panel" aria-label="main navigation">
-        <div class="item active" data-tab="dashboard" tabindex="0">Dashboard</div>
-        <div class="item" data-tab="player" tabindex="0">Web Player</div>
-        <div class="item" data-tab="queue" tabindex="0">Queue</div>
-        <div class="item" data-tab="library" tabindex="0">Library</div>
-        <div class="item" data-tab="mixer" tabindex="0">Mixer</div>
-        <div class="item" data-tab="streams" tabindex="0">Streams</div>
-        <div class="item" data-tab="console" tabindex="0">Console</div>
-        <div class="item" data-tab="settings" tabindex="0">Settings</div>
-      </nav>
-
-      <div class="panel">
-        <div class="section-title">Quick Stats</div>
-        <div class="stat-grid" style="margin-top:8px">
-          <div class="stat-box"><div class="v" id="stat-active">0</div><div class="l">Active</div></div>
-          <div class="stat-box"><div class="v" id="stat-uptime">00:00</div><div class="l">Uptime</div></div>
-          <div class="stat-box"><div class="v" id="stat-latency">0ms</div><div class="l">Latency</div></div>
-        </div>
-      </div>
-
-      <div class="panel" style="margin-top:auto">
-        <div style="display:flex;gap:8px">
-          <button class="btn" id="btn-connect-api">Connect API</button>
-          <button class="btn ghost" id="btn-toggle-theme">Theme</button>
-        </div>
-        <div style="margin-top:10px;display:flex;gap:8px">
-          <button class="btn ghost" id="btn-export-queue">Export</button>
-          <button class="btn ghost" id="btn-import-queue">Import</button>
-        </div>
-      </div>
-    </aside>
-
-    <!-- CENTER -->
-    <main class="center" id="center">
-      <header class="header">
-        <h2 id="page-title">Dashboard</h2>
-        <div class="status" id="system-status">System Offline</div>
-      </header>
-
-      <div class="center-grid">
-        <div class="left-zone">
-
-          <!-- PLAYER -->
-          <section class="player-card card" id="panel-player" role="region" aria-label="player">
-            <div class="player-top">
-              <div class="player-thumb" id="player-thumb"></div>
-              <div class="player-meta">
-                <div class="title" id="now-title">لا يوجد تشغيل</div>
-                <div class="sub" id="now-sub">—</div>
-                <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
-                  <div>Volume</div>
-                  <input type="range" id="master-slider" min="0" max="200" value="100" style="width:160px">
-                </div>
-              </div>
-            </div>
-            <div class="controls">
-              <button class="btn" id="btn-prev">Prev</button>
-              <button class="btn" id="btn-play">Play</button>
-              <button class="btn ghost" id="btn-pause">Pause</button>
-              <button class="btn ghost" id="btn-stop">Stop</button>
-              <button class="btn" id="btn-next">Next</button>
-
-              <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-                <div class="small">Speed</div>
-                <select id="playback-rate" class="select">
-                  <option value="0.5">0.5x</option>
-                  <option value="0.75">0.75x</option>
-                  <option value="1" selected>1x</option>
-                  <option value="1.25">1.25x</option>
-                  <option value="1.5">1.5x</option>
-                  <option value="2">2x</option>
-                </select>
-              </div>
-            </div>
-
-            <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
-              <div style="flex:1">
-                <div class="small">Crossfade (sec)</div>
-                <input type="range" id="crossfade" min="0" max="10" value="2" style="width:100%">
-              </div>
-              <div style="width:220px;display:flex;flex-direction:column;gap:6px">
-                <div class="small">Equalizer</div>
-                <div style="display:flex;gap:6px;align-items:center">
-                  <input type="range" data-band="60" class="eq" min="-12" max="12" value="0" />
-                  <input type="range" data-band="170" class="eq" min="-12" max="12" value="0" />
-                  <input type="range" data-band="1000" class="eq" min="-12" max="12" value="0" />
-                </div>
-              </div>
-            </div>
-
-            <div class="visualizer" style="margin-top:12px">
-              <canvas class="viz" id="viz" width="800" height="160"></canvas>
-            </div>
-          </section>
-
-          <!-- SEARCH & RESULTS -->
-          <section class="card" id="panel-search">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <h3>Search</h3>
-              <div class="small">YouTube / Direct</div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:8px">
-              <input id="search-q" class="input" placeholder="بحث عنوان أو رابط..." />
-              <button class="btn" id="btn-do-search">Search</button>
-            </div>
-            <div class="results-grid" id="results" style="margin-top:10px"></div>
-          </section>
-
-          <!-- LOG & EVENTS -->
-          <section class="card" id="panel-console">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <h3>Console</h3>
-              <div class="small">Logs & Events</div>
-            </div>
-            <div class="console" id="console"></div>
-            <div style="display:flex;gap:8px;margin-top:8px">
-              <button class="btn ghost" id="btn-clear-console">Clear</button>
-              <button class="btn" id="btn-download-logs">Download</button>
-            </div>
-          </section>
-
-        </div>
-
-        <aside class="right-zone">
-
-          <!-- QUEUE -->
-          <section class="card" id="panel-queue">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <h3>Queue</h3>
-              <div style="display:flex;gap:8px">
-                <button class="btn ghost" id="btn-clear-queue">Clear</button>
-                <button class="btn" id="btn-shuffle">Shuffle</button>
-              </div>
-            </div>
-            <div class="queue" id="queue"></div>
-            <div style="display:flex;gap:8px;margin-top:8px">
-              <button class="btn" id="btn-export">Export</button>
-              <button class="btn ghost" id="btn-import">Import</button>
-            </div>
-            <div style="margin-top:10px">
-              <textarea id="import-area" class="input" placeholder="Paste playlist JSON here..." style="height:90px"></textarea>
-            </div>
-          </section>
-
-          <!-- STREAMS -->
-          <section class="card" id="panel-streams">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <h3>Streams</h3>
-              <div class="small">Live endpoints</div>
-            </div>
-            <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
-              <div class="kv"><strong>RTMP</strong><span id="rtmp-count">0</span></div>
-              <div class="kv"><strong>WebRTC</strong><span id="webrtc-count">0</span></div>
-              <div class="kv"><strong>HLS</strong><span id="hls-count">0</span></div>
-            </div>
-            <div style="margin-top:8px;display:flex;gap:8px">
-              <button class="btn ghost" id="btn-start-stream">Start</button>
-              <button class="btn ghost" id="btn-stop-stream">Stop</button>
-            </div>
-          </section>
-
-          <!-- SETTINGS -->
-          <section class="card" id="panel-settings">
-            <h3>Settings</h3>
-            <div class="settings-grid" style="margin-top:8px">
-              <div>
-                <div class="small">API Base</div>
-                <input id="api-base" class="input-small" placeholder="https://example.com/api" />
-              </div>
-              <div>
-                <div class="small">WebSocket Path</div>
-                <input id="ws-path" class="input-small" placeholder="/ws" />
-              </div>
-              <div>
-                <div class="small">YouTube API Key (optional)</div>
-                <input id="yt-key" class="input-small" placeholder="AIza..." />
-              </div>
-              <div>
-                <div class="small">Theme</div>
-                <select id="theme-select" class="select">
-                  <option value="dark">Dark</option>
-                  <option value="neon">Neon</option>
-                  <option value="glass">Glass</option>
-                </select>
-              </div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:8px">
-              <button class="btn" id="btn-save-settings">Save</button>
-              <button class="btn ghost" id="btn-reset-settings">Reset</button>
-            </div>
-          </section>
-
-        </aside>
-      </div>
-
-      <footer class="footer">
-        <div>© AnnieXMedia • Liquid Control</div>
-        <div class="small">Responsive • API • WebSocket • YouTube • Web Audio</div>
-      </footer>
-    </main>
-
-    <!-- RIGHTMOST: Extra tools / diagnostics -->
-    <aside style="min-height:calc(100vh - 44px);height:100%;border-radius:18px;background:var(--glass);border:1px solid var(--glass-border);padding:12px;display:flex;flex-direction:column;gap:12px;box-shadow:var(--shadow);overflow:auto">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><strong>Diagnostics</strong><div class="small">Network & audio</div></div>
-        <div class="small">v1.0.0</div>
-      </div>
-
-      <div class="card">
-        <div class="small">Network</div>
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <input id="ping-host" class="input-small" placeholder="https://example.com"/>
-          <button class="btn small" id="btn-ping">Ping</button>
-        </div>
-        <div style="margin-top:8px" id="ping-output"></div>
-      </div>
-
-      <div class="card">
-        <div class="small">Audio</div>
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <button class="btn small" id="btn-audio-test">Test Tone</button>
-          <button class="btn ghost small" id="btn-stop-tone">Stop</button>
-        </div>
-        <div style="margin-top:8px">
-          <div class="kv"><strong>Context</strong><span id="audio-state">stopped</span></div>
-          <div class="kv"><strong>Sample Rate</strong><span id="sample-rate">-</span></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="small">Logs</div>
-        <div style="height:200px;overflow:auto;background:#020202;border-radius:8px;padding:8px;color:#9fffb8;font-family:var(--mono);font-size:12px" id="diag-logs"></div>
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <button class="btn small" id="btn-download-diag">Download</button>
-          <button class="btn ghost small" id="btn-clear-diag">Clear</button>
-        </div>
-      </div>
-
-    </aside>
-
-  </div>
+<div class="bg-fx">
+    <div class="orb one"></div>
+    <div class="orb two"></div>
+    <div class="orb three"></div>
 </div>
 
-<!-- modals -->
-<div class="modal" id="modal-youtube">
-  <div class="sheet">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <div><strong>YouTube Player</strong></div>
-      <div><button class="btn ghost" id="close-youtube">Close</button></div>
+<div class="app-layout">
+    
+    <aside class="sidebar glass-panel">
+        <div class="brand">
+            <div class="brand-logo">AX</div>
+            <div class="brand-text">
+                <h1>TitanOS</h1>
+                <span>Enterprise</span>
+            </div>
+        </div>
+
+        <div class="nav-menu">
+            <div class="nav-item active" onclick="switchTab('dashboard', this)">
+                <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+                <span>Control Center</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('queue', this)">
+                <svg viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
+                <span>Active Queue</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('settings', this)">
+                <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L5.09 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.04.24.24.41.48.41h3.84c.24 0 .43-.17.47-.41l.36-2.54c.59-.24 1.13-.57 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.08-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                <span>Settings</span>
+            </div>
+        </div>
+
+        <div class="user-card">
+            <div class="avatar"></div>
+            <div class="user-info">
+                <div>Admin Operator</div>
+                <div id="uptime-display">Uptime: 00:00:00</div>
+            </div>
+        </div>
+    </aside>
+
+    <main class="main-area">
+        <header class="header">
+            <div class="page-title" id="page-head">Dashboard</div>
+            <div class="status-badge" id="sys-status">
+                <div class="pulse-dot"></div> Online
+            </div>
+        </header>
+
+        <div id="dashboard" class="tab-content active">
+            <div class="grid-cards" id="active-chats-container">
+                </div>
+        </div>
+
+        <div id="queue" class="tab-content">
+            <div class="glass-panel" style="flex:1;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:15px">
+                    <h3>Server Queue</h3>
+                    <div style="font-size:12px; color:var(--text-muted)">Select a chat to view queue</div>
+                </div>
+                <div style="display:flex; gap:10px; margin-bottom:20px;">
+                    <input type="text" id="target-chat-id" placeholder="Enter Chat ID..." style="flex:1; padding:10px; background:rgba(0,0,0,0.2); border:1px solid var(--glass-border); border-radius:8px; color:#fff">
+                    <button class="btn-ctrl" style="background:var(--neon-blue); width:100px; color:#000" onclick="fetchQueue()">Load</button>
+                </div>
+                <div id="queue-list" style="overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:10px;">
+                    </div>
+            </div>
+        </div>
+
+        <div id="settings" class="tab-content">
+            <div class="glass-panel">
+                <h3>System Configuration</h3>
+                <div style="margin-top:20px; display:grid; gap:15px;">
+                    <div>
+                        <label style="font-size:12px; color:var(--text-muted)">API Endpoint</label>
+                        <input type="text" value="/api" disabled style="width:100%; padding:10px; background:rgba(0,0,0,0.3); border:1px solid var(--glass-border); border-radius:8px; color:#888; margin-top:5px">
+                    </div>
+                    <div>
+                        <label style="font-size:12px; color:var(--text-muted)">Theme Color</label>
+                        <div style="display:flex; gap:10px; margin-top:5px">
+                            <div style="width:30px; height:30px; background:#00f3ff; border-radius:50%; cursor:pointer" onclick="setTheme('#00f3ff')"></div>
+                            <div style="width:30px; height:30px; background:#bc13fe; border-radius:50%; cursor:pointer" onclick="setTheme('#bc13fe')"></div>
+                            <div style="width:30px; height:30px; background:#00ff88; border-radius:50%; cursor:pointer" onclick="setTheme('#00ff88')"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <aside class="right-panel">
+        <div class="glass-panel">
+            <div class="stat-box">
+                <div class="stat-label">Active Streams</div>
+                <div class="stat-value" id="count-stat">0</div>
+            </div>
+            
+            <div class="stat-box">
+                <div class="stat-label">System Load</div>
+                <div style="margin-top:5px">
+                    <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:3px"><span>CPU</span><span id="cpu-stat">0%</span></div>
+                    <div style="height:4px; background:#333; border-radius:2px"><div id="cpu-bar" style="height:100%; width:0%; background:var(--neon-blue)"></div></div>
+                </div>
+                <div style="margin-top:10px">
+                    <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:3px"><span>RAM</span><span id="ram-stat">0%</span></div>
+                    <div style="height:4px; background:#333; border-radius:2px"><div id="ram-bar" style="height:100%; width:0%; background:var(--neon-purple)"></div></div>
+                </div>
+            </div>
+
+            <div class="stat-label">Live Terminal</div>
+            <div class="console-box" id="console">
+                <div class="log-entry"><span class="log-ts">[SYST]</span> TitanOS UI Initialized.</div>
+                <div class="log-entry"><span class="log-ts">[NETW]</span> Connecting to API...</div>
+            </div>
+        </div>
+    </aside>
+
+</div>
+
+<div class="mobile-nav">
+    <div class="mn-item active" onclick="switchTab('dashboard', this)">
+        <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+        <span>Home</span>
     </div>
-    <div style="margin-top:8px;background:#000;height:520px;border-radius:8px;overflow:hidden" id="youtube-shell"></div>
-    <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end">
-      <select id="yt-quality" class="select">
-        <option value="default">default</option>
-        <option value="small">small</option>
-        <option value="medium">medium</option>
-        <option value="large">large</option>
-        <option value="hd720">hd720</option>
-        <option value="hd1080">hd1080</option>
-        <option value="highres">highres</option>
-      </select>
-      <button class="btn" id="btn-yt-play">Play</button>
+    <div class="mn-item" onclick="switchTab('queue', this)">
+        <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zM10 9h8v2h-8zm0 3h4v2h-4zm0-6h8v2h-8z"/></svg>
+        <span>Queue</span>
     </div>
-  </div>
+    <div class="mn-item" onclick="location.reload()">
+        <svg viewBox="0 0 24 24"><path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z"/></svg>
+        <span>Reload</span>
+    </div>
+</div>
+
+<div class="modal-overlay" id="videoModal">
+    <div class="modal-content">
+        <div class="close-modal" onclick="closeVideo()">×</div>
+        <iframe id="video-frame" class="video-frame" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        <div class="viz-container">
+            <canvas id="viz" class="viz-canvas"></canvas>
+        </div>
+    </div>
 </div>
 
 <script>
-/* ------------------------------------------------------------------------
-   AnnieXMedia Liquid Control — Main JavaScript
-   - Big, modular, feature-rich single-file app
-   - Responsive, desktop/mobile split, queue, player, API & WebSocket helpers
-   - Web Audio integration, visualizer, YouTube iframe API loader
-   - LocalStorage persistence, import/export, diagnostic tools
-   ------------------------------------------------------------------------ */
+/**
+ * TITAN OS - FRONTEND CORE
+ * Handles API Polling, DOM Updates, Audio Visualization, and Mobile Logic.
+ */
 
-(function(){
-  // Configuration keys
-  const LS_KEYS = {API_BASE: 'ax_api_base_v1', QUEUE: 'ax_queue_v1', NOW: 'ax_now_v1', SETTINGS: 'ax_settings_v1'};
-  // State
-  let state = {
-    apiBase: '',
-    wsPath: '/ws',
-    ytKey: '',
-    queue: [],
-    now: null,
-    audio: {ctx:null,master:null,analyser:null,eq:{}},
-    ws: null,
-    ytPlayer: null,
-    isPlaying: false,
-    vizRAF: null,
-    diagLogs: []
-  };
+const API = ""; // Auto-detect relative path
+const REFRESH_RATE = 2000;
+let isConnected = false;
 
-  // DOM shortcuts
-  const $ = id => document.getElementById(id);
-  const q = sel => document.querySelector(sel);
-  const qa = sel => Array.from(document.querySelectorAll(sel));
+// --- INITIALIZATION ---
+window.onload = () => {
+    log('System Booted.');
+    pollData();
+    setInterval(pollData, REFRESH_RATE);
+    initVisualizer();
+};
 
-  // Boot
-  function boot(){
-    bindUI();
-    restoreSettings();
-    restoreQueue();
-    setupAudio();
-    seedDemo();
-    logDiag('System booted');
-    startHeartbeat();
-  }
+// --- DATA POLLING ---
+async function pollData() {
+    try {
+        // 1. Get Status
+        const statusReq = await fetch('/status_json');
+        const statusData = await statusReq.json();
+        
+        // 2. Get Stats
+        const statsReq = await fetch('/api/stats');
+        const statsData = await statsReq.json();
 
-  /* ---------- UI Binding ---------- */
-  function bindUI(){
-    qa('.nav .item').forEach(el=>{
-      el.addEventListener('click',()=>{qa('.nav .item').forEach(x=>x.classList.remove('active'));el.classList.add('active');switchPanel(el.dataset.tab)});
-    });
-    $('btn-search').addEventListener('click',onSearch);
-    $('search-input').addEventListener('keydown',e=>{if(e.key==='Enter') onSearch()});
-    $('btn-do-search').addEventListener('click',onSearch);
-    $('btn-play').addEventListener('click',playNow);
-    $('btn-pause').addEventListener('click',pauseNow);
-    $('btn-stop').addEventListener('click',stopNow);
-    $('btn-next').addEventListener('click',nextTrack);
-    $('btn-prev').addEventListener('click',prevTrack);
-    $('btn-clear-queue').addEventListener('click',clearQueue);
-    $('btn-shuffle').addEventListener('click',shuffleQueue);
-    $('btn-export').addEventListener('click',exportQueue);
-    $('btn-import').addEventListener('click',importQueueFromTextarea);
-    $('btn-connect-api').addEventListener('click',connectApi);
-    $('btn-ping').addEventListener('click',pingHost);
-    $('btn-audio-test').addEventListener('click',playTone);
-    $('btn-stop-tone').addEventListener('click',stopTone);
-    $('btn-clear-console').addEventListener('click',clearConsole);
-    $('btn-download-logs').addEventListener('click',downloadConsole);
-    $('btn-save-settings').addEventListener('click',saveSettings);
-    $('btn-reset-settings').addEventListener('click',resetSettings);
-    $('btn-open-youtube')?.addEventListener('click',openYoutubeModal);
-    $('close-youtube').addEventListener('click',()=>{$('modal-youtube').classList.remove('open')});
-    $('btn-search').addEventListener('click',onSearch);
-    $('search-q').addEventListener('keydown',e=>{if(e.key==='Enter') onSearch()});
-    $('import-area').addEventListener('paste',onImportPaste);
-    $('btn-download-diag').addEventListener('click',downloadDiag);
-    $('btn-clear-diag').addEventListener('click',()=>{state.diagLogs=[];renderDiag()});
-    $('master-slider').addEventListener('input',e=>setMasterVolume(e.target.value/100));
-    $('playback-rate').addEventListener('change',e=>setPlaybackRate(parseFloat(e.target.value)));
-    $('crossfade').addEventListener('input',e=>{state.crossfade = parseFloat(e.target.value)});
-    qa('.eq').forEach(eq=>eq.addEventListener('input',onEqChange));
-    $('btn-ping').addEventListener('click',pingHost);
-    $('btn-export-queue').addEventListener('click',exportQueueToFile);
-    $('btn-import-queue').addEventListener('click',()=>{$('import-area').focus()});
-    $('btn-clear-console').addEventListener('click',clearConsole);
-    // drag & drop queue
-    const qlist = $('queue');
-    qlist.addEventListener('dragover',e=>e.preventDefault());
-    qlist.addEventListener('drop',onQueueDrop);
-  }
-
-  /* ---------- Panels ---------- */
-  function switchPanel(tab){
-    const panels = {dashboard:'panel-player',player:'panel-player',queue:'panel-queue',library:'panel-search',mixer:'panel-settings',streams:'panel-streams',console:'panel-console',settings:'panel-settings'};
-    Object.values(panels).forEach(id=>{const el=$(id); if(el) el.style.display='none'});
-    const target = panels[tab] || 'panel-player';
-    const el = $(target);
-    if(el) el.style.display='block';
-    $('page-title').innerText = tab.charAt(0).toUpperCase() + tab.slice(1);
-  }
-
-  /* ---------- Storage & Settings ---------- */
-  function saveSettings(){
-    const s = {
-      apiBase: $('api-base').value.trim(),
-      wsPath: $('ws-path').value.trim() || '/ws',
-      ytKey: $('yt-key').value.trim(),
-      theme: $('theme-select').value
-    };
-    state.apiBase = s.apiBase;
-    state.wsPath = s.wsPath;
-    state.ytKey = s.ytKey;
-    localStorage.setItem(LS_KEYS.SETTINGS, JSON.stringify(s));
-    renderConsole('Settings saved');
-    toast('Settings saved');
-  }
-
-  function resetSettings(){localStorage.removeItem(LS_KEYS.SETTINGS);renderConsole('Settings reset');toast('Settings reset');restoreSettings()}
-  function restoreSettings(){
-    const raw = localStorage.getItem(LS_KEYS.SETTINGS);
-    if(raw){try{const s=JSON.parse(raw);$('api-base').value=s.apiBase||'';$('ws-path').value=s.wsPath||'/ws';$('yt-key').value=s.ytKey||'';$('theme-select').value=s.theme||'dark';state.apiBase=s.apiBase||'';state.wsPath=s.wsPath||'/ws';state.ytKey=s.ytKey||'';}catch(e){}}
-  }
-
-  function saveQueue(){localStorage.setItem(LS_KEYS.QUEUE,JSON.stringify(state.queue));localStorage.setItem(LS_KEYS.NOW,JSON.stringify(state.now))}
-  function restoreQueue(){const raw = localStorage.getItem(LS_KEYS.QUEUE); if(raw){try{state.queue=JSON.parse(raw)}catch(e){state.queue=[]}} const rawN = localStorage.getItem(LS_KEYS.NOW); if(rawN){try{state.now=JSON.parse(rawN)}catch(e){state.now=null}} renderQueue(); updateNowPlaying()}
-
-  /* ---------- Demo Seed ---------- */
-  function seedDemo(){
-    if(state.queue.length>0) return;
-    state.queue = [
-      {id:'dQw4w9WgXcQ',source:'youtube',title:'Demo — Rick Astley',thumb:'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg'},
-      {id:'3JZ_D3ELwOQ',source:'youtube',title:'Demo — Sample 2',thumb:'https://i.ytimg.com/vi/3JZ_D3ELwOQ/hqdefault.jpg'}
-    ];
-    saveQueue();
-    renderQueue();
-  }
-
-  /* ---------- Search & Results ---------- */
-  async function onSearch(){
-    const q = ($('search-input').value || $('search-q').value || '').trim();
-    if(!q) return toast('اكتب كلمة بحث');
-    renderConsole('Searching: '+q);
-    // quick heuristic: if it's a youtube link, extract and add
-    const yt = parseYtId(q);
-    if(yt){addToQueue({id:yt,source:'youtube',title:'YouTube Link',thumb:`https://i.ytimg.com/vi/${yt}/hqdefault.jpg`}); renderConsole('Added YouTube link: '+yt); return}
-    // show placeholder results first for instant UX
-    renderResults([
-      {id:'dQw4w9WgXcQ',title:'Demo Result 1',thumb:'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',duration:'3:33'},
-      {id:'3JZ_D3ELwOQ',title:'Demo Result 2',thumb:'https://i.ytimg.com/vi/3JZ_D3ELwOQ/hqdefault.jpg',duration:'4:15'}
-    ]);
-    // optionally query backend (if API provided)
-    if(state.apiBase){
-      try{
-        const res = await fetch(`${state.apiBase}/youtube_search?q=${encodeURIComponent(q)}`);
-        if(res.ok){
-          const json = await res.json();
-          if(Array.isArray(json.items)) renderResults(json.items.map(i=>({id:i.id,title:i.title,thumb:i.thumb||`https://i.ytimg.com/vi/${i.id}/hqdefault.jpg`,duration:i.duration||''})));
+        updateUI(statusData, statsData);
+        if(!isConnected) {
+            document.getElementById('sys-status').innerHTML = '<div class="pulse-dot"></div> ONLINE';
+            document.getElementById('sys-status').style.color = 'var(--neon-green)';
+            log('Connected to API.');
+            isConnected = true;
         }
-      }catch(e){renderConsole('Search API failed')}
+    } catch (e) {
+        isConnected = false;
+        document.getElementById('sys-status').innerHTML = '<div class="pulse-dot" style="animation:none; background:red"></div> OFFLINE';
+        document.getElementById('sys-status').style.color = 'red';
+        console.log(e);
     }
-  }
+}
 
-  function renderResults(items){
-    const el = $('results'); el.innerHTML='';
-    (items||[]).forEach(it=>{
-      const div = document.createElement('div');
-      div.className='result';
-      div.style.padding='8px';
-      div.style.borderRadius='10px';
-      div.style.background='linear-gradient(180deg,rgba(255,255,255,0.01),transparent)';
-      div.style.border='1px solid rgba(255,255,255,0.02)';
-      div.innerHTML = `<div style="display:flex;gap:8px;align-items:center"><div style="width:84px;height:56px;border-radius:8px;background-size:cover;background-position:center;background-image:url('${it.thumb}')"></div><div style="flex:1"><div style="font-weight:800">${escapeHtml(it.title)}</div><div class="small">${it.duration||''}</div></div><div><button class="btn ghost btn-add">Add</button></div></div>`;
-      div.querySelector('.btn-add').addEventListener('click',()=>{addToQueue({id:it.id,source:'youtube',title:it.title,thumb:it.thumb}); toast('Added to queue')});
-      el.appendChild(div);
+// --- UI UPDATER ---
+function updateUI(status, stats) {
+    // Stats Panel
+    document.getElementById('count-stat').innerText = status.count;
+    document.getElementById('uptime-display').innerText = "UP: " + status.uptime;
+    
+    // Hardware Stats
+    if(stats) {
+        document.getElementById('cpu-stat').innerText = stats.cpu + '%';
+        document.getElementById('cpu-bar').style.width = stats.cpu + '%';
+        document.getElementById('ram-stat').innerText = stats.ram_percent + '%';
+        document.getElementById('ram-bar').style.width = stats.ram_percent + '%';
+    }
+
+    // Main Dashboard Grid
+    const container = document.getElementById('active-chats-container');
+    
+    if(status.count === 0) {
+        container.innerHTML = `<div style="grid-column:1/-1; text-align:center; padding:50px; opacity:0.5">
+            <h2>SYSTEM IDLE</h2>
+            <div>No active audio/video streams running.</div>
+        </div>`;
+        return;
+    }
+
+    // Build Cards (Only redraw if needed ideally, but innerHTML is fine for <50 items)
+    // In a react app we'd diff this, but here we rebuild for simplicity.
+    let html = '';
+    status.chats.forEach(chat => {
+        const thumb = chat.vidid ? `https://img.youtube.com/vi/${chat.vidid}/mqdefault.jpg` : '';
+        html += `
+        <div class="live-card">
+            <div class="card-header">
+                <span class="chat-tag">ID: ${chat.chat_id}</span>
+                <span class="type-tag">${chat.stream_type.toUpperCase()}</span>
+            </div>
+            
+            <div class="song-meta">
+                <div class="song-thumb" style="background-image:url('${thumb}')"></div>
+                <div class="song-details">
+                    <div class="song-title">${chat.title}</div>
+                    <div class="song-artist">TitanOS Core Stream</div>
+                </div>
+            </div>
+
+            <div class="controls-row">
+                <button class="btn-ctrl btn-pause" onclick="control(${chat.chat_id}, 'pause')">PAUSE</button>
+                <button class="btn-ctrl btn-resume" onclick="control(${chat.chat_id}, 'resume')">RESUME</button>
+                <button class="btn-ctrl btn-stop" onclick="control(${chat.chat_id}, 'stop')">STOP</button>
+            </div>
+            
+            <button class="watch-btn" onclick="openVideo('${chat.vidid}')">
+                WATCH LIVE FEED
+            </button>
+        </div>`;
     });
-  }
+    container.innerHTML = html;
+}
 
-  /* ---------- Queue management ---------- */
-  function renderQueue(){
-    const el = $('queue'); el.innerHTML='';
-    state.queue.forEach((t,i)=>{
-      const item = document.createElement('div');
-      item.className='queue-item';
-      item.draggable = true;
-      item.dataset.index = i;
-      item.innerHTML = `<div class="thumb" style="background-image:url('${t.thumb}');background-size:cover"></div><div class="meta"><div class="t">${escapeHtml(t.title)}</div><div class="s small">${t.source}</div></div><div class="actions"><button class="btn ghost btn-play" data-i="${i}">Play</button><button class="btn ghost btn-remove" data-i="${i}">Remove</button></div>`;
-      item.addEventListener('dragstart',onDragStart);
-      item.addEventListener('dblclick',()=>playIndex(i));
-      item.querySelector('.btn-play').addEventListener('click',()=>playIndex(i));
-      item.querySelector('.btn-remove').addEventListener('click',()=>{state.queue.splice(i,1);saveQueue();renderQueue()});
-      el.appendChild(item);
+// --- API ACTIONS ---
+async function control(chatId, action, val=0) {
+    log(`CMD -> ${chatId} : ${action}`);
+    await fetch('/api/control', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({chat_id: chatId, action: action, value: val})
     });
-  }
+    pollData(); // Instant refresh
+}
 
-  function addToQueue(track){
-    state.queue.push(track);
-    saveQueue();
-    renderQueue();
-  }
-
-  function clearQueue(){state.queue=[];saveQueue();renderQueue();toast('Queue cleared')}
-  function shuffleQueue(){for(let i=state.queue.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[state.queue[i],state.queue[j]]=[state.queue[j],state.queue[i]]}saveQueue();renderQueue();toast('Shuffled')}
-
-  function exportQueue(){
-    const payload = {queue:state.queue,now:state.now,ts:Date.now()};
-    $('import-area').value = JSON.stringify(payload,null,2);
-    toast('Exported to textarea');
-  }
-
-  function exportQueueToFile(){
-    const blob = new Blob([JSON.stringify({queue:state.queue,now:state.now},null,2)],{type:'application/json'});
-    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='annie_queue.json'; a.click(); URL.revokeObjectURL(url); toast('Downloaded');
-  }
-
-  function importQueueFromTextarea(){
-    try{
-      const txt = $('import-area').value.trim();
-      if(!txt) return toast('لا توجد بيانات');
-      const parsed = JSON.parse(txt);
-      if(parsed.queue) state.queue = parsed.queue;
-      if(parsed.now) state.now = parsed.now;
-      saveQueue(); renderQueue(); updateNowPlaying(); toast('Imported');
-    }catch(e){toast('JSON invalid')}
-  }
-
-  function onImportPaste(e){
-    // allow paste of JSON into import-area
-  }
-
-  /* ---------- Playback control ---------- */
-
-  async function playIndex(idx){
-    if(idx<0 || idx>=state.queue.length) return;
-    const track = state.queue.splice(idx,1)[0];
-    state.now = track;
-    saveQueue();
-    renderQueue();
-    startPlayback(track);
-  }
-
-  function playNow(){
-    if(state.now){resumeNow();return}
-    if(state.queue.length>0){const next = state.queue.shift(); state.now = next; saveQueue(); renderQueue(); startPlayback(next); return}
-    toast('الطابور فارغ');
-  }
-
-  function resumeNow(){
-    if(state.ytPlayer && state.now && state.now.source==='youtube'){try{state.ytPlayer.playVideo(); state.isPlaying = true; vizStart(); renderConsole('YT resumed')}catch(e){renderConsole('resume failed')}} else if(state.audio.el){state.audio.el.play(); state.isPlaying=true; vizStart(); renderConsole('Audio resumed')}
-  }
-
-  function pauseNow(){
-    if(state.ytPlayer && state.now && state.now.source==='youtube'){try{state.ytPlayer.pauseVideo(); state.isPlaying=false; vizStop()}catch(e){}} else if(state.audio.el){state.audio.el.pause(); state.isPlaying=false; vizStop()}
-  }
-
-  function stopNow(){
-    if(state.ytPlayer){try{state.ytPlayer.stopVideo();}catch(e){}}
-    if(state.audio.el){state.audio.el.pause(); state.audio.el.currentTime=0; state.audio.el=null}
-    state.isPlaying=false;
-    vizStop();
-    state.now = null;
-    saveQueue();
-    updateNowPlaying();
-  }
-
-  function nextTrack(){if(state.queue.length>0){const next = state.queue.shift(); state.now=next; saveQueue(); renderQueue(); startPlayback(next)} else {state.now=null; saveQueue(); updateNowPlaying(); toast('Queue ended')}}
-
-  /* ---------- Start playback helper ---------- */
-  function startPlayback(track){
-    state.isPlaying = true;
-    updateNowPlaying();
-    if(track.source==='youtube'){openYoutubeModal(track); ensureYouTube(); if(state.ytPlayer) try{state.ytPlayer.loadVideoById(track.id); logDiag('YT play: '+track.id);}catch(e){logDiag('YT load error')}}
-    else{
-      // direct audio (url)
-      if(state.audio.el){state.audio.el.pause(); state.audio.el=null}
-      const audio = new Audio(track.url || track.id);
-      audio.crossOrigin = "anonymous";
-      audio.playbackRate = parseFloat($('playback-rate').value || 1);
-      audio.volume = parseFloat($('master-slider').value)/100;
-      state.audio.el = audio;
-      const src = state.audio.ctx.createMediaElementSource(audio);
-      // connect through EQ nodes
-      Object.values(state.audio.eq).forEach(n=>src.connect(n));
-      src.connect(state.audio.master);
-      audio.onended = ()=>{state.isPlaying=false; nextTrack();}
-      audio.play().then(()=>{logDiag('Audio started')}).catch(e=>{logDiag('Audio play failed')});
-      vizStart();
+async function fetchQueue() {
+    const cid = document.getElementById('target-chat-id').value;
+    if(!cid) return alert("Enter Chat ID");
+    
+    const req = await fetch(`/api/queue/${cid}`);
+    const data = await req.json();
+    
+    const list = document.getElementById('queue-list');
+    list.innerHTML = '';
+    
+    if(data.queue && data.queue.length > 0) {
+        data.queue.forEach((item, idx) => {
+            list.innerHTML += `
+            <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; display:flex; justify-content:space-between;">
+                <div><span style="color:var(--neon-blue); font-weight:bold">#${idx+1}</span> ${item.title}</div>
+                <div style="font-size:11px; opacity:0.7">${item.duration}</div>
+            </div>`;
+        });
+    } else {
+        list.innerHTML = '<div style="padding:20px; text-align:center">Queue is empty.</div>';
     }
-  }
+}
 
-  function updateNowPlaying(){
-    if(state.now){
-      $('now-title').innerText = state.now.title || 'Unknown';
-      $('now-sub').innerText = state.now.source || 'source';
-      $('player-thumb').style.backgroundImage = state.now.thumb ? `url('${state.now.thumb}')` : '';
-    }else{
-      $('now-title').innerText = 'لا يوجد تشغيل';
-      $('now-sub').innerText = '—';
-      $('player-thumb').style.backgroundImage = '';
-    }
-  }
+// --- VIDEO PLAYER & MODAL ---
+function openVideo(vid) {
+    if(!vid) return alert("No video ID available.");
+    const modal = document.getElementById('videoModal');
+    const iframe = document.getElementById('video-frame');
+    
+    // Auto-play, mute slightly to prevent blasts
+    iframe.src = `https://www.youtube.com/embed/${vid}?autoplay=1&rel=0&showinfo=0&modestbranding=1`;
+    modal.classList.add('open');
+    startVisualizer();
+}
 
-  /* ---------- Audio: WebAudio setup, EQ, visualizer ---------- */
-  function setupAudio(){
-    try{
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      state.audio.ctx = new AudioContext();
-      state.audio.master = state.audio.ctx.createGain();
-      state.audio.master.gain.value = 1;
-      state.audio.analyser = state.audio.ctx.createAnalyser();
-      state.audio.analyser.fftSize = 2048;
-      // create EQ nodes
-      const bands = [60,170,1000,3500,10000];
-      bands.forEach(f=>{
-        const b = state.audio.ctx.createBiquadFilter();
-        b.type = 'peaking';
-        b.frequency.value = f;
-        b.Q.value = 1;
-        b.gain.value = 0;
-        b.connect(state.audio.master);
-        state.audio.eq[f] = b;
-      });
-      state.audio.master.connect(state.audio.analyser);
-      state.audio.analyser.connect(state.audio.ctx.destination);
-      $('audio-state') && ($('audio-state').innerText = 'ready');
-      $('sample-rate') && ($('sample-rate').innerText = state.audio.ctx.sampleRate);
-      logDiag('Audio context ready');
-    }catch(e){logDiag('Audio context failed')}
-  }
+function closeVideo() {
+    const modal = document.getElementById('videoModal');
+    const iframe = document.getElementById('video-frame');
+    iframe.src = "";
+    modal.classList.remove('open');
+}
 
-  function onEqChange(e){
-    const band = e.target.dataset.band;
-    const val = parseFloat(e.target.value);
-    if(state.audio.eq[band]) state.audio.eq[band].gain.value = val;
-  }
+// --- VISUALIZER (Simulated for Remote Audio) ---
+// Since browser cannot access system audio of a remote server directly via JS WebAudio without a stream proxy,
+// we simulate the visualizer effect when the video modal is open for aesthetic completion.
+function initVisualizer() {
+    const canvas = document.getElementById('viz');
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+}
 
-  function setMasterVolume(v){
-    if(state.audio.master) state.audio.master.gain.value = v;
-  }
-
-  function setPlaybackRate(r){ if(state.audio.el) state.audio.el.playbackRate = r; if(state.ytPlayer) try{state.ytPlayer.setPlaybackRate(r)}catch(e){} }
-
-  /* visualizer */
-  function vizStart(){
-    const canvas = $('viz'); if(!canvas) return;
+function startVisualizer() {
+    const canvas = document.getElementById('viz');
     const ctx = canvas.getContext('2d');
-    const analyser = state.audio.analyser;
-    if(!analyser) return;
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    function draw(){
-      state.vizRAF = requestAnimationFrame(draw);
-      analyser.getByteFrequencyData(dataArray);
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      const w = canvas.width;
-      const h = canvas.height;
-      const barWidth = (w / bufferLength) * 2.5;
-      let x = 0;
-      for(let i=0;i<bufferLength;i++){
-        const v = dataArray[i];
-        const barHeight = (v/255)*h;
-        ctx.fillStyle = `rgba(${Math.min(255,v*1.2)},${Math.max(50,255-v)},${200},0.9)`;
-        ctx.fillRect(x,h-barHeight,barWidth,barHeight);
-        x += barWidth + 1;
-      }
+    const w = canvas.width;
+    const h = canvas.height;
+    
+    function animate() {
+        if(!document.getElementById('videoModal').classList.contains('open')) return;
+        
+        ctx.clearRect(0, 0, w, h);
+        const bars = 50;
+        const barW = w / bars;
+        
+        for(let i=0; i<bars; i++) {
+            // Simulated frequency data
+            const height = Math.random() * h * 0.8;
+            const hue = (i / bars) * 360;
+            ctx.fillStyle = `hsla(${hue}, 100%, 50%, 0.8)`;
+            ctx.fillRect(i * barW, h - height, barW - 2, height);
+        }
+        requestAnimationFrame(animate);
     }
-    if(!state.vizRAF) draw();
-  }
+    animate();
+}
 
-  function vizStop(){ if(state.vizRAF){ cancelAnimationFrame(state.vizRAF); state.vizRAF=null; const canvas=$('viz'); if(canvas) canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height); } }
+// --- UX HELPERS ---
+function switchTab(tabId, btn) {
+    // Hide all tabs
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    // Show target
+    document.getElementById(tabId).classList.add('active');
+    
+    // Update Sidebar Desktop
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+    if(btn.classList.contains('nav-item')) btn.classList.add('active');
+    
+    // Update Mobile Nav
+    document.querySelectorAll('.mn-item').forEach(el => el.classList.remove('active'));
+    if(btn.classList.contains('mn-item')) btn.classList.add('active');
+    
+    document.getElementById('page-head').innerText = tabId.charAt(0).toUpperCase() + tabId.slice(1);
+}
 
-  /* ---------- Diagnostics & Console ---------- */
-  function renderConsole(msg){ const el=$('console'); if(!el) return; const time=new Date().toLocaleTimeString(); el.innerText = `[${time}] ${msg}\n` + el.innerText; }
-  function clearConsole(){ $('console').innerText=''; }
-  function downloadConsole(){ const txt = $('console').innerText; const blob=new Blob([txt],{type:'text/plain'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='console.log'; a.click(); URL.revokeObjectURL(url); }
-  function logDiag(msg){ state.diagLogs.unshift({ts:Date.now(),msg}); renderDiag(); }
-  function renderDiag(){ const el = $('diag-logs'); if(!el) return; el.innerText = state.diagLogs.map(d=>`[${new Date(d.ts).toLocaleTimeString()}] ${d.msg}`).join('\n'); }
+function log(msg) {
+    const consoleBox = document.getElementById('console');
+    const time = new Date().toLocaleTimeString();
+    consoleBox.innerHTML += `<div class="log-entry"><span class="log-ts">[${time}]</span> ${msg}</div>`;
+    consoleBox.scrollTop = consoleBox.scrollHeight;
+}
 
-  /* ---------- Ping & API / WS helpers ---------- */
-  async function pingHost(){
-    const host = $('ping-host').value.trim();
-    if(!host) return toast('اكتب رابط');
-    renderConsole('Pinging '+host);
-    try{
-      const start = performance.now();
-      const res = await fetch(host, {method:'GET', mode:'no-cors'});
-      const ms = Math.round(performance.now()-start);
-      $('ping-output').innerText = `Ping: ${ms}ms (approx) — status: ${res.status||'unknown'}`;
-      logDiag('Ping '+host+' '+ms+'ms');
-    }catch(e){ $('ping-output').innerText = `Ping failed`; logDiag('Ping failed') }
-  }
+function setTheme(color) {
+    document.documentElement.style.setProperty('--neon-blue', color);
+    log(`Theme changed to ${color}`);
+}
 
-  async function connectApi(){
-    const base = $('api-base').value.trim();
-    if(!base) return toast('حدد API_BASE أولاً');
-    state.apiBase = base;
-    localStorage.setItem(LS_KEYS.SETTINGS, JSON.stringify({apiBase:base,wsPath:state.wsPath,ytKey:state.ytKey}));
-    toast('Connecting...');
-    try{
-      const res = await fetch(base+'/status_json');
-      if(res.ok){ const j = await res.json(); $('system-status').innerText = 'Connected • ' + (j.version || 'API'); renderConsole('API Connected'); toast('API متصل'); }
-      else { $('system-status').innerText = 'API Error'; renderConsole('API responded non-ok'); toast('API Error') }
-    }catch(e){ $('system-status').innerText = 'API Offline'; renderConsole('API connection failed'); toast('API Offline') }
-  }
-
-  /* ---------- WebSocket (light wrapper) ---------- */
-  function openWS(){
-    if(!state.apiBase) return toast('حدد API_BASE');
-    const url = state.apiBase.replace(/^http/,'ws') + (state.wsPath || '/ws');
-    try{
-      state.ws = new WebSocket(url);
-      state.ws.onopen = ()=>{ renderConsole('WS opened'); toast('WS open'); }
-      state.ws.onmessage = e=>{ try{ const data = JSON.parse(e.data); handleWsMessage(data) }catch(ex){renderConsole('WS message parse failed')} }
-      state.ws.onclose = ()=>{ renderConsole('WS closed'); toast('WS closed'); }
-      state.ws.onerror = ()=>{ renderConsole('WS error'); toast('WS error'); }
-    }catch(e){ renderConsole('WS exception'); toast('WS error') }
-  }
-
-  function handleWsMessage(msg){
-    if(msg.type==='status'){ $('stat-active').innerText = msg.count || 0; }
-    if(msg.type==='track'){ addToQueue(msg.track); toast('New track from WS'); renderConsole('WS new track'); }
-  }
-
-  function closeWS(){ if(state.ws){ state.ws.close(); state.ws=null; } }
-
-  /* ---------- YouTube iframe loader minimal ---------- */
-  function ensureYouTube(){
-    if(window.YT && window.YT.Player && !state.ytPlayer){
-      state.ytPlayer = new YT.Player('youtube-shell', {height:'100%', width:'100%', playerVars:{controls:1,rel:0,showinfo:0}, events:{onReady:onYtReady,onStateChange:onYtState}});
-    } else if(!window.YT){
-      const s = document.createElement('script'); s.src='https://www.youtube.com/iframe_api'; document.head.appendChild(s);
-      window.onYouTubeIframeAPIReady = ()=>{ state.ytPlayer = new YT.Player('youtube-shell', {height:'100%', width:'100%', playerVars:{controls:1,rel:0,showinfo:0}, events:{onReady:onYtReady,onStateChange:onYtState}}); }
-    }
-  }
-  function onYtReady(e){ logDiag('YT ready'); }
-  function onYtState(e){ if(e.data===YT.PlayerState.ENDED){ nextTrack() } if(e.data===YT.PlayerState.PLAYING){ state.isPlaying=true; vizStart() } if(e.data===YT.PlayerState.PAUSED){ state.isPlaying=false; vizStop() } }
-
-  function openYoutubeModal(track){
-    $('modal-youtube').classList.add('open');
-    if(track && track.source==='youtube'){ ensureYouTube(); setTimeout(()=>{ try{ state.ytPlayer.loadVideoById(track.id); }catch(e){} },400) }
-  }
-
-  /* ---------- Tone generator (diagnostics) ---------- */
-  let _toneOsc = null;
-  function playTone(){
-    if(!state.audio.ctx) setupAudio();
-    if(_toneOsc) return;
-    _toneOsc = state.audio.ctx.createOscillator();
-    const g = state.audio.ctx.createGain();
-    _toneOsc.frequency.value = 440;
-    g.gain.value = 0.08;
-    _toneOsc.connect(g);
-    g.connect(state.audio.master);
-    _toneOsc.start();
-    $('audio-state').innerText = 'tone';
-    logDiag('Tone started');
-  }
-  function stopTone(){ if(_toneOsc){_toneOsc.stop();_toneOsc.disconnect();_toneOsc=null; $('audio-state').innerText='stopped'; logDiag('Tone stopped')} }
-
-  /* ---------- Utilities ---------- */
-  function escapeHtml(str){ if(!str) return ''; return String(str).replace(/[&<>"']/g,s=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s])); }
-  function parseYtId(url){
-    try{
-      if(url.includes('youtu')){ const u = new URL(url.includes('http')?url:'https://'+url); if(u.hostname.includes('youtu.be')) return u.pathname.slice(1); if(u.searchParams.get('v')) return u.searchParams.get('v'); const p = u.pathname.split('/').pop(); return p; }
-    }catch(e){ return null }
-    return null;
-  }
-
-  /* ---------- Drag & drop queue handlers ---------- */
-  let dragFromIndex = null;
-  function onDragStart(e){ const it = e.currentTarget; dragFromIndex = parseInt(it.dataset.index); e.dataTransfer.effectAllowed='move'; }
-  function onQueueDrop(e){
-    const target = e.target.closest('.queue-item');
-    if(!target) return;
-    const toIndex = parseInt(target.dataset.index);
-    if(dragFromIndex===null || isNaN(toIndex)) return;
-    const item = state.queue.splice(dragFromIndex,1)[0];
-    state.queue.splice(toIndex,0,item);
-    dragFromIndex = null;
-    saveQueue(); renderQueue();
-  }
-
-  /* ---------- Console & Toast ---------- */
-  function toast(msg,timeout=2500){
-    let t = document.querySelector('.toast'); if(!t){ t = document.createElement('div'); t.className='toast'; t.style.position='fixed'; t.style.right='22px'; t.style.bottom='22px'; t.style.padding='10px 14px'; t.style.borderRadius='12px'; t.style.background='linear-gradient(90deg,var(--accent-blue),var(--accent-purple))'; t.style.color='#000'; t.style.fontWeight='800'; document.body.appendChild(t); }
-    t.innerText = msg; t.style.display='block'; t.style.opacity=1;
-    clearTimeout(t._h); t._h = setTimeout(()=>{ t.style.opacity=0; t.style.display='none'; }, timeout);
-  }
-
-  /* ---------- Uptime heartbeat ---------- */
-  let heartbeatStart = Date.now();
-  function startHeartbeat(){ setInterval(()=>{ const s = Math.floor((Date.now()-heartbeatStart)/1000); const h=Math.floor(s/3600).toString().padStart(2,'0'); const m=Math.floor((s%3600)/60).toString().padStart(2,'0'); $('stat-uptime').innerText = `${h}:${m}`; },1000) }
-
-  /* ---------- Console download helpers ---------- */
-  function downloadDiag(){ const txt = state.diagLogs.map(d=>`${new Date(d.ts).toISOString()} ${d.msg}`).join('\n'); const blob = new Blob([txt],{type:'text/plain'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='diag.txt'; a.click(); URL.revokeObjectURL(url); }
-
-  /* ---------- Helpers: queue add (API friendly) ---------- */
-  function addTrackFromApi(track){ addToQueue(track); renderConsole('Track added from API'); }
-
-  /* ---------- small network helpers ---------- */
-  function renderConsole(msg){ const el=$('console'); if(!el) return; const time = new Date().toLocaleTimeString(); el.innerText = `[${time}] ${msg}\n` + el.innerText; }
-  function downloadConsole(){ const txt = $('console').innerText; const blob = new Blob([txt],{type:'text/plain'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='console.log'; a.click(); URL.revokeObjectURL(url); }
-
-  /* ---------- misc ---------- */
-  function playToneSequence(){ /* reserved for future complex diagnostics */ }
-
-  /* ---------- Start ---------- */
-  boot();
-
-  // expose small API on window for debugging
-  window.AnnieX = {state,addToQueue,playNow,stopNow,pauseNow,nextTrack,openWS,closeWS,saveSettings,restoreSettings,exportQueueToFile};
-
-})(); // end IIFE
 </script>
-
 </body>
 </html>
