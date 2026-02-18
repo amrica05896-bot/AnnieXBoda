@@ -1,12 +1,12 @@
 # Authored By Certified Coders © 2026
 # System: Advanced Data Formatters & Time Utils
-# Optimized for Python 3.13 | Fixed 'Live' Duration Crash & 'Tuple' Error
+# Optimized for Python 3.13 | Smart Duration Parsing (Minutes vs Seconds)
 
 import shutil
 import math
 import asyncio
 import subprocess
-# 🔥 تم إضافة Tuple هنا
+import re
 from typing import Union, Optional, Tuple
 
 # ==========================
@@ -44,31 +44,62 @@ def get_readable_time(seconds: int) -> str:
 
 def time_to_seconds(time: Union[str, int]) -> int:
     """
-    Safely converts timestamp string (HH:MM:SS) to total seconds.
-    🔥 FIX: Handles 'Live' or invalid strings gracefully to prevent crashes.
+    Smart Parser: Converts ANY time string/text to Integer Seconds.
+    Examples:
+    - "22" -> 22
+    - "22 دقيقة" -> 1320 (22*60)
+    - "1 hour" -> 3600
+    - "01:30" -> 90
     """
     stringt = str(time).strip().lower()
     
-    # 🛡️ Crash Protection
-    if stringt in ["live", "stream", "none", "nan", "unknown"]:
+    # 1. Crash Protection & Live
+    if stringt in ["live", "stream", "none", "nan", "unknown", "لايف", "مباشر"]:
         return 0
-        
+    
+    # 2. Standard formatted time "01:30" or "1:30:05"
+    if ":" in stringt:
+        try:
+            parts = stringt.split(":")
+            # Reverse logic: seconds, minutes, hours
+            return sum(int(float(x)) * 60**i for i, x in enumerate(reversed(parts)))
+        except:
+            return 0
+
+    # 3. Text Parsing (The Smart Part 🧠)
     try:
-        # Check if already int
-        if stringt.isdigit():
-            return int(stringt)
+        # Extract the number
+        nums = re.findall(r'\d+', stringt)
+        if not nums: return 0
+        val = int(nums[0])
+        
+        # Check Keywords for Context
+        if any(x in stringt for x in ["hour", "hr", "ساعة", "ساعات"]):
+            return val * 3600  # Convert Hours to Seconds
             
-        parts = stringt.split(":")
-        # Reverse to process seconds, then minutes, then hours
-        return sum(int(float(x)) * 60**i for i, x in enumerate(reversed(parts)))
-    except Exception:
+        if any(x in stringt for x in ["min", "mn", "دقيقة", "دقائق"]):
+            return val * 60    # Convert Minutes to Seconds
+            
+        # Default: Treat as seconds if it says "sec" or nothing
+        return val
+    except:
         return 0
 
 
-def seconds_to_min(seconds: Union[int, float, None]) -> str:
-    """Converts seconds to MM:SS or HH:MM:SS format."""
+def seconds_to_min(seconds: Union[int, float, str, None]) -> str:
+    """
+    Converts seconds to MM:SS or HH:MM:SS format.
+    🔥 FIX: Calls time_to_seconds first to handle "22 min" vs "22" correctly.
+    """
     if seconds is None:
         return "00:00"
+    
+    # If input is string, parse it properly first
+    if isinstance(seconds, str):
+        if ":" in seconds: # Already formatted
+            return seconds
+        # Parse text like "22 دقيقة" to 1320 seconds first
+        seconds = time_to_seconds(seconds)
         
     try:
         seconds = int(seconds)
@@ -79,6 +110,10 @@ def seconds_to_min(seconds: Union[int, float, None]) -> str:
     h, remainder = divmod(remainder, 3600)
     m, s = divmod(remainder, 60)
 
+    # Logic:
+    # 22 seconds -> 00:22
+    # 1320 seconds (22 min) -> 22:00
+    
     if d > 0:
         return f"{d:02d}:{h:02d}:{m:02d}:{s:02d}"
     elif h > 0:
@@ -90,7 +125,6 @@ def seconds_to_min(seconds: Union[int, float, None]) -> str:
 def speed_converter(seconds: Union[int, float], speed: Union[int, float]) -> Tuple[str, int]:
     """
     Calculates new duration based on playback speed.
-    Optimized: Uses math logic instead of hardcoded strings.
     """
     try:
         speed = float(speed)
@@ -98,7 +132,6 @@ def speed_converter(seconds: Union[int, float], speed: Union[int, float]) -> Tup
     except:
         return "-", seconds
 
-    # Calculate new duration (Physics: Time = Distance / Speed)
     if speed > 0:
         new_seconds = int(seconds / speed)
     else:
@@ -133,7 +166,6 @@ def check_duration(file_path: str) -> float:
         return 0.0
 
     try:
-        # Using shutil to find executable ensures cross-platform compatibility
         ffprobe_cmd = shutil.which("ffprobe")
         if not ffprobe_cmd:
             return 0.0
@@ -146,7 +178,6 @@ def check_duration(file_path: str) -> float:
             file_path,
         ]
 
-        # Run safely
         output = subprocess.check_output(command, timeout=5).decode().strip()
         return float(output)
     except Exception:
@@ -171,7 +202,6 @@ async def alpha_to_int(user_id_alphabet: str) -> int:
 # ==========================
 # 📼 Supported Formats
 # ==========================
-# Optimized as a Set for O(1) Lookup Speed
 formats = {
     "webm", "mkv", "flv", "vob", "ogv", "ogg", "rrc", "gifv",
     "mng", "mov", "avi", "qt", "wmv", "yuv", "rm", "asf",
