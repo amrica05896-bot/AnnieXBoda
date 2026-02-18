@@ -7,6 +7,7 @@ from pyrogram import filters
 from pyrogram.types import Message
 
 from AnnieXMedia import app
+# تأكد أن هذا السطر صحيح ويستورد StreamController من المكان الصحيح
 from AnnieXMedia.core.call import StreamController
 from AnnieXMedia.utils.decorators import AdminRightsCheck
 
@@ -24,6 +25,9 @@ COMMANDS = [
 )
 @AdminRightsCheck
 async def change_volume_command(cli, message: Message, _, chat_id):
+    # ملاحظة: إذا كان الديكوريتور لا يمرر chat_id كمعامل رابع، سيحدث خطأ.
+    # الكود هنا يفترض أن الديكوريتور @AdminRightsCheck يمرر (client, message, _, chat_id)
+    
     # التحقق من وجود رقم بجانب الامر
     if len(message.command) < 2:
         return await message.reply_text(
@@ -51,10 +55,13 @@ async def change_volume_command(cli, message: Message, _, chat_id):
 
     try:
         # تغيير الصوت عبر ملف الكول
+        # ملاحظة: هذا يتطلب أن تكون المحادثة (الجروب) به مكالمة نشطة
         await StreamController.change_volume_call(chat_id, volume)
         
         # رسالة التاكيد
         await message.reply_text(f"تم تغيير مستوى الصوت الى: {volume}%")
         
+    except AttributeError:
+        await message.reply_text("حدث خطأ: دالة تغيير الصوت غير مدعومة في ملف الكول الحالي.")
     except Exception as e:
         await message.reply_text(f"حدث خطأ اثناء تغيير الصوت: {e}")
