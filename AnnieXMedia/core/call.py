@@ -1,6 +1,7 @@
 # Authored By Certified Coders © 2026
 # System: Call Controller (PyTgCalls v3.0 Native)
 # Fixes: Queue (StreamEnded Filter), Seek (FFmpeg Offset), Auto-Start, Volume Control
+# Status: Production Ready
 
 import asyncio
 from datetime import datetime, timedelta
@@ -86,8 +87,6 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
     is_url = path.startswith("http")
     
     # 1. Base FFmpeg parameters
-    # -threads 2: Optimization
-    # -probesize/-analyzeduration: Low latency
     base_flags = (
         "-threads 2 "
         "-probesize 10M -analyzeduration 10M "
@@ -96,10 +95,8 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
     
     # 2. Input specific flags
     if is_url:
-        # Network reconnection logic
         base_flags += "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
     else:
-        # Local files must be read at native speed (-re)
         base_flags += "-re "
 
     # 3. Add Custom Opts (like Seek -ss)
@@ -108,9 +105,8 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
     # 4. Return the Universal MediaStream Object
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.HIGH, # 48kHz Stereo
-        video_parameters=VideoQuality.HD_720p, # 720p
-        # Strict Flags based on requested mode
+        audio_parameters=AudioQuality.HIGH, 
+        video_parameters=VideoQuality.HD_720p, 
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
         ffmpeg_parameters=final_ffmpeg,
@@ -120,9 +116,11 @@ async def _clear_(chat_id: int) -> None:
     popped = db.pop(chat_id, None)
     if popped: await auto_clean(popped)
     db[chat_id] = []
-    await remove_active_video_chat(chat_id)
-    await remove_active_chat(chat_id)
-    await set_loop(chat_id, 0)
+    try:
+        await remove_active_video_chat(chat_id)
+        await remove_active_chat(chat_id)
+        await set_loop(chat_id, 0)
+    except: pass
 
 # ===============================
 # The Controller Class
@@ -143,6 +141,10 @@ class Call:
         self.five = PyTgCalls(self.userbot5) if self.userbot5 else None
 
         self.active_calls: set[int] = set()
+
+    # --- Ping System ---
+    async def ping(self) -> str:
+        return "PONG"
 
     # --- Standard Controls ---
     async def pause_stream(self, chat_id: int) -> None:
@@ -185,7 +187,7 @@ class Call:
         finally:
             self.active_calls.discard(chat_id)
 
-    # --- NEW: Change Volume ---
+    # --- Volume Control ---
     async def change_volume_call(self, chat_id: int, volume: int) -> None:
         """
         Changes the volume of the ongoing call.
@@ -199,19 +201,12 @@ class Call:
 
     # --- Advanced Controls (Seek & Skip) ---
     async def seek_stream(self, chat_id: int, file_path: str, to_seek: int, duration: int, mode: str) -> None:
-        """
-        Implements seeking via FFmpeg offset parameter.
-        Used by seek.py
-        """
         assistant = await group_assistant(self, chat_id)
-        
-        # FFmpeg syntax: -ss <seconds>
         ffmpeg_opts = f"-ss {to_seek} "
         is_video = (mode == "video")
         
         stream = _build_stream(file_path, video=is_video, ffmpeg_opts=ffmpeg_opts)
         
-        # 'play' handles stream switching seamlessly
         await assistant.play(
             chat_id,
             stream,
@@ -219,10 +214,6 @@ class Call:
         )
 
     async def skip_stream(self, chat_id: int, link: str, video: bool = False) -> None:
-        """
-        Implements skipping/forcing a specific stream.
-        Used by skip.py
-        """
         assistant = await group_assistant(self, chat_id)
         stream = _build_stream(link, video=video)
         
@@ -238,31 +229,25 @@ class Call:
         lang = await get_lang(chat_id)
         _ = get_string(lang)
 
-        # Resolve YouTube Direct Links if needed
         final_link = link
         if "youtube" in str(link) or "youtu.be" in str(link):
-            # Assumes link is valid or handled by stream.py beforehand
             pass
 
-        # Build Stream
         stream = _build_stream(final_link, video=video)
 
         try:
-            # play() with auto_start=True replaces join_group_call + change_stream
             await assistant.play(
                 chat_id,
                 stream,
                 config=GroupCallConfig(auto_start=True)
             )
             
-            # Update Internal State
             self.active_calls.add(chat_id)
             await add_active_chat(chat_id)
             await music_on(chat_id)
             if video:
                 await add_active_video_chat(chat_id)
             
-            # Auto-End Logic
             if await is_autoend():
                 counter[chat_id] = {}
                 try:
@@ -294,20 +279,17 @@ class Call:
         
         for assistant in assistants:
             
-            # 1. Stream Ended -> Play Next (Queue)
             @assistant.on_update(filters.stream_end())
             async def stream_end_handler(client, update: Update):
                 chat_id = update.chat_id
                 LOGGER(__name__).info(f"Stream ended for chat {chat_id}")
                 await self.play(client, chat_id)
 
-            # 2. Left Call -> Stop & Clean
             @assistant.on_update(filters.chat_update(ChatUpdate.Status.LEFT_CALL))
             async def left_call_handler(client, update: Update):
                 chat_id = update.chat_id
                 await self.stop_stream(chat_id)
             
-            # 3. Kicked -> Stop & Clean
             @assistant.on_update(filters.chat_update(ChatUpdate.Status.KICKED))
             async def kicked_handler(client, update: Update):
                 chat_id = update.chat_id
@@ -316,9 +298,6 @@ class Call:
     # --- Queue Processing ---
     @capture_internal_err
     async def play(self, client, chat_id: int) -> None:
-        """
-        Handles the queue when a song ends.
-        """
         check = db.get(chat_id)
         if not check:
             await _clear_(chat_id)
@@ -345,7 +324,6 @@ class Call:
             try: await _clear_(chat_id); return await client.leave_call(chat_id)
             except: return
 
-        # Get Next Track Info
         queued = check[0].get("file")
         title = (check[0].get("title") or "").title()
         user = check[0].get("by")
@@ -356,7 +334,6 @@ class Call:
         
         is_video = str(streamtype) == "video"
         
-        # Link Handling
         final_link = queued
         if "youtube" in str(queued):
              try:
@@ -364,7 +341,6 @@ class Call:
                 if direct: final_link = direct
              except: pass
 
-        # Build & Play Next Stream
         stream = _build_stream(final_link, video=is_video)
 
         try:
@@ -379,7 +355,6 @@ class Call:
             else:
                 await remove_active_video_chat(chat_id)
 
-            # Notifications
             img = await get_thumb(videoid)
             from AnnieXMedia.utils.inline import stream_markup
             button = stream_markup(get_string(await get_lang(chat_id)), chat_id)
