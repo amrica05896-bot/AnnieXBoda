@@ -1,4 +1,4 @@
-# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2026
 
 # --- تفعيل مود الانتظار (هام جداً لملف song.py) ---
 import pyromod.listen
@@ -20,6 +20,9 @@ heroku()
 # تعريف العملاء (Clients)
 app = MusicBotClient()
 userbot = Userbot()
+
+# 🔥 إضافة الـ API هنا عشان نقدر نناديه من أي مكان
+from AnnieXMedia.core.api import BotAPI
 
 # تعريف منصات التشغيل
 from .platforms import *
