@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: Call Controller (PyTgCalls v3.0 Native)
-# Fixes: Queue (StreamEnded Filter), Seek (FFmpeg Offset), Auto-Start
+# Fixes: Queue (StreamEnded Filter), Seek (FFmpeg Offset), Auto-Start, Volume Control
 
 import asyncio
 from datetime import datetime, timedelta
@@ -184,6 +184,18 @@ class Call:
         except: pass
         finally:
             self.active_calls.discard(chat_id)
+
+    # --- NEW: Change Volume ---
+    async def change_volume_call(self, chat_id: int, volume: int) -> None:
+        """
+        Changes the volume of the ongoing call.
+        """
+        assistant = await group_assistant(self, chat_id)
+        try:
+            await assistant.change_volume_call(chat_id, volume)
+        except Exception as e:
+            LOGGER(__name__).error(f"Failed to change volume for {chat_id}: {e}")
+            raise AssistantErr(f"Failed to change volume: {e}")
 
     # --- Advanced Controls (Seek & Skip) ---
     async def seek_stream(self, chat_id: int, file_path: str, to_seek: int, duration: int, mode: str) -> None:
