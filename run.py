@@ -1,12 +1,46 @@
 # Authored By Certified Coders © 2026
-# System: Root Launcher (TitanOS Bootloader)
-# Path: /root/run.py
+# TitanOS Ultimate Engine: Force Loop Binding + Auto-Clean 🛡️
 
 import asyncio
 import logging
+import sys
 import os
 import glob
-import sys
+
+# ==========================================
+# 🔥 1. نظام التنظيف النووي (قبل أي شيء)
+# ==========================================
+def clean_garbage():
+    """حذف ملفات الجلسة التالفة لمنع خطأ struct.error"""
+    try:
+        # بنمسح أي ملف ينتهي بـ .session أو .session-journal
+        junk_files = glob.glob("*.session") + glob.glob("*.session-journal")
+        if junk_files:
+            print(f"🧹 TitanOS: Found junk sessions: {junk_files}")
+            for f in junk_files:
+                try:
+                    os.remove(f)
+                    print(f"✅ Deleted: {f}")
+                except Exception as e:
+                    print(f"❌ Failed to delete {f}: {e}")
+        else:
+            print("✅ TitanOS: System clean. No junk sessions found.")
+    except Exception as e:
+        print(f"⚠️ Clean error: {e}")
+
+# تنفيذ التنظيف فوراً
+clean_garbage()
+
+# ==========================================
+# 🚀 2. إعدادات النظام
+# ==========================================
+
+# تفعيل uvloop فوراً
+try:
+    import uvloop
+    uvloop.install()
+except ImportError:
+    pass
 
 # إعداد اللوجر
 logging.basicConfig(
@@ -17,43 +51,48 @@ logging.basicConfig(
 )
 LOGGER = logging.getLogger("TitanOS")
 
-def clean_garbage():
-    """حذف ملفات الجلسة التالفة قبل بدء الـ Loop"""
-    try:
-        junk_files = glob.glob("*.session") + glob.glob("*.session-journal")
-        if junk_files:
-            LOGGER.info(f"🧹 Cleaning junk sessions: {junk_files}")
-            for f in junk_files:
-                try:
-                    os.remove(f)
-                except: pass
-    except: pass
-
 async def main():
-    # 1. التنظيف
-    clean_garbage()
+    LOGGER.info("⚡ Initializing TitanOS Core...")
     
-    LOGGER.info("⚡ Initializing System...")
+    # استدعاء ملفات البوت (بعد التنظيف)
+    from AnnieXMedia.__main__ import init
+    from AnnieXMedia import app, userbot
+    from AnnieXMedia.core.call import StreamController
+    
+    # 3. الحصول على الـ Loop الحالي النشط
+    current_loop = asyncio.get_running_loop()
+    
+    LOGGER.info("🔗 Patching Client Loops (The Magic Fix)...")
+    
+    # 4. إجبار البوت والمساعد وتطبيقات الاتصال على استخدام نفس الـ Loop
+    try:
+        app.loop = current_loop
+        userbot.loop = current_loop
+        if hasattr(app, 'storage'): app.storage.loop = current_loop
+    except Exception as e:
+        LOGGER.error(f"Loop patch error: {e}")
 
-    # 2. استدعاء دالة التشغيل من داخل السورس
-    # (لاحظ: بنناديها هنا عشان تشتغل جوه الـ Loop اللي run.py عمله)
-    from AnnieXMedia.__main__ import init_bot
+    # إصلاح مشكلة PyTgCalls (StreamController)
+    try:
+        # محاولة الوصول للعملاء وتوحيد الـ Loop
+        if hasattr(StreamController, 'one') and StreamController.one:
+            if hasattr(StreamController.one, '_app'):
+                StreamController.one._app.loop = current_loop
+            if hasattr(StreamController.one, '_bind_client'):
+                StreamController.one._bind_client.loop = current_loop
+    except Exception as e:
+        LOGGER.warning(f"⚠️ Note: Could not patch StreamController: {e}")
+
+    LOGGER.info("✅ All Loops Synchronized. Starting System...")
     
-    await init_bot()
+    # 5. تشغيل البوت
+    await init()
 
 if __name__ == "__main__":
-    # تفعيل uvloop للسرعة القصوى
     try:
-        import uvloop
-        uvloop.install()
-        LOGGER.info("🌀 UVLOOP Enabled")
-    except:
-        LOGGER.info("⚠️ UVLOOP Not found (Using Standard)")
-
-    try:
-        # هذه هي الـ asyncio.run الوحيدة في المشروع كله
+        # استخدام asyncio.run هو الطريقة الوحيدة الصحيحة مع بايثون 3.12+
         asyncio.run(main())
     except KeyboardInterrupt:
-        LOGGER.info("🛑 Stopped by User")
+        LOGGER.info("🛑 Stopped by user")
     except Exception as e:
         LOGGER.error(f"❌ Fatal Error: {e}", exc_info=True)
