@@ -10,7 +10,7 @@ brotli
 certifi
 # أسرع مكتبة JSON في العالم (مهمة لـ FastAPI)
 orjson
-
+flet
 # ===== Crypto / Security =====
 argon2-cffi
 pycryptodome
