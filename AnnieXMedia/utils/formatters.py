@@ -1,12 +1,13 @@
 # Authored By Certified Coders © 2026
 # System: Advanced Data Formatters & Time Utils
-# Optimized for Python 3.13 | Fixed 'Live' Duration Crash
+# Optimized for Python 3.13 | Fixed 'Live' Duration Crash & 'Tuple' Error
 
 import shutil
 import math
 import asyncio
 import subprocess
-from typing import Union, Optional
+# 🔥 تم إضافة Tuple هنا
+from typing import Union, Optional, Tuple
 
 # ==========================
 # 🕒 Time & Duration Utils
@@ -98,7 +99,6 @@ def speed_converter(seconds: Union[int, float], speed: Union[int, float]) -> Tup
         return "-", seconds
 
     # Calculate new duration (Physics: Time = Distance / Speed)
-    # If speed is 2.0x, time is halved.
     if speed > 0:
         new_seconds = int(seconds / speed)
     else:
