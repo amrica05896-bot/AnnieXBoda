@@ -1,25 +1,27 @@
-# Authored By Certified Coders © 2026
-# Path: AnnieXMedia/__init__.py
+# Authored By Certified Coders © 2025
 
+# --- تفعيل مود الانتظار (هام جداً لملف song.py) ---
 import pyromod.listen
+
 from AnnieXMedia.core.bot import MusicBotClient
 from AnnieXMedia.core.dir import StorageManager
 from AnnieXMedia.core.git import git
 from AnnieXMedia.core.userbot import Userbot
 from AnnieXMedia.misc import dbb, heroku
+
 from .logging import LOGGER
 
-# 1. تهيئة المجلدات وقاعدة البيانات
+# تهيئة المجلدات وقاعدة البيانات
 StorageManager()
 git()
 dbb()
 heroku()
 
-# 2. تعريف العملاء (كده دول بقوا جاهزين للاستخدام)
+# تعريف العملاء (Clients)
 app = MusicBotClient()
 userbot = Userbot()
 
-# 3. تعريف منصات التشغيل (لازم قبل الـ API)
+# تعريف منصات التشغيل
 from .platforms import *
 
 Apple = AppleAPI()
@@ -29,6 +31,3 @@ Spotify = SpotifyAPI()
 Resso = RessoAPI()
 Telegram = TeleAPI()
 YouTube = YouTubeAPI()
-
-# 🔥 4. استدعاء الـ API في الأخر خالص عشان نكسر الدائرة المغلقة
-from AnnieXMedia.core.api import BotAPI
