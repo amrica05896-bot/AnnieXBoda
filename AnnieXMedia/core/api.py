@@ -12,7 +12,8 @@ from AnnieXMedia.core.call import StreamController
 from AnnieXMedia.misc import db
 from AnnieXMedia.utils.database import get_lang
 from AnnieXMedia.utils.formatters import seconds_to_min
-from AnnieXMedia import YouTube
+from AnnieXMedia.platforms import YouTubeAPI
+YouTube = YouTubeAPI() # إنشاء نسخة محلية للـ API
 from config import BOT_TOKEN
 
 API_PORT = 8080
