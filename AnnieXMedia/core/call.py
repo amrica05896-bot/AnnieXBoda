@@ -167,6 +167,13 @@ class Call:
         if chat_id not in self._locks:
             self._locks[chat_id] = asyncio.Lock()
         return self._locks[chat_id]
+    
+    # --- System Health Check (Added Fix) ---
+    async def ping(self) -> str:
+        """
+        Used by API to check if the Call Controller is responsive.
+        """
+        return "PONG"
 
     # --- Standard Controls ---
     async def pause_stream(self, chat_id: int) -> None:
@@ -208,6 +215,18 @@ class Call:
         except: pass
         finally:
             self.active_calls.discard(chat_id)
+
+    # --- Volume Control (Added Fix) ---
+    async def change_volume_call(self, chat_id: int, volume: int) -> None:
+        """
+        Changes the volume of the ongoing call.
+        """
+        assistant = await group_assistant(self, chat_id)
+        try:
+            await assistant.change_volume_call(chat_id, volume)
+        except Exception as e:
+            LOGGER(__name__).error(f"Failed to change volume for {chat_id}: {e}")
+            raise AssistantErr(f"Failed to change volume: {e}")
 
     # --- Advanced Controls (Seek & Skip) ---
     async def seek_stream(self, chat_id: int, file_path: str, to_seek: int, duration: int, mode: str) -> None:
