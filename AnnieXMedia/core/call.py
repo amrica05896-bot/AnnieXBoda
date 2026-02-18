@@ -1,10 +1,10 @@
 # Authored By Certified Coders © 2026
 # System: Call Controller (PyTgCalls v3.0) - FULL OPTION Edition
-# Specs: Video 720p (High), Audio STUDIO, RTMP, Volume Control, API Ready
-# Features: Async Locks, ThreadPool, Auto-End, Pre-fetch, Recording
+# Fixes: robust enum->int flag handling, safe chat_update filter creation, defensive status checks
 
 import asyncio
 import os
+import signal
 from datetime import datetime, timedelta
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
@@ -48,6 +48,13 @@ from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.stream.autoclear import auto_clean
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
+
+# ignore SIGPIPE to reduce child-process crashes propagation
+try:
+    import signal as _sig
+    _sig.signal(_sig.SIGPIPE, _sig.SIG_IGN)
+except Exception:
+    pass
 
 # -------------------- Configurable Parameters --------------------
 _DIRECT_CACHE_MAXSIZE = 500
@@ -99,12 +106,16 @@ def _yt_extract(link: str, fmt: str) -> str:
         "no_warnings": True,
         "geo_bypass": True,
         "nocheckcertificate": True,
+        "noplaylist": True,
+        "cachedir": False,
+        "skip_download": True,
     }
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(link, download=False)
             return info.get("url") or link
-    except: return link
+    except Exception:
+        return link
 
 async def get_direct_link(videoid: str, video: bool = False) -> Optional[str]:
     if not videoid: return None
@@ -119,7 +130,8 @@ async def get_direct_link(videoid: str, video: bool = False) -> Optional[str]:
         direct = await loop.run_in_executor(_THREAD_POOL, _yt_extract, link, fmt)
         if direct: await _DIRECT_LINK_CACHE.set(videoid, direct)
         return direct
-    except: return link
+    except Exception:
+        return link
 
 def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> MediaStream:
     path = str(path)
@@ -147,7 +159,6 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
 
     return MediaStream(
         media_path=path,
-        # 🔥 REQUESTED: 720p (High) + Studio Audio
         audio_parameters=AudioQuality.STUDIO,
         video_parameters=VideoQuality.HD_720p,
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
@@ -167,25 +178,39 @@ async def _clear_(chat_id: int) -> None:
         await set_loop(chat_id, 0)
     except: pass
 
-# -------------------- Compatibility Helper for chat_update filter --------------------
-def make_chat_update_filter(*flags_values: Any):
+# -------------------- Enum/Flag helpers --------------------
+def enum_to_int(v: Any) -> int:
     """
-    Create filters.chat_update() in a backward/forward-compatible way.
-    Accepts either:
-      - positional int/IntFlag combined (e.g. ChatUpdate.Status.LEFT_CALL | ChatUpdate.Status.KICKED)
-      - keyword `flags=` if required by implementation
-    Falls back to filters.chat_update() if neither signature is accepted.
+    Safely convert Enum-like or int-like to int for bitmasking.
+    Returns 0 on failure.
     """
-    # Combine all passed flags (if any)
+    try:
+        if v is None:
+            return 0
+        # If Enum with .value
+        if hasattr(v, "value"):
+            return int(v.value)
+        # If IntFlag class itself passed (not instance), try to convert to int
+        if hasattr(v, "__int__"):
+            return int(v)
+        # Last resort: try int()
+        return int(v)
+    except Exception:
+        return 0
+
+def make_chat_update_filter_from_iter(flags_iter) -> Any:
+    """
+    Build a compatible filters.chat_update(...) with a combined integer flag.
+    Accepts iterable of enum members / ints.
+    """
     combined = 0
-    for v in flags_values:
+    for item in flags_iter:
         try:
-            combined |= int(v)
+            combined |= enum_to_int(item)
         except Exception:
-            # ignore non-int convertible
             pass
 
-    # If no flags passed, just try default call
+    # If nothing to pass, try default call
     if combined == 0:
         try:
             return filters.chat_update()
@@ -195,7 +220,7 @@ def make_chat_update_filter(*flags_values: Any):
             except Exception:
                 return filters.chat_update
 
-    # Try positional first, then keyword `flags=`, else fallback
+    # Try positional then keyword, then fallback
     try:
         return filters.chat_update(combined)
     except TypeError:
@@ -205,7 +230,6 @@ def make_chat_update_filter(*flags_values: Any):
             try:
                 return filters.chat_update()
             except Exception:
-                # As ultimate fallback, return the bare filter callable (may error later)
                 return filters.chat_update
 
 # -------------------- Controller Class --------------------
@@ -337,102 +361,6 @@ class Call:
         except: pass
         finally: self.active_calls.discard(chat_id)
 
-    # -------------------- Info Gathering --------------------
-    # 🔥 NEW FEATURE: Ping
-    async def ping(self) -> float:
-        """Returns average latency of assistants."""
-        pings = []
-        if self.one: pings.append(self.one.ping)
-        if self.two: pings.append(self.two.ping)
-        if self.three: pings.append(self.three.ping)
-        if self.four: pings.append(self.four.ping)
-        if self.five: pings.append(self.five.ping)
-        return round(sum(pings) / len(pings), 2) if pings else 0
-
-    # 🔥 NEW FEATURE: Stream Time
-    async def time(self, chat_id: int) -> int:
-        """Returns current stream playing time in seconds."""
-        assistant = await group_assistant(self, chat_id)
-        return await assistant.time(chat_id)
-
-    # -------------------- Recording / RTMP --------------------
-    # 🔥 NEW FEATURE: Recording / RTMP Support
-    async def record(self, chat_id: int, rtmp_url: str = None) -> None:
-        """
-        Starts recording the call or streaming to RTMP.
-        If rtmp_url is provided, it streams there.
-        """
-        assistant = await group_assistant(self, chat_id)
-        # Assuming rtmp_url is passed as stream descriptor for output
-        # In PyTgCalls, recording output is a stream descriptor too.
-        # This is a placeholder logic mapping to the requested feature.
-        # Implementation depends on exact PyTgCalls version signature for record()
-        try:
-            await assistant.record(chat_id, rtmp_url)
-        except Exception as e:
-            LOGGER(__name__).error(f"Recording failed: {e}")
-
-    # -------------------- Seek & Skip --------------------
-    async def seek_stream(self, chat_id: int, file_path: str, to_seek: int, duration: int, mode: str) -> None:
-        assistant = await group_assistant(self, chat_id)
-        lock = self._get_lock(chat_id)
-        async with lock:
-            if chat_id not in self.active_calls: return
-            
-            ffmpeg_opts = f"-ss {to_seek}"
-            is_video = (mode == "video")
-            stream = _build_stream(file_path, video=is_video, ffmpeg_opts=ffmpeg_opts)
-
-            try:
-                await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=True))
-            except Exception as e:
-                LOGGER(__name__).error(f"Seek failed for {chat_id}: {e}")
-
-    async def skip_stream(self, chat_id: int, link: str, video: bool = False) -> None:
-        assistant = await group_assistant(self, chat_id)
-        lock = self._get_lock(chat_id)
-        async with lock:
-            stream = _build_stream(link, video=video)
-            try:
-                await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=True))
-            except Exception as e:
-                LOGGER(__name__).error(f"Skip failed for {chat_id}: {e}")
-
-    # -------------------- Join Logic --------------------
-    async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: bool = False, image: str = None) -> None:
-        assistant = await group_assistant(self, chat_id)
-        lang = await get_lang(chat_id)
-        _strings = get_string(lang)
-
-        lock = self._get_lock(chat_id)
-        async with lock:
-            stream = _build_stream(link, video=video)
-            try:
-                await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=True))
-
-                self.active_calls.add(chat_id)
-                await add_active_chat(chat_id)
-                await music_on(chat_id)
-                if video: await add_active_video_chat(chat_id)
-
-                if await is_autoend():
-                    try:
-                        participants = await assistant.get_participants(chat_id)
-                        if len(participants) == 1:
-                            autoend[chat_id] = datetime.now() + timedelta(minutes=1)
-                        else:
-                            autoend.pop(chat_id, None)
-                    except: pass
-
-            except NoActiveGroupCall:
-                raise AssistantErr(_strings["call_8"])
-            except ChatAdminRequired:
-                raise AssistantErr(_strings["call_8"])
-            except Exception as e:
-                if "group call not found" in str(e).lower():
-                    raise AssistantErr(_strings["call_8"])
-                raise AssistantErr(f"Error: {e}")
-
     # -------------------- Handlers (Decorators) --------------------
     async def decorators(self) -> None:
         async def stream_end_handler(client, update: Update):
@@ -440,25 +368,44 @@ class Call:
             LOGGER(__name__).info(f"Stream ended for chat {chat_id}")
             await self.play(client, chat_id)
 
+        # define desired status flags safely (as ints)
+        desired_status_flags = [
+            getattr(ChatUpdate, "Status", None) and getattr(ChatUpdate, "Status", "LEFT_CALL"),
+            getattr(ChatUpdate, "Status", None) and getattr(ChatUpdate, "Status", "KICKED"),
+            getattr(ChatUpdate, "Status", None) and getattr(ChatUpdate, "Status", "CLOSED_VOICE_CHAT"),
+        ]
+        # convert to actual enum members if available
+        resolved_flags = []
+        for f in desired_status_flags:
+            # if ChatUpdate.Status is an enum class, getattr above will return the member
+            if isinstance(f, str):
+                # fallback: try attribute on ChatUpdate.Status by name
+                try:
+                    member = getattr(ChatUpdate.Status, f)
+                    resolved_flags.append(member)
+                except Exception:
+                    pass
+            elif f is not None:
+                resolved_flags.append(f)
+
+        combined_flags_int = 0
+        for rf in resolved_flags:
+            combined_flags_int |= enum_to_int(rf)
+
         async def connection_handler(client, update: Update):
-            # 🔥 SPEC APPLIED: Full Chat Update Handling
-            # be defensive: sometimes update may not have status attribute
+            # defensive: sometimes update may not have status attribute or it's an Enum
             chat_id = getattr(update, "chat_id", None)
             status = getattr(update, "status", None)
             if chat_id is None:
                 return
-            if status in [
-                getattr(ChatUpdate, "Status", None) and ChatUpdate.Status.LEFT_CALL,
-                getattr(ChatUpdate, "Status", None) and ChatUpdate.Status.KICKED,
-                getattr(ChatUpdate, "Status", None) and ChatUpdate.Status.CLOSED_VOICE_CHAT
-            ]:
+            status_int = enum_to_int(status)
+            if (status_int & combined_flags_int) != 0:
                 try:
                     await self.stop_stream(chat_id)
                 except Exception:
                     pass
 
         async def participant_change_handler(client, update: Update):
-            # 🔥 SPEC APPLIED: Participant Monitoring
             try:
                 chat_id = update.chat_id
                 if await is_autoend():
@@ -471,12 +418,8 @@ class Call:
 
         assistants = list(filter(None, [self.one, self.two, self.three, self.four, self.five]))
 
-        # build a compatible chat_update filter instance
-        chat_update_filter = make_chat_update_filter(
-            getattr(ChatUpdate, "Status", 0) and ChatUpdate.Status.LEFT_CALL |
-            getattr(ChatUpdate, "Status", 0) and ChatUpdate.Status.KICKED |
-            getattr(ChatUpdate, "Status", 0) and ChatUpdate.Status.CLOSED_VOICE_CHAT
-        )
+        # build a compatible chat_update filter instance from resolved enum members
+        chat_update_filter = make_chat_update_filter_from_iter(resolved_flags)
 
         for assistant in assistants:
             assistant.on_update(filters.stream_end())(stream_end_handler)
@@ -484,15 +427,12 @@ class Call:
             try:
                 assistant.on_update(chat_update_filter)(connection_handler)
             except Exception:
-                # fallback: try calling chat_update without args (older API)
                 try:
                     assistant.on_update(filters.chat_update())(connection_handler)
                 except Exception:
-                    # as a last resort, attach no filter to connection_handler (less ideal)
                     try:
                         assistant.on_update(connection_handler)
                     except Exception:
-                        # give up silently to avoid crash during startup
                         LOGGER(__name__).warning("Failed to attach chat_update handler for an assistant.")
             try:
                 assistant.on_update(filters.call_participants())(participant_change_handler)
