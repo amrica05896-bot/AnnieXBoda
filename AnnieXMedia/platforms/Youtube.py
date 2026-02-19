@@ -730,6 +730,17 @@ class YouTubeAPI:
 
         return None, False
 
+    # -------------------------------------------------------------
+    # ✅ FIX: Added video and audio wrapper methods to resolve stream.py error
+    # -------------------------------------------------------------
+    async def video(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Optional[str], bool]:
+        """Wrapper for video streams needed by stream.py"""
+        return await self.download(link, mystic=None, video=True, videoid=videoid)
+
+    async def audio(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Optional[str], bool]:
+        """Wrapper for audio streams needed by stream.py"""
+        return await self.download(link, mystic=None, video=False, videoid=videoid)
+
     def _background_download(self, link: str, out_template: str, is_video: bool):
         try:
             aria2_args = ["-x", "16", "-s", "16", "-j", "16", "-k", "1M", "--file-allocation=none", "--disable-ipv6=true"]
