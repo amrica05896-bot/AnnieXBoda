@@ -24,12 +24,12 @@ BOT_TOKEN = getenv("BOT_TOKEN")
 
 # معلومات المالك
 OWNER_ID = int(getenv("OWNER_ID", 8313557781))
-OWNER_USERNAME = getenv("OWNER_USERNAME", "CertifiedCoder")
+OWNER_USERNAME = getenv("OWNER_USERNAME", "𝐁ᴏᴅᴀ˼")
 
 # معلومات البوت والمساعد
-BOT_USERNAME = getenv("BOT_USERNAME", "SourceBodaBot")
+BOT_USERNAME = getenv("BOT_USERNAME", "Boda")
 BOT_NAME = getenv("BOT_NAME", "˹𝚂ᴏᴜʀᴄᴇ ✘ 𝐁ᴏᴅᴀ˼ ♪")
-ASSUSERNAME = getenv("ASSUSERNAME", "SourceBodaAssistant")
+ASSUSERNAME = getenv("ASSUSERNAME", "CertifiedCoder")
 
 # ── 🔥 المسارات النووية (Nuclear Paths) 🔥 ──────────────────────────────────
 DOWNLOAD_PATH = "/dev/shm/AnnieDownloads"
