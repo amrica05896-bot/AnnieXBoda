@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
-# Fixed: Live Stream Extraction, Playlist Duration Bug, Missing Video/Audio Attributes
+# Fixed: Removed 'Live' forcing to properly recognize Playlists.
 
 import asyncio
 import contextlib
@@ -33,7 +33,7 @@ log.setLevel(logging.INFO)
 # Tunables
 MAX_YTDLP_THREADS = 16
 MAX_CONCURRENT_EXTRACTS = 6
-YTDLP_SOCKET_TIMEOUT = 12 # Increased slightly for Live Streams stability
+YTDLP_SOCKET_TIMEOUT = 12
 PROBE_TIMEOUT = 1.2
 CACHE_DEFAULT_TTL = 300
 AIO_CONN_LIMIT = 64
@@ -211,15 +211,9 @@ class YouTubeAPI:
             for line in out.decode().splitlines():
                 try:
                     data = _loads_bytes(line.encode())
-                    dur = data.get("duration_string")
-                    is_live = data.get("is_live") or data.get("was_live")
+                    # إزالة كلمة Live تماماً وإعطاء وقت افتراضي للبلاي ليست
+                    dur = data.get("duration_string") or "00:00"
                     
-                    # 🔥 Fix: التمييز بين البث المباشر والبلاي ليست
-                    if is_live or (dur and str(dur).lower() in ["live", "stream"]):
-                        dur = "Live"
-                    elif not dur:
-                        dur = "00:00" # يمنع البلاي ليست من الظهور كبث مباشر
-                        
                     results.append({
                         "title": data.get("title", "Unknown"),
                         "vidid": data.get("id", ""),
@@ -258,12 +252,8 @@ class YouTubeAPI:
             data = results[0]
             thumb = (data.get("thumbnails") or [{}])[-1].get("url", "")
             
-            # 🔥 Fix: التمييز الذكي للمدة
-            dur = data.get("duration")
-            if dur and str(dur).lower() in ["live", "stream"]:
-                dur = "Live"
-            elif not dur:
-                dur = "00:00"
+            # إزالة كلمة Live تماماً وإعطاء وقت افتراضي
+            dur = data.get("duration") or "00:00"
 
             details = {
                 "title": data.get("title", "") or "",
@@ -290,12 +280,8 @@ class YouTubeAPI:
                 info = _loads_bytes(out)
                 thumb = (info.get("thumbnail") or "").split("?")[0]
                 
-                # 🔥 Fix: الاعتماد على is_live الحقيقي وليس فقط اختفاء المدة
-                is_live = info.get("is_live") or info.get("was_live")
-                if is_live:
-                    dur = "Live"
-                else:
-                    dur = info.get("duration_string") or "00:00"
+                # إزالة كلمة Live تماماً وإعطاء وقت افتراضي
+                dur = info.get("duration_string") or "00:00"
 
                 details = {
                     "title": info.get("title", "") or "",
@@ -324,11 +310,8 @@ class YouTubeAPI:
                 info = _loads_bytes(out2)
                 thumb = (info.get("thumbnail") or "").split("?")[0]
                 
-                is_live = info.get("is_live") or info.get("was_live")
-                if is_live:
-                    dur = "Live"
-                else:
-                    dur = info.get("duration_string") or "00:00"
+                # إزالة كلمة Live تماماً وإعطاء وقت افتراضي
+                dur = info.get("duration_string") or "00:00"
 
                 details = {
                     "title": info.get("title", "") or "",
@@ -350,10 +333,9 @@ class YouTubeAPI:
         data, vid = await self.track(link, videoid)
         if vid == "":
             raise ValueError("Video not found")
-        dur = data.get("duration_min")
-        
-        # 🔥 Fix: Crash Protection on 'Live'
-        sec = 0 if str(dur).lower() in ["live", "none"] else int(self._to_seconds(dur))
+            
+        dur = data.get("duration_min", "00:00")
+        sec = int(self._to_seconds(dur))
         return data.get("title", ""), dur, sec, data.get("thumb", ""), vid
 
     async def title(self, link: str, videoid: Union[bool, str, None] = None) -> str:
@@ -482,12 +464,11 @@ class YouTubeAPI:
                     "noplaylist": True,
                     "skip_download": True,
                     "socket_timeout": YTDLP_SOCKET_TIMEOUT,
-                    # 🔥 FIX: استخدام عميل web لدعم البث المباشر (يمنع SIGPIPE)
-                    "extractor_args": {"youtube": {"player_client": ["web"]}}, 
+                    "extractor_args": {"youtube": {"player_client": ["web"]}}, # استخدام الويب لضمان التشغيل
                 }
                 if self.cookie:
                     ydl_opts["cookiefile"] = self.cookie
-                if getattr(self, "impersonate", False):
+                if self.impersonate:
                     ydl_opts["impersonate"] = "chrome"
                 try:
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -501,13 +482,12 @@ class YouTubeAPI:
         if not info or (isinstance(info, dict) and info.get("_err")):
             log.debug("yt-dlp API failed for %s: %s", prepared, info.get("_err") if isinstance(info, dict) else repr(info))
             try:
-                # 🔥 FIX: إضافة عميل الويب كخيار استخراج هنا أيضاً
                 cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", "--extractor-args", "youtube:player_client=web"]
                 if self.cookie: cmd.extend(["--cookies", self.cookie])
                 if getattr(self, "impersonate", False): cmd.extend(["--impersonate", "chrome"])
                 cmd.append(prepared)
                 
-                out, _err = await _exec_proc(*cmd, timeout=12) # زدت الوقت قليلاً لضمان عدم قطع البث المباشر
+                out, _err = await _exec_proc(*cmd, timeout=12)
                 if out:
                     candidate = out.decode().splitlines()[0].strip()
                     ok, _ctype = await _probe_url(candidate)
@@ -541,6 +521,7 @@ class YouTubeAPI:
                 cmd = ["yt-dlp", "--dump-json", prepared, "--no-warnings", "--extractor-args", "youtube:player_client=web"]
                 if self.cookie: cmd.extend(["--cookies", self.cookie])
                 if getattr(self, "impersonate", False): cmd.extend(["--impersonate", "chrome"])
+                cmd.append(prepared)
                 
                 out3, _err3 = await _exec_proc(*cmd, timeout=16)
                 if out3:
