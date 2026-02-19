@@ -1,5 +1,5 @@
 # Authored By Certified Coders © 2026
-# System: Play Command Handler (Fixed Live Stream Logic)
+# System: Play Command Handler (Fixed Live Stream & Playlist Thumbnails Logic)
 # Compatibility: PyTgCalls v3.0 Native Chain
 
 import asyncio
@@ -211,7 +211,7 @@ async def play_command(
                 except Exception as e:
                     return await mystic.edit_text(f"{_['play_3']}\nʀᴇᴀsᴏɴ: {e}")
                 
-                img = details["thumb"]
+                img = details.get("thumb", config.YOUTUBE_IMG_URL)
                 cap = _["play_10"].format(details["title"], details["duration_min"])
                 internal_type = "youtube"
                 log_label = "Youtube Track"
@@ -226,7 +226,7 @@ async def play_command(
                     details, track_id = await Spotify.track(url)
                 except Exception as e:
                     return await mystic.edit_text(f"{_['play_3']}\nʀᴇᴀsᴏɴ: {e}")
-                img = details["thumb"]
+                img = details.get("thumb", config.SPOTIFY_ARTIST_IMG_URL)
                 cap = _["play_10"].format(details["title"], details["duration_min"])
                 internal_type = "youtube"
                 log_label = "Spotify Track"
@@ -269,7 +269,7 @@ async def play_command(
                     details, track_id = await Apple.track(url)
                 except Exception as e:
                     return await mystic.edit_text(f"{_['play_3']}\nʀᴇᴀsᴏɴ: {e}")
-                img = details["thumb"]
+                img = details.get("thumb", config.PLAYLIST_IMG_URL)
                 cap = _["play_10"].format(details["title"], details["duration_min"])
                 internal_type = "youtube"
                 log_label = "Apple Music"
@@ -280,7 +280,7 @@ async def play_command(
                 except Exception as e:
                     return await mystic.edit_text(f"{_['play_3']}\nʀᴇᴀsᴏɴ: {e}")
                 plist_type = "apple"
-                img = url
+                img = config.PLAYLIST_IMG_URL  # Bug fixed here! (was url)
                 cap = _["play_12"].format(app.mention, message.from_user.mention)
                 internal_type = "playlist"
                 log_label = "Apple Music playlist"
@@ -292,7 +292,7 @@ async def play_command(
                 details, track_id = await Resso.track(url)
             except Exception as e:
                 return await mystic.edit_text(f"{_['play_3']}\nʀᴇᴀsᴏɴ: {e}")
-            img = details["thumb"]
+            img = details.get("thumb", config.PLAYLIST_IMG_URL)
             cap = _["play_10"].format(details["title"], details["duration_min"])
             internal_type = "youtube"
             log_label = "Resso"
@@ -373,10 +373,13 @@ async def play_command(
             else:
                 # This is a Live Stream -> Show Buttons
                 buttons = livestream_markup(_, track_id, user_id, "v" if video else "a", "c" if channel else "g", "f" if fplay else "d")
-                img = details.get("thumb", config.YOUTUBE_IMG_URL)
+                stream_img = details.get("thumb")
+                if not stream_img or not str(stream_img).startswith("http"):
+                    stream_img = config.YOUTUBE_IMG_URL
+                    
                 await _safe_delete_msg(mystic)
                 return await message.reply_photo(
-                    photo=img,
+                    photo=stream_img,
                     caption=_["play_13"],
                     reply_markup=InlineKeyboardMarkup(buttons),
                 )
@@ -387,8 +390,28 @@ async def play_command(
             lyrical[ran_hash] = plist_id
             buttons = playlist_markup(_, ran_hash, user_id, plist_type, "c" if channel else "g", "f" if fplay else "d")
             await _safe_delete_msg(mystic)
+
+            # 🔥 Smart Thumbnail Extractor (نظام استخراج الصور الذكي لقوائم التشغيل)
+            final_thumb = config.PLAYLIST_IMG_URL
+            try:
+                # إذا كانت التفاصيل عبارة عن قاموس ويحتوي على صورة
+                if isinstance(details, dict) and details.get("thumb"):
+                    final_thumb = details["thumb"]
+                # إذا كانت التفاصيل عبارة عن قائمة (أبل ميوزك مثلاً)، اجلب صورة أول أغنية
+                elif isinstance(details, list) and len(details) > 0 and isinstance(details[0], dict) and details[0].get("thumb"):
+                    final_thumb = details[0]["thumb"]
+                # كخطة بديلة نستخدم متغير img إذا كان صالحاً
+                elif img and isinstance(img, str) and img.startswith("http") and "apple.com" not in img:
+                    final_thumb = img
+            except Exception:
+                pass
+            
+            # حماية أخيرة قبل الإرسال (تمنع الكراش 100%)
+            if not final_thumb or not str(final_thumb).startswith("http"):
+                final_thumb = config.PLAYLIST_IMG_URL
+
             await message.reply_photo(
-                photo=(details["thumb"] if plist_type == "yt" else (details if plist_type == "apple" else img)),
+                photo=final_thumb,
                 caption=cap,
                 reply_markup=InlineKeyboardMarkup(buttons),
             )
@@ -402,8 +425,14 @@ async def play_command(
         # Inline Search Slider
         buttons = slider_markup(_, track_id, user_id, query, 0, "c" if channel else "g", "f" if fplay else "d")
         await _safe_delete_msg(mystic)
+        
+        # حماية صورة البحث
+        slide_thumb = details.get("thumb")
+        if not slide_thumb or not str(slide_thumb).startswith("http"):
+            slide_thumb = config.YOUTUBE_IMG_URL
+            
         await message.reply_photo(
-            photo=details["thumb"],
+            photo=slide_thumb,
             caption=_["play_10"].format(details["title"].title(), details["duration_min"]),
             reply_markup=InlineKeyboardMarkup(buttons),
         )
@@ -561,6 +590,11 @@ async def slider_queries(client, CallbackQuery, _):
 
         title, duration_min, thumbnail, vidid = await YouTube.slider(query, query_type)
         buttons = slider_markup(_, vidid, user_id, query, query_type, cplay, fplay)
+        
+        # حماية لصورة البحث عند التحريك
+        if not thumbnail or not str(thumbnail).startswith("http"):
+            thumbnail = config.YOUTUBE_IMG_URL
+            
         med = InputMediaPhoto(media=thumbnail, caption=_["play_10"].format(title.title(), duration_min))
 
         await CallbackQuery.edit_message_media(media=med, reply_markup=InlineKeyboardMarkup(buttons))
