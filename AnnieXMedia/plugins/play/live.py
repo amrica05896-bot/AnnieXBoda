@@ -1,4 +1,6 @@
-﻿# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2026
+# Fixed: Live Stream Condition to match the new YouTube Engine (2026)
+
 import random
 from pyrogram import filters
 
@@ -50,7 +52,10 @@ async def play_live_stream(client, CallbackQuery, _):
     except Exception as e:
         return await mystic.edit_text(f"{_['play_3']}\nʀᴇᴀsᴏɴ: {e}")
 
-    if not details.get("duration_min"):
+    # 🔥 التعديل هنا: التحقق من أن المدة هي كلمة "Live" أو فارغة
+    duration = str(details.get("duration_min", "")).lower()
+
+    if duration == "live" or not details.get("duration_min"):
         try:
             await stream(
                 _,
