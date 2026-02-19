@@ -13,11 +13,19 @@ from pyrogram.errors import BadRequest
 from pyrogram.errors import FileMigrate
 from pyrogram.errors import FloodWait
 
-# التعديل الذكي لحل مشكلة اختلاف إصدارات بايروجرام
+# ==========================================
+# 🔥 الحل النووي والنهائي لمشكلة إصدارات Pyrogram 🔥
+# ==========================================
 try:
     from pyrogram.errors import GroupCallForbidden as GroupcallForbidden
 except ImportError:
-    from pyrogram.errors import GroupcallForbidden
+    try:
+        from pyrogram.errors import GroupcallForbidden
+    except ImportError:
+        # إذا لم يكن الخطأ موجوداً في بايروجرام نهائياً، نصنع كلاس وهمي لمنع الكراش!
+        class GroupcallForbidden(Exception):
+            pass
+# ==========================================
 
 from pyrogram.raw.base import InputPeer
 from pyrogram.raw.base import InputUser
