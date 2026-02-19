@@ -96,3 +96,4 @@ pytz
 py-yt-search
 # ===== YouTube Search (patched fork) =====
 git+https://github.com/q058961234-web/youtube-search-python.git
+pytubefix
