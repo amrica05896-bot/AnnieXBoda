@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
-# Fixed: Removed 'Live' forcing to properly recognize Playlists.
+# Fixed: Added download_thumb method logic & Search Function & Keep-Alive
 
 import asyncio
 import contextlib
@@ -33,7 +33,7 @@ log.setLevel(logging.INFO)
 # Tunables
 MAX_YTDLP_THREADS = 16
 MAX_CONCURRENT_EXTRACTS = 6
-YTDLP_SOCKET_TIMEOUT = 12
+YTDLP_SOCKET_TIMEOUT = 8
 PROBE_TIMEOUT = 1.2
 CACHE_DEFAULT_TTL = 300
 AIO_CONN_LIMIT = 64
@@ -76,7 +76,7 @@ async def _ensure_aio_session() -> aiohttp.ClientSession:
         _aio_session = aiohttp.ClientSession(connector=_aio_connector, raise_for_status=False)
     return _aio_session
 
-async def _exec_proc(*args: str, timeout: int = 15) -> Tuple[bytes, bytes]:
+async def _exec_proc(*args: str, timeout: int = 10) -> Tuple[bytes, bytes]:
     proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
@@ -211,9 +211,10 @@ class YouTubeAPI:
             for line in out.decode().splitlines():
                 try:
                     data = _loads_bytes(line.encode())
-                    # إزالة كلمة Live تماماً وإعطاء وقت افتراضي للبلاي ليست
-                    dur = data.get("duration_string") or "00:00"
-                    
+                    dur = data.get("duration_string")
+                    # حماية البث المباشر
+                    if not dur or str(dur).lower() in ["live", "stream", "none"]:
+                        dur = "Live"
                     results.append({
                         "title": data.get("title", "Unknown"),
                         "vidid": data.get("id", ""),
@@ -252,8 +253,10 @@ class YouTubeAPI:
             data = results[0]
             thumb = (data.get("thumbnails") or [{}])[-1].get("url", "")
             
-            # إزالة كلمة Live تماماً وإعطاء وقت افتراضي
-            dur = data.get("duration") or "00:00"
+            # 🔥 Fix: Live Stream Duration Protection
+            dur = data.get("duration")
+            if not dur or str(dur).lower() in ["live", "stream", "none"]:
+                dur = "Live"
 
             details = {
                 "title": data.get("title", "") or "",
@@ -280,8 +283,9 @@ class YouTubeAPI:
                 info = _loads_bytes(out)
                 thumb = (info.get("thumbnail") or "").split("?")[0]
                 
-                # إزالة كلمة Live تماماً وإعطاء وقت افتراضي
-                dur = info.get("duration_string") or "00:00"
+                # 🔥 Fix: Live Stream Duration Protection
+                is_live = info.get("is_live") or info.get("was_live")
+                dur = "Live" if is_live else info.get("duration_string")
 
                 details = {
                     "title": info.get("title", "") or "",
@@ -310,8 +314,9 @@ class YouTubeAPI:
                 info = _loads_bytes(out2)
                 thumb = (info.get("thumbnail") or "").split("?")[0]
                 
-                # إزالة كلمة Live تماماً وإعطاء وقت افتراضي
-                dur = info.get("duration_string") or "00:00"
+                # 🔥 Fix: Live Stream Duration Protection
+                is_live = info.get("is_live") or info.get("was_live")
+                dur = "Live" if is_live else info.get("duration_string")
 
                 details = {
                     "title": info.get("title", "") or "",
@@ -327,15 +332,16 @@ class YouTubeAPI:
             except Exception:
                 log.debug("remote dump-json parse failed; stderr=%s", (err2.decode() if err2 else ""))
 
-        return {"title": "Unknown", "link": prepared, "vidid": "", "duration_min": "00:00", "thumb": "", "cookiefile": self.cookie}, ""
+        return {"title": "Unknown", "link": prepared, "vidid": "", "duration_min": None, "thumb": "", "cookiefile": self.cookie}, ""
 
     async def details(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[str, Optional[str], int, str, str]:
         data, vid = await self.track(link, videoid)
         if vid == "":
             raise ValueError("Video not found")
-            
-        dur = data.get("duration_min", "00:00")
-        sec = int(self._to_seconds(dur))
+        dur = data.get("duration_min")
+        
+        # 🔥 Fix: Crash Protection on 'Live'
+        sec = 0 if str(dur).lower() in ["live", "none"] else int(self._to_seconds(dur))
         return data.get("title", ""), dur, sec, data.get("thumb", ""), vid
 
     async def title(self, link: str, videoid: Union[bool, str, None] = None) -> str:
@@ -464,11 +470,12 @@ class YouTubeAPI:
                     "noplaylist": True,
                     "skip_download": True,
                     "socket_timeout": YTDLP_SOCKET_TIMEOUT,
-                    "extractor_args": {"youtube": {"player_client": ["web"]}}, # استخدام الويب لضمان التشغيل
+                    "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
                 }
                 if self.cookie:
                     ydl_opts["cookiefile"] = self.cookie
                 if self.impersonate:
+                    # Python API uses 'impersonate' option when curl_cffi present
                     ydl_opts["impersonate"] = "chrome"
                 try:
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -481,15 +488,35 @@ class YouTubeAPI:
         # fallback to subprocess -g if API failed
         if not info or (isinstance(info, dict) and info.get("_err")):
             log.debug("yt-dlp API failed for %s: %s", prepared, info.get("_err") if isinstance(info, dict) else repr(info))
+            # try simple -g
             try:
-                cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", "--extractor-args", "youtube:player_client=web"]
+                cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4"]
                 if self.cookie: cmd.extend(["--cookies", self.cookie])
                 if getattr(self, "impersonate", False): cmd.extend(["--impersonate", "chrome"])
                 cmd.append(prepared)
                 
-                out, _err = await _exec_proc(*cmd, timeout=12)
+                out, _err = await _exec_proc(*cmd, timeout=8)
                 if out:
                     candidate = out.decode().splitlines()[0].strip()
+                    ok, _ctype = await _probe_url(candidate)
+                    if ok:
+                        expiry = _parse_expire(candidate) or (now + CACHE_DEFAULT_TTL)
+                        expiry = int(expiry) - 3
+                        async with _direct_cache_lock:
+                            _direct_cache[key] = (expiry, candidate)
+                        return candidate
+            except Exception:
+                pass
+            # try -g with remote-components ejs:github
+            try:
+                cmd = ["yt-dlp", "-g", "--no-warnings", "--remote-components", "ejs:github", "--force-ipv4"]
+                if self.cookie: cmd.extend(["--cookies", self.cookie])
+                if getattr(self, "impersonate", False): cmd.extend(["--impersonate", "chrome"])
+                cmd.append(prepared)
+                
+                out2, _err2 = await _exec_proc(*cmd, timeout=14)
+                if out2:
+                    candidate = out2.decode().splitlines()[0].strip()
                     ok, _ctype = await _probe_url(candidate)
                     if ok:
                         expiry = _parse_expire(candidate) or (now + CACHE_DEFAULT_TTL)
@@ -515,13 +542,12 @@ class YouTubeAPI:
                     _direct_cache[key] = (expiry, top_url)
                 return top_url
 
-        # if no formats, attempt dump-json
+        # if no formats, attempt dump-json with remote components
         if not fmts:
             try:
-                cmd = ["yt-dlp", "--dump-json", prepared, "--no-warnings", "--extractor-args", "youtube:player_client=web"]
+                cmd = ["yt-dlp", "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
                 if self.cookie: cmd.extend(["--cookies", self.cookie])
                 if getattr(self, "impersonate", False): cmd.extend(["--impersonate", "chrome"])
-                cmd.append(prepared)
                 
                 out3, _err3 = await _exec_proc(*cmd, timeout=16)
                 if out3:
@@ -703,17 +729,6 @@ class YouTubeAPI:
             return downloaded, False
 
         return None, False
-
-    # -------------------------------------------------------------
-    # ✅ FIX: Added video and audio wrapper methods to resolve stream.py AttributeError
-    # -------------------------------------------------------------
-    async def video(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Optional[str], bool]:
-        """Wrapper for video streams needed by stream.py"""
-        return await self.download(link, mystic=None, video=True, videoid=videoid)
-
-    async def audio(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Optional[str], bool]:
-        """Wrapper for audio streams needed by stream.py"""
-        return await self.download(link, mystic=None, video=False, videoid=videoid)
 
     def _background_download(self, link: str, out_template: str, is_video: bool):
         try:
