@@ -12,7 +12,13 @@ from pyrogram.errors import AuthBytesInvalid
 from pyrogram.errors import BadRequest
 from pyrogram.errors import FileMigrate
 from pyrogram.errors import FloodWait
-from pyrogram.errors import GroupcallForbidden
+
+# التعديل الذكي لحل مشكلة اختلاف إصدارات بايروجرام
+try:
+    from pyrogram.errors import GroupCallForbidden as GroupcallForbidden
+except ImportError:
+    from pyrogram.errors import GroupcallForbidden
+
 from pyrogram.raw.base import InputPeer
 from pyrogram.raw.base import InputUser
 from pyrogram.raw.functions.auth import ExportAuthorization
@@ -287,7 +293,6 @@ class PyrogramClient(BridgedClient):
                             ChatUpdate(
                                 chat_id,
                                 ChatUpdate.Status.INVITED_VOICE_CHAT,
-                                update.message.action,
                             ),
                         )
 
