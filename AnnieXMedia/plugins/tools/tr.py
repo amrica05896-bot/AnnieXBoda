@@ -25,7 +25,7 @@ async def translate(_, message: Message):
             target_lang = arg
     except IndexError:
         source_lang = await translator.detect(content)
-        target_lang = "en"
+        target_lang = "ar"
 
     try:
         result = await translator(content, sourcelang=source_lang, targetlang=target_lang)
