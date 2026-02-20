@@ -1,4 +1,4 @@
-﻿# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2026
 import httpx
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message
@@ -16,11 +16,11 @@ headers = {
 }
 
 
-@app.on_message(filters.command("weather"))
+@app.on_message(filters.command(["الطقس"], prefixes=[""]))
 async def weather_command(client: Client, message: Message):
     if len(message.command) == 1:
         return await message.reply_text(
-            "<b>ᴜsᴀɢᴇ:</b> <code>/weather city</code>\nExample: <code>/weather delhi</code>",
+            "<b>الاستخدام:</b> <code>الطقس [اسم المدينة]</code>\nمثال: <code>الطقس القاهرة</code>",
             parse_mode=enums.ParseMode.HTML
         )
 
@@ -33,7 +33,7 @@ async def weather_command(client: Client, message: Message):
             params={
                 "apiKey": weather_apikey,
                 "format": "json",
-                "language": "en",
+                "language": "ar",
                 "query": query
             },
         )
@@ -41,7 +41,7 @@ async def weather_command(client: Client, message: Message):
 
         if not coord_data.get("location"):
             return await message.reply_text(
-                "❌ <b>Location not found.</b> Please try a different city.",
+                "<b>لم يتم العثور على المدينة.</b> يرجى تجربة مدينة أخرى.",
                 parse_mode=enums.ParseMode.HTML
             )
 
@@ -55,7 +55,7 @@ async def weather_command(client: Client, message: Message):
             params={
                 "apiKey": weather_apikey,
                 "format": "json",
-                "language": "en",
+                "language": "ar",
                 "geocode": f"{latitude},{longitude}",
                 "units": "m"
             },
@@ -65,24 +65,24 @@ async def weather_command(client: Client, message: Message):
 
         if not obs:
             return await message.reply_text(
-                "⚠️ <b>Weather data not available</b> at the moment.",
+                "<b>بيانات الطقس غير متوفرة</b> في الوقت الحالي.",
                 parse_mode=enums.ParseMode.HTML
             )
 
         weather_text = (
-            f"<b>{location_name}</b> 🌍\n\n"
-            f"🌡️ <b>ᴛᴇᴍᴘᴇʀᴀᴛᴜʀᴇ:</b> <code>{obs.get('temperature', 'N/A')} °C</code>\n"
-            f"🥵 <b>ғᴇᴇʟs ʟɪᴋᴇ:</b> <code>{obs.get('temperatureFeelsLike', 'N/A')} °C</code>\n"
-            f"💧 <b>ʜᴜᴍɪᴅɪᴛʏ:</b> <code>{obs.get('relativeHumidity', 'N/A')}%</code>\n"
-            f"💨 <b>ᴡɪɴᴅ:</b> <code>{obs.get('windSpeed', 'N/A')} km/h</code>\n"
-            f"☁️ <b>ᴄᴏɴᴅɪᴛɪᴏɴ:</b> <i>{obs.get('wxPhraseLong', 'N/A')}</i>"
+            f"<b>{location_name}</b>\n\n"
+            f"<b>درجة الحرارة:</b> <code>{obs.get('temperature', 'N/A')} °C</code>\n"
+            f"<b>الإحساس الفعلي:</b> <code>{obs.get('temperatureFeelsLike', 'N/A')} °C</code>\n"
+            f"<b>الرطوبة:</b> <code>{obs.get('relativeHumidity', 'N/A')}%</code>\n"
+            f"<b>سرعة الرياح:</b> <code>{obs.get('windSpeed', 'N/A')} كم/س</code>\n"
+            f"<b>الحالة:</b> <i>{obs.get('wxPhraseLong', 'N/A')}</i>"
         )
 
         await message.reply_text(weather_text, parse_mode=enums.ParseMode.HTML)
 
     except Exception as e:
-        print(f"Error in /weather: {e}")
+        print(f"Error in weather: {e}")
         await message.reply_text(
-            "❌ <b>An error occurred</b> while fetching the weather. Please try again later.",
+            "<b>حدث خطأ</b> أثناء جلب بيانات الطقس. يرجى المحاولة لاحقا.",
             parse_mode=enums.ParseMode.HTML
         )
