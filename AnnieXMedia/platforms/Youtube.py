@@ -35,10 +35,6 @@ CACHE_DEFAULT_TTL = 300
 AIO_CONN_LIMIT = 100
 META_CACHE_TTL = 3600
 
-# الـ API بتاعك هو الأساس
-API_BASE_URL = os.environ.get("TITAN_API_URL", "https://api-rskcpw.fly.dev")
-API_KEY = os.environ.get("TITAN_SECRET_KEY", "Titan_2026_Ultra_Fast")
-
 _thread_pool = ThreadPoolExecutor(max_workers=MAX_YTDLP_THREADS)
 _extract_sema = asyncio.Semaphore(MAX_CONCURRENT_EXTRACTS)
 
@@ -160,24 +156,8 @@ class YouTubeAPI:
         except Exception:
             self.impersonate = False
 
-    async def _fetch_from_api(self, url: str, prefer_audio: bool = True) -> Optional[Dict[str, Any]]:
-        """ الاتصال بالـ API بتاعك كأساس """
-        try:
-            sess = await _ensure_aio_session()
-            api_url = f"{API_BASE_URL}/api/v1/extract?url={url}&audio_only={prefer_audio}"
-            headers = {"X-Titan-Key": API_KEY, "Accept": "application/json"}
-            # الـ timeout هنا 20 ثانية.. لو الـ API غاب هيفصل فوراً وينتقل للخطة المحلية
-            async with sess.get(api_url, headers=headers, timeout=20) as resp:
-                if resp.status == 200:
-                    data = await resp.json(loads=json.loads)
-                    if data and data.get("success"):
-                        return data
-        except Exception:
-            pass
-        return None
-
     def _sync_local_extract(self, query: str, flat: bool = False) -> dict:
-        """ الخطة المحلية الصاروخية (بديل API في حالة السقوط) """
+        """ الخطة المحلية الصاروخية In-Memory """
         opts = {
             "quiet": True,
             "no_warnings": True,
@@ -200,7 +180,7 @@ class YouTubeAPI:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 return ydl.extract_info(query, download=False)
         except Exception as e:
-            # حماية ذكية: لو الكروم عمل مشكلة، نعيد بدون impersonate
+            # حماية ذكية: لو الكروم عمل مشكلة، نعيد بدون impersonate فوراً
             err_str = str(e).lower()
             if "impersonate" in err_str or "target" in err_str:
                 opts.pop("impersonate", None)
@@ -268,36 +248,10 @@ class YouTubeAPI:
                     return data, vid
                 _meta_cache.pop(key, None)
                 
-        # 1. محاولة استخدام الـ API بتاعك (الأساسي)
-        api_data = await self._fetch_from_api(prepared, prefer_audio=True)
-        if api_data:
-            vid_id = api_data.get("video_id", "")
-            dur = "Live" if api_data.get("is_live") else str(api_data.get("duration", "0"))
-            if dur != "Live":
-                try:
-                    dur_sec = int(dur)
-                    dur = f"{dur_sec // 60}:{dur_sec % 60:02d}"
-                except ValueError:
-                    dur = "0:00"
-            thumb_url = ""
-            thumbnails = api_data.get("thumbnails", [])
-            if thumbnails:
-                thumb_url = thumbnails[-1].get("url", "")
-            details = {
-                "title": api_data.get("title", "") or "",
-                "link": prepared,
-                "vidid": vid_id,
-                "duration_min": dur,
-                "thumb": thumb_url,
-                "cookiefile": self.cookie,
-            }
-            async with _meta_cache_lock:
-                _meta_cache[key] = (now, details, vid_id)
-            return details, vid_id
-            
-        # 2. الخطة المحلية السريعة (في حال غياب API أو سقوطه)
+        # الاعتماد الكلي على المعالجة المحلية السريعة بدون API
         loop = asyncio.get_running_loop()
         info = await loop.run_in_executor(self.pool, self._sync_local_extract, prepared, False)
+        
         if info:
             thumb = (info.get("thumbnail") or "").split("?")[0]
             is_live = info.get("is_live") or info.get("was_live")
@@ -383,20 +337,7 @@ class YouTubeAPI:
 
     async def formats(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[List[Dict[str, Any]], str]:
         prepared = _normalize_link(link, videoid)
-        api_data = await self._fetch_from_api(prepared, prefer_audio=False)
         out: List[Dict[str, Any]] = []
-        
-        if api_data and api_data.get("fallback_streams"):
-            for fmt in api_data["fallback_streams"]:
-                out.append({
-                    "format": fmt.get("format_id"),
-                    "filesize": None, 
-                    "format_id": fmt.get("format_id"),
-                    "ext": fmt.get("ext"),
-                    "format_note": fmt.get("resolution", ""),
-                })
-            if out:
-                return out, prepared
                 
         loop = asyncio.get_running_loop()
         info = await loop.run_in_executor(self.pool, self._sync_local_extract, prepared, False)
@@ -428,31 +369,7 @@ class YouTubeAPI:
                 else:
                     _direct_cache.pop(key, None)
                     
-        # 1. جلب الرابط من الـ API الأساسي
-        api_data = await self._fetch_from_api(prepared, prefer_audio=prefer_audio)
-        if api_data:
-            direct_url = api_data.get("direct_stream_url")
-            if direct_url:
-                ok, _ = await _probe_url(direct_url)
-                if ok:
-                    expiry = _parse_expire(direct_url) or (now + CACHE_DEFAULT_TTL)
-                    expiry = int(expiry) - 3
-                    async with _direct_cache_lock:
-                        _direct_cache[key] = (expiry, direct_url)
-                    return direct_url
-            fallback_streams = api_data.get("fallback_streams", [])
-            for stream in fallback_streams:
-                s_url = stream.get("url")
-                if s_url:
-                    ok, _ = await _probe_url(s_url)
-                    if ok:
-                        expiry = _parse_expire(s_url) or (now + CACHE_DEFAULT_TTL)
-                        expiry = int(expiry) - 3
-                        async with _direct_cache_lock:
-                            _direct_cache[key] = (expiry, s_url)
-                        return s_url
-                        
-        # 2. الخطة المحلية السريعة (لو API مرجعش لينك مباشر شغال)
+        # الاستخراج الداخلي المباشر
         async with self.sema:
             loop = asyncio.get_running_loop()
             info = await loop.run_in_executor(self.pool, self._sync_local_extract, prepared, False)
