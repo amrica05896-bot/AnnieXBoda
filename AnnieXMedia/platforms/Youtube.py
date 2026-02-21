@@ -1,9 +1,18 @@
 # file: AnnieXMedia/platforms/Youtube.py
-# Robust YouTube resolver for AnnieXMedia (2026) - Ultra Fast Local Engine
+# Robust YouTube resolver for AnnieXMedia (2026) - Ultra Fast Local Engine (Fixed Search)
 
 import os
 import sys
 import time
+import asyncio
+import contextlib
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import urlparse, parse_qs
+
+import aiohttp
+import yt_dlp
 
 # 🚀 السحر هنا: إجبار بايثون ومكتباتها على استخدام orjson لسرعة صاروخية
 try:
@@ -14,16 +23,6 @@ try:
     sys.modules['json'] = json  
 except ImportError:
     import json
-
-import asyncio
-import contextlib
-import logging
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional, Tuple, Union
-from urllib.parse import urlparse, parse_qs
-
-import aiohttp
-import yt_dlp
 
 def _loads_bytes(b: bytes):
     try:
@@ -38,7 +37,7 @@ if not log.handlers:
 log.setLevel(logging.INFO)
 
 # Tunables
-MAX_YTDLP_THREADS = 32  # تم الرفع لزيادة قوة المعالجة المتوازية
+MAX_YTDLP_THREADS = 32
 MAX_CONCURRENT_EXTRACTS = 16
 YTDLP_SOCKET_TIMEOUT = 8
 PROBE_TIMEOUT = 1.2
@@ -170,19 +169,19 @@ class YouTubeAPI:
             self.impersonate = False
 
     def _sync_local_extract(self, query: str, flat: bool = False, limit: int = None) -> dict:
-        """ 🚀 المحرك المحلي الصاروخي المبني على أسلوب الـ Main (In-Memory) """
+        """ 🚀 المحرك المحلي الصاروخي """
         opts = {
             "quiet": True,
             "no_warnings": True,
             "skip_download": True,
             "extract_flat": "in_playlist" if flat else False,
             "noplaylist": not flat,
-            "allowed_extractors": ["youtube"], # تسريع خطير لمنع استخراج مواقع أخرى
-            "cachedir": False, # منع الكتابة على الهارد I/O Block
+            "allowed_extractors": ["youtube"], 
+            "cachedir": False, 
             "socket_timeout": YTDLP_SOCKET_TIMEOUT,
             "compat_opts": ["no-youtube-unavailable-videos"],
             "remote_components": ["ejs:github", "ejs:npm"],
-            "extractor_args": {"youtube": {"player_client": ["web"]}} # الويب عشان الكوكيز
+            "extractor_args": {"youtube": {"player_client": ["web"]}} 
         }
         if limit:
             opts["playlistend"] = limit
@@ -196,7 +195,6 @@ class YouTubeAPI:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 return ydl.extract_info(query, download=False)
         except Exception as e:
-            # حماية ذكية: لو الكروم عمل مشكلة، نعيد بدون impersonate فوراً
             err_str = str(e).lower()
             if "impersonate" in err_str or "target" in err_str:
                 opts.pop("impersonate", None)
@@ -230,31 +228,33 @@ class YouTubeAPI:
                     continue
         return None
 
-    # 🛑 تم تعديل البحث ليستخدم الدالة الصاروخية In-Memory
+    # ✅ تم استعادة البحث بالطريقة الأصلية الموثوقة لمنع خطأ الـ Live
     async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
-        loop = asyncio.get_running_loop()
-        def _get_search():
-            q = f"ytsearch{limit}:{query}"
-            info = self._sync_local_extract(q, flat=True)
-            results = []
-            if info and "entries" in info:
-                for data in info["entries"]:
-                    try:
-                        if not data: continue
-                        dur = data.get("duration_string")
-                        if not dur or str(dur).lower() in ["live", "stream", "none"]:
-                            dur = "Live"
-                        results.append({
-                            "title": data.get("title", "Unknown"),
-                            "vidid": data.get("id", ""),
-                            "duration": dur
-                        })
-                    except Exception:
-                        pass
-            return results
-        return await loop.run_in_executor(self.pool, _get_search)
+        cmd = ["yt-dlp", "--dump-json", f"ytsearch{limit}:{query}", "--flat-playlist", "--no-warnings", "--skip-download"]
+        if self.cookie:
+            cmd.insert(1, "--cookies")
+            cmd.insert(2, self.cookie)
+        if getattr(self, "impersonate", False):
+            cmd.extend(["--impersonate", "chrome"])
+        
+        out, _ = await _exec_proc(*cmd, timeout=12)
+        results = []
+        if out:
+            for line in out.decode().splitlines():
+                try:
+                    data = _loads_bytes(line.encode())
+                    dur = data.get("duration_string")
+                    if not dur or str(dur).lower() in ["live", "stream", "none"]:
+                        dur = "Live"
+                    results.append({
+                        "title": data.get("title", "Unknown"),
+                        "vidid": data.get("id", ""),
+                        "duration": dur
+                    })
+                except Exception:
+                    pass
+        return results
 
-    # 🛑 تم تعديل Track لتعتمد كلياً على In-Memory وتجاهل Subprocess/API
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
         prepared = _normalize_link(link, videoid)
         key = "q:" + (prepared or "")
@@ -372,7 +372,6 @@ class YouTubeAPI:
                 })
         return out, prepared
 
-    # 🛑 تم تعديل Get Direct Link ليعتمد على In-Memory بالكامل
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
         prepared = _normalize_link(link)
         if not prepared:
@@ -444,7 +443,6 @@ class YouTubeAPI:
 
         return None
 
-    # 🛑 تم تعديل Download لاستخدام نفس الـ Opts السريعة
     async def download(
         self,
         link: str,
@@ -603,20 +601,22 @@ class YouTubeAPI:
         except Exception as e:
             log.warning("background cache failed: %s", e)
 
-    # 🛑 تم تعديل قائمة التشغيل Playlist للعمل In-Memory
     async def playlist(self, link, limit, user_id=None, videoid: Union[bool, str] = None):
         if videoid:
             link = self.listbase + link
         if "&" in link:
             link = link.split("&")[0]
-            
-        loop = asyncio.get_running_loop()
-        def _get_playlist():
-            info = self._sync_local_extract(link, flat=True, limit=limit)
-            if info and "entries" in info:
-                return [e.get("id") for e in info["entries"] if e and e.get("id")]
-            return []
-            
-        return await loop.run_in_executor(self.pool, _get_playlist)
+        cmd = (
+            f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
+            f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
+            f"2>/dev/null"
+        )
+        proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        out, _ = await proc.communicate()
+        try:
+            result = [key for key in out.decode().split("\n") if key]
+        except Exception:
+            result = []
+        return result
 
 YouTube = YouTubeAPI()
