@@ -69,7 +69,6 @@ def trim_to_width(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> str:
                 return text[:i] + ellipsis
     return ellipsis
 
-# ✅ الدالة اسمها get_thumb عشان التوافق مع ملفاتك القديمة
 async def get_thumb(videoid: str) -> str:
     if not os.path.isdir(CACHE_DIR):
         os.makedirs(CACHE_DIR)
@@ -79,14 +78,10 @@ async def get_thumb(videoid: str) -> str:
         return cache_path
 
     try:
-        search = VideosSearch(f"https://www.youtube.com/watch?v={videoid}", limit=1)
+        # ✅ التعديل هنا: البحث بـ videoid مباشرة بدون روابط وهمية عشان منضيعش وقت
+        search = VideosSearch(videoid, limit=1)
         results_data = await search.next()
         result_items = results_data.get("result", [])
-        
-        if not result_items:
-            search = VideosSearch(videoid, limit=1)
-            results_data = await search.next()
-            result_items = results_data.get("result", [])
 
         if not result_items:
             raise ValueError("No results found.")
@@ -118,7 +113,6 @@ async def get_thumb(videoid: str) -> str:
     try:
         # Base Image
         base = Image.open(thumb_path).convert("RGBA")
-        # ✅ Python 3.13 Fix: Use Image.Resampling.LANCZOS
         base = base.resize((1280, 720), Image.Resampling.LANCZOS)
         
         # 1. Background
@@ -156,7 +150,6 @@ async def get_thumb(videoid: str) -> str:
             title_font = regular_font = ImageFont.load_default()
 
         # 4. Inner Thumbnail
-        # ✅ Python 3.13 Fix: Use Image.Resampling.LANCZOS
         thumb_inner = base.resize((THUMB_W, THUMB_H), Image.Resampling.LANCZOS)
         tmask = Image.new("L", thumb_inner.size, 0)
         ImageDraw.Draw(tmask).rounded_rectangle((0, 0, THUMB_W, THUMB_H), radius=20, fill=255)
@@ -182,7 +175,6 @@ async def get_thumb(videoid: str) -> str:
         icons_path = "AnnieXMedia/assets/thumb/play_icons.png"
         if os.path.isfile(icons_path):
             ic = Image.open(icons_path).convert("RGBA")
-            # ✅ Python 3.13 Fix
             ic = ic.resize((ICONS_W, ICONS_H), Image.Resampling.LANCZOS)
             r, g, b, a = ic.split()
             black_ic = Image.merge("RGBA", (r.point(lambda _: 0), g.point(lambda _: 0), b.point(lambda _: 0), a))
