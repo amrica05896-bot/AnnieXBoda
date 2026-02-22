@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
-# Fixed: Integrated Shrutibots API for Ultra-Fast Streaming + yt-dlp Fallback
+# Fixed: SyntaxError (Line 722) + Strict 'web' client + Shrutibots Fast API
 
 import asyncio
 import contextlib
@@ -49,7 +49,7 @@ META_CACHE_TTL = 3600
 _thread_pool = ThreadPoolExecutor(max_workers=MAX_YTDLP_THREADS)
 _extract_sema = asyncio.Semaphore(MAX_CONCURRENT_EXTRACTS)
 
-# 🛑 تعديل الجسر (Keep-Alive): زيادة وقت البقاء حياً لمنع الخمول
+# 🛑 تعديل الجسر (Keep-Alive)
 _aio_connector = aiohttp.TCPConnector(limit=AIO_CONN_LIMIT, ssl=False, keepalive_timeout=300)
 _aio_session: Optional[aiohttp.ClientSession] = None
 
@@ -114,7 +114,6 @@ def _parse_expire(url: str) -> Optional[int]:
     return None
 
 def _parse_iso_duration(duration_str: str) -> str:
-    """تحويل صيغة وقت جوجل ISO 8601 (PT1H2M10S) إلى صيغة عادية 01:02:10"""
     if not duration_str: return "0:00"
     if duration_str == "P0D": return "Live"
     match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration_str)
@@ -199,7 +198,6 @@ class YouTubeAPI:
                     continue
         return None
 
-    # 🚀 دالة البحث
     async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
         try:
             sess = await _ensure_aio_session()
@@ -212,14 +210,13 @@ class YouTubeAPI:
                         results.append({
                             "title": item.get("snippet", {}).get("title", "Unknown"),
                             "vidid": item.get("id", {}).get("videoId", ""),
-                            "duration": "0:00" # يتم جلبه لاحقاً لتوفير نقاط الـ API
+                            "duration": "0:00"
                         })
                     if results:
                         return results
         except Exception as e:
             log.warning(f"Official API Search Error, falling back to yt-dlp: {e}")
 
-        # 🔄 Fallback:
         cmd = ["yt-dlp", "--dump-json", f"ytsearch{limit}:{query}", "--flat-playlist", "--no-warnings", "--skip-download"]
         if self.cookie:
             cmd.insert(1, "--cookies")
@@ -240,7 +237,6 @@ class YouTubeAPI:
                     pass
         return results
 
-    # 🚀 جلب المعلومات
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
         prepared = _normalize_link(link, videoid)
         key = "q:" + (prepared or "")
@@ -299,7 +295,6 @@ class YouTubeAPI:
         except Exception as e:
             log.warning(f"Official API Track Error: {e}")
 
-        # 🔄 Fallback
         results = []
         try:
             from youtubesearchpython.aio import VideosSearch  # type: ignore
@@ -424,7 +419,7 @@ class YouTubeAPI:
 
     async def formats(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[List[Dict[str, Any]], str]:
         prepared = _normalize_link(link, videoid)
-        ytdl_opts = {"quiet": True}
+        ytdl_opts = {"quiet": True, "extractor_args": {"youtube": {"player_client": ["web"], "player_skip": ["configs"]}}}
         if cf := get_cookie_file():
             ytdl_opts["cookiefile"] = cf
         out: List[Dict[str, Any]] = []
@@ -444,7 +439,7 @@ class YouTubeAPI:
             log.debug("formats() extract failed: %s", e)
         return out, prepared
 
-    # 🚀 هنا مربط الفرس: دمج Shrutibots API مع الحفاظ على yt-dlp كاحتياطي
+    # 🚀 الاستخراج السريع مدمج مع API Shrutibots
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
         prepared = _normalize_link(link)
         if not prepared: return None
@@ -462,7 +457,6 @@ class YouTubeAPI:
         # 🚀 1. المحاولة الأولى: Shrutibots API (طلقة)
         # ==========================================
         vid_id = None
-        # استخراج الـ ID الصحيح (11 حرف) من أي نوع رابط
         if "googleusercontent.com" in prepared:
             vid_temp = prepared.split("/")[-1].split("?")[0]
             if len(vid_temp) >= 11:
@@ -478,22 +472,20 @@ class YouTubeAPI:
             media_type = "audio" if prefer_audio else "video"
             try:
                 sess = await _ensure_aio_session()
-                # جلب التوكن
                 async with sess.get(f"{SHRUTI_API_URL}/download", params={"url": vid_id, "type": media_type}, timeout=6) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         token = data.get("download_token")
                         if token:
-                            # تكوين رابط البث النهائي
                             stream_url = f"{SHRUTI_API_URL}/stream/{vid_id}?type={media_type}&token={token}"
                             async with _direct_cache_lock:
-                                _direct_cache[key] = (now + 18000, stream_url) # حفظ 5 ساعات
+                                _direct_cache[key] = (now + 18000, stream_url)
                             return stream_url
             except Exception as e:
                 log.warning(f"Shrutibots API Error: {e}, falling back to yt-dlp...")
 
         # ==========================================
-        # 🔄 2. المحاولة الثانية: yt-dlp Fallback (الأساسي بتاعك)
+        # 🔄 2. المحاولة الثانية: yt-dlp Fallback 
         # ==========================================
         async with self.sema:
             loop = asyncio.get_running_loop()
@@ -504,7 +496,7 @@ class YouTubeAPI:
                     "noplaylist": True,
                     "skip_download": True,
                     "socket_timeout": YTDLP_SOCKET_TIMEOUT,
-                    "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
+                    "extractor_args": {"youtube": {"player_client": ["web"], "player_skip": ["configs"]}},
                 }
                 if self.cookie: ydl_opts["cookiefile"] = self.cookie
                 if self.impersonate: ydl_opts["impersonate"] = "chrome"
@@ -518,8 +510,8 @@ class YouTubeAPI:
 
         if not info or (isinstance(info, dict) and info.get("_err")):
             try:
-                cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", prepared]
-                if self.cookie: cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--no-warnings", "--force-ipv4", prepared]
+                cmd = ["yt-dlp", "-g", "--no-warnings", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--force-ipv4", prepared]
+                if self.cookie: cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--no-warnings", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--force-ipv4", prepared]
                 out, _err = await _exec_proc(*cmd, timeout=8)
                 if out:
                     candidate = out.decode().splitlines()[0].strip()
@@ -531,8 +523,8 @@ class YouTubeAPI:
             except Exception: pass
             
             try:
-                cmd = ["yt-dlp", "-g", "--no-warnings", "--remote-components", "ejs:github", "--force-ipv4", prepared]
-                if self.cookie: cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--remote-components", "ejs:github", "--no-warnings", "--force-ipv4", prepared]
+                cmd = ["yt-dlp", "-g", "--no-warnings", "--remote-components", "ejs:github", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--force-ipv4", prepared]
+                if self.cookie: cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--remote-components", "ejs:github", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--no-warnings", "--force-ipv4", prepared]
                 out2, _err2 = await _exec_proc(*cmd, timeout=14)
                 if out2:
                     candidate = out2.decode().splitlines()[0].strip()
@@ -555,8 +547,8 @@ class YouTubeAPI:
 
         if not fmts:
             try:
-                cmd = ["yt-dlp", "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
-                if self.cookie: cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
+                cmd = ["yt-dlp", "--dump-json", prepared, "--remote-components", "ejs:github", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--no-warnings"]
+                if self.cookie: cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--remote-components", "ejs:github", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--no-warnings"]
                 out3, _err3 = await _exec_proc(*cmd, timeout=16)
                 if out3:
                     j = _loads_bytes(out3)
@@ -636,7 +628,7 @@ class YouTubeAPI:
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
                         "force_ipv4": True,
-                        "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
+                        "extractor_args": {"youtube": {"player_client": ["web"], "player_skip": ["configs"]}},
                     }
                     if songaudio: opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
                     if songvideo: opts["merge_output_format"] = "mp4"
@@ -674,10 +666,10 @@ class YouTubeAPI:
                     "cookiefile": get_cookie_file(),
                     "quiet": True,
                     "force_ipv4": True,
-                    "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
+                    "extractor_args": {"youtube": {"player_client": ["web"], "player_skip": ["configs"]}},
                     "prefer_ffmpeg": True,
                 }
-                if not is_video: opts["postprocessors"] = [{"key": "FFmpegExtractAudio","preferredcodec": "mp3","preferredquality": "192"}]
+                if not is_video: ydl_opts["postprocessors"] = [{"key": "FFmpegExtractAudio","preferredcodec": "mp3","preferredquality": "192"}]
                 else: ydl_opts["merge_output_format"] = "mp4"
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(prepared, download=True)
@@ -704,7 +696,7 @@ class YouTubeAPI:
                 "force_ipv4": True,
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
-                "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
+                "extractor_args": {"youtube": {"player_client": ["web"], "player_skip": ["configs"]}},
                 "prefer_ffmpeg": True,
                 "writethumbnail": True,
                 "addmetadata": True,
@@ -715,8 +707,16 @@ class YouTubeAPI:
                 ydl.download([link])
         except Exception: pass
 
+    # 🚀 هنا تم إصلاح خطأ السطر 722
     async def playlist(self, link, limit, user_id=None, videoid: Union[bool, str] = None):
         if videoid: link = self.listbase + link
         if "&" in link: link = link.split("&")[0]
-        cmd = (f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
-               f"--get-id --flat-playlist --playlist-end {limit} --skip
+        cmd = f"yt-dlp -i --compat-options no-youtube-unavailable-videos --get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' 2>/dev/null"
+        proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        out, _ = await proc.communicate()
+        try: result = [key for key in out.decode().split("\n") if key]
+        except Exception: result = []
+        return result
+
+# exported instance
+YouTube = YouTubeAPI()
