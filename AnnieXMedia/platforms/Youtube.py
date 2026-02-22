@@ -1,5 +1,5 @@
 # file: AnnieXMedia/platforms/Youtube.py
-# 🚀 PURE API EDITION: 100% Shrutibots API (Zero yt-dlp interference)
+# 🚀 PURE API EDITION + GOOGLE SEARCH FIXED (Zero yt-dlp interference)
 
 import asyncio
 import contextlib
@@ -119,6 +119,7 @@ class YouTubeAPI:
         except Exception: pass
         return []
 
+    # 🚀 تم إرجاع محرك البحث جوجل هنا عشان يفهم النصوص زي "اسلام صبحي"
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
         prepared = _normalize_link(link, videoid)
         key = "q:" + (prepared or "")
@@ -131,11 +132,25 @@ class YouTubeAPI:
                 _meta_cache.pop(key, None)
 
         target_vid = None
+        is_search = not prepared.startswith("http")
+        
         match = re.search(r"([0-9A-Za-z_-]{11})", prepared)
         if match: target_vid = match.group(1)
 
         try:
             sess = await _ensure_aio_session()
+            
+            # 1. لو المستخدم كاتب اسم (بحث نصي)، بنجيب الـ ID من جوجل
+            if is_search and not target_vid:
+                search_url = f"https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=1&q={urllib.parse.quote(prepared)}&type=video&key={GOOGLE_API_KEY}&fields=items(id/videoId)"
+                async with sess.get(search_url, timeout=4) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("items"):
+                            target_vid = data["items"][0]["id"]["videoId"]
+                            prepared = f"https://youtube.com/watch?v={target_vid}"
+
+            # 2. بنجيب التفاصيل الكاملة (المدة والصورة والاسم) بناءً على الـ ID
             if target_vid:
                 url = f"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id={target_vid}&key={GOOGLE_API_KEY}"
                 async with sess.get(url, timeout=4) as resp:
@@ -152,6 +167,26 @@ class YouTubeAPI:
                             }
                             async with _meta_cache_lock: _meta_cache[key] = (now, details, target_vid)
                             return details, target_vid
+        except Exception as e: 
+            log.warning(f"Google API Error in track: {e}")
+
+        # 3. محرك احتياطي لو جوجل خلصت الحصة بتاعته
+        try:
+            from youtubesearchpython.aio import VideosSearch
+            search_query = target_vid if target_vid else prepared
+            res = await VideosSearch(search_query, limit=1).next()
+            if res.get("result"):
+                data = res["result"][0]
+                vid_res = data.get("id", target_vid or "")
+                details = {
+                    "title": data.get("title", "Unknown"),
+                    "link": f"https://youtube.com/watch?v={vid_res}",
+                    "vidid": vid_res,
+                    "duration_min": data.get("duration", "0:00"),
+                    "thumb": (data.get("thumbnails") or [{}])[-1].get("url", "").split("?")[0],
+                }
+                async with _meta_cache_lock: _meta_cache[key] = (now, details, vid_res)
+                return details, vid_res
         except Exception: pass
 
         return {"title": "Unknown", "link": prepared, "vidid": target_vid or "", "duration_min": "0:00", "thumb": ""}, target_vid or ""
@@ -180,7 +215,6 @@ class YouTubeAPI:
         d, _ = await self.track(link, videoid)
         return d.get("thumb", "")
     
-    # 🚀 الخدعة الكبرى: دالة وهمية لمنع البوت من استدعاء yt-dlp للصيغ!
     async def formats(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[List[Dict[str, Any]], str]:
         prepared = _normalize_link(link, videoid)
         dummy_formats = [
@@ -189,7 +223,6 @@ class YouTubeAPI:
         ]
         return dummy_formats, prepared
 
-    # 🚀 استخراج الـ ID بنفس طريقة تيرميكس بالمللي
     def _extract_id_like_termux(self, url_or_id: str) -> str:
         if "googleusercontent.com" in url_or_id:
             vid_temp = url_or_id.split("/")[-1].split("?")[0]
@@ -203,7 +236,6 @@ class YouTubeAPI:
                 return match.group(1)
         return url_or_id[-11:] if len(url_or_id) >= 11 else url_or_id
 
-    # 🚀 الاعتماد الكلي على API Shrutibots
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
         prepared = _normalize_link(link)
         if not prepared: return None
@@ -216,7 +248,6 @@ class YouTubeAPI:
         key = vid_id + ("::audio" if prefer_audio else "::video")
         now = int(time.time())
 
-        # الكاش الداخلي للبوت
         async with _direct_cache_lock:
             cached = _direct_cache.get(key)
             if cached and cached[0] > now + 3:
@@ -235,7 +266,6 @@ class YouTubeAPI:
                     if token:
                         stream_url = f"{SHRUTI_API_URL}/stream/{vid_id}?type={media_type}&token={token}"
                         
-                        # طباعة التأكيد في اللوج عشان تشوفه بعينك
                         log.info(f"✅ تم سحب الرابط بنجاح! الرابط جاهز للتشغيل:")
                         log.info(f"🔗 URL: {stream_url[:60]}... (مخفي للطول)")
                         
@@ -267,9 +297,15 @@ class YouTubeAPI:
         log.info(f"🚀 بدء معالجة التشغيل عبر الـ API...")
         direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
 
+        if not direct:
+            log.info("Retrying API stream fetch...")
+            await asyncio.sleep(2)
+            direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
+
         if direct:
             return direct, True
             
+        log.error("Failed to fetch stream from API.")
         return None, False
 
     async def playlist(self, link, limit, user_id=None, videoid: Union[bool, str] = None):
