@@ -26,7 +26,7 @@ from config import BANNED_USERS
 from strings import get_string
 
 # استخدام getattr لتجنب الأخطاء لو المتغير مش موجود
-START_IMG_URL = getattr(config, "START_IMG_URL", "https://o.uguu.se/ovZEpPon.png")
+START_IMG_URL = getattr(config, "START_IMG_URL", "https://files.catbox.moe/ompn1o.jpg")
 LOGGER_ID = getattr(config, "LOGGER_ID", config.OWNER_ID) # Fallback to Owner ID if Logger ID is 0
 
 @app.on_message(filters.command(["start"]) & filters.private & ~BANNED_USERS)
