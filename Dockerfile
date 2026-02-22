@@ -41,13 +41,11 @@ RUN ln -sf /usr/bin/python3.13 /usr/bin/python3 && \
 # ========================================================
 # 💉 THE FIX: REMOVE EXTERNALLY-MANAGED FLAG
 # ========================================================
-# هذا السطر هو الحل! نقوم بحذف ملف الحماية لنسمح بالتثبيت
 RUN rm -f /usr/lib/python3.13/EXTERNALLY-MANAGED
 
 # ========================================================
 # 📦 PYTHON PREP
 # ========================================================
-# الآن سيعمل هذا الأمر بدون مشاكل
 RUN uv pip install --upgrade setuptools wheel
 
 # ========================================================
@@ -71,10 +69,14 @@ RUN uv pip install --no-cache \
     curl_cffi
 
 # ========================================================
-# ⚙️ YOUTUBE ENGINE
+# ⚙️ YOUTUBE ENGINE & CACHE WARMUP (THE SPEED FIX)
 # ========================================================
 RUN mkdir -p /etc/yt-dlp && \
     echo "--remote-components ejs:github" > /etc/yt-dlp.conf
+
+# 🔥 السر هنا: بنشغل أمر وهمي لـ yt-dlp عشان يجبره يحمل الـ ejs من جيتهاب ويخزنه في كاش الدوكر للأبد!
+# ده هيوفرلك من 2 لـ 4 ثواني مع كل طلب أغنية
+RUN yt-dlp "ytsearch1:test" --dump-json > /dev/null 2>&1 || true
 
 # ========================================================
 # 📂 SOURCE CODE
