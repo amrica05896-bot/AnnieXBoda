@@ -13,7 +13,7 @@
         <img src="https://files.catbox.moe/r2ga8f.jpg" width="90px" style="border-radius: 50%;" />
       </td>
       <td>
-        <img src="https://readme-typing-svg.herokuapp.com?color=00BFFF&width=600&lines=Hey+There,+This+is+Certified+Coder+%F0%9F%A5%80+%E2%9D%97%EF%B8%8F" />
+        <img src="https://readme-typing-svg.herokuapp.com?color=00BFFF&width=600&lines=Hey+There,+This+is+Boda+Coder+%F0%9F%A5%80+%E2%9D%97%EF%B8%8F" />
       </td>
     </tr>
   </table>
@@ -22,7 +22,7 @@
 <!-- 👁 Visitor Counter -->
 
 <p align="center">
-  <img src="https://komarev.com/ghpvc/?username=CertifiedCoders&style=flat-square" />
+  <img src="https://files.catbox.moe/ompn1o.jpg" />
 </p>
 
 <h1 align="center">
@@ -44,7 +44,7 @@
   <a href="https://github.com/CertifiedCoders/AnnieXMusic/stargazers"><img src="https://img.shields.io/github/stars/CertifiedCoders/AnnieXMusic?style=flat-square"/></a>
   <a href="https://github.com/CertifiedCoders/AnnieXMusic/network/members"><img src="https://img.shields.io/github/forks/CertifiedCoders/AnnieXMusic?style=flat-square"/></a>
   <a href="https://github.com/CertifiedCoders/AnnieXMusic/issues"><img src="https://img.shields.io/github/issues/CertifiedCoders/AnnieXMusic?style=flat-square"/></a>
-  <a href="https://github.com/CertifiedCoders/AnnieXMusic/commits/main"><img src="https://img.shields.io/github/last-commit/CertifiedCoders/AnnieXMusic?style=flat-square"/></a>
+  <a href="https://github.com/CertifiedCoders/AnnieXMusic/commits/main"><img src="https://img.shields.io/github/chatsle=flat-square"/></a>
   <a href="https://github.com/CertifiedCoders/AnnieXMusic/actions"><img src="https://img.shields.io/badge/CI-Status-grey?style=flat-square"/></a>
 </p>
 
