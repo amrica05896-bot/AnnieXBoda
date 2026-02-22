@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
-# 🚀 ULTRA FAST EDITION: Google Data API v3 (Search) + Shrutibots API (Stream Proxy) + yt-dlp (Fallback)
+# Fixed: Integrated Shrutibots API for Ultra-Fast Streaming + yt-dlp Fallback
 
 import asyncio
 import contextlib
@@ -32,7 +32,7 @@ if not log.handlers:
     logging.basicConfig(level=logging.INFO)
 log.setLevel(logging.INFO)
 
-# --- 🚀 المفاتيح والروابط الأساسية ---
+# --- 🚀 المفاتيح والروابط ---
 GOOGLE_API_KEY = "AIzaSyCIXHJRql0WncJmXLKITtC7oOP57eJDmzM"
 SHRUTI_API_URL = "https://shrutibots.site"
 
@@ -49,6 +49,7 @@ META_CACHE_TTL = 3600
 _thread_pool = ThreadPoolExecutor(max_workers=MAX_YTDLP_THREADS)
 _extract_sema = asyncio.Semaphore(MAX_CONCURRENT_EXTRACTS)
 
+# 🛑 تعديل الجسر (Keep-Alive): زيادة وقت البقاء حياً لمنع الخمول
 _aio_connector = aiohttp.TCPConnector(limit=AIO_CONN_LIMIT, ssl=False, keepalive_timeout=300)
 _aio_session: Optional[aiohttp.ClientSession] = None
 
@@ -113,6 +114,7 @@ def _parse_expire(url: str) -> Optional[int]:
     return None
 
 def _parse_iso_duration(duration_str: str) -> str:
+    """تحويل صيغة وقت جوجل ISO 8601 (PT1H2M10S) إلى صيغة عادية 01:02:10"""
     if not duration_str: return "0:00"
     if duration_str == "P0D": return "Live"
     match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration_str)
@@ -141,6 +143,25 @@ async def _probe_url(url: str, timeout: float = PROBE_TIMEOUT) -> Tuple[bool, Op
     except Exception:
         return False, None
     return False, None
+
+def _score_format(fmt: dict, prefer_audio: bool) -> int:
+    score = 0
+    proto = (fmt.get("protocol") or "").lower()
+    ext = (fmt.get("ext") or "").lower()
+    vcodec = fmt.get("vcodec") or ""
+    acodec = fmt.get("acodec") or ""
+    if proto.startswith("https"): score += 30
+    if proto.startswith("http"): score += 20
+    if vcodec and vcodec != "none" and acodec and acodec != "none": score += 50
+    if prefer_audio and acodec and acodec != "none": score += 15
+    if ext in ("mp4",): score += 10
+    if ext in ("m4a","webm"): score += 8
+    try:
+        br = int(fmt.get("tbr") or fmt.get("abr") or 0)
+        score += br // 100
+    except Exception:
+        pass
+    return score
 
 class YouTubeAPI:
     def __init__(self):
@@ -178,7 +199,7 @@ class YouTubeAPI:
                     continue
         return None
 
-    # 🚀 بحث سريع بـ Google API
+    # 🚀 دالة البحث
     async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
         try:
             sess = await _ensure_aio_session()
@@ -191,13 +212,14 @@ class YouTubeAPI:
                         results.append({
                             "title": item.get("snippet", {}).get("title", "Unknown"),
                             "vidid": item.get("id", {}).get("videoId", ""),
-                            "duration": "0:00"
+                            "duration": "0:00" # يتم جلبه لاحقاً لتوفير نقاط الـ API
                         })
                     if results:
                         return results
         except Exception as e:
             log.warning(f"Official API Search Error, falling back to yt-dlp: {e}")
 
+        # 🔄 Fallback:
         cmd = ["yt-dlp", "--dump-json", f"ytsearch{limit}:{query}", "--flat-playlist", "--no-warnings", "--skip-download"]
         if self.cookie:
             cmd.insert(1, "--cookies")
@@ -218,6 +240,7 @@ class YouTubeAPI:
                     pass
         return results
 
+    # 🚀 جلب المعلومات
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
         prepared = _normalize_link(link, videoid)
         key = "q:" + (prepared or "")
@@ -276,6 +299,7 @@ class YouTubeAPI:
         except Exception as e:
             log.warning(f"Official API Track Error: {e}")
 
+        # 🔄 Fallback
         results = []
         try:
             from youtubesearchpython.aio import VideosSearch  # type: ignore
@@ -302,11 +326,56 @@ class YouTubeAPI:
                 _meta_cache[key] = (now, details, data.get("id", ""))
             return details, data.get("id", "")
 
+        cmd = ["yt-dlp", "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
+        if self.cookie:
+            cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
+        out, err = await _exec_proc(*cmd, timeout=12)
+        if out:
+            try:
+                info = _loads_bytes(out)
+                thumb = (info.get("thumbnail") or "").split("?")[0]
+                details = {
+                    "title": info.get("title", "") or "",
+                    "link": info.get("webpage_url", prepared) or prepared,
+                    "vidid": info.get("id", "") or "",
+                    "duration_min": info.get("duration"),
+                    "thumb": thumb,
+                    "cookiefile": self.cookie,
+                }
+                async with _meta_cache_lock:
+                    _meta_cache[key] = (now, details, info.get("id", ""))
+                return details, info.get("id", "")
+            except Exception:
+                pass
+
+        cmd2 = ["yt-dlp", "--remote-components", "ejs:github", "--dump-json", prepared, "--no-warnings"]
+        if self.cookie:
+            cmd2 = ["yt-dlp", "--cookies", self.cookie, "--remote-components", "ejs:github", "--dump-json", prepared, "--no-warnings"]
+        out2, err2 = await _exec_proc(*cmd2, timeout=16)
+        if out2:
+            try:
+                info = _loads_bytes(out2)
+                thumb = (info.get("thumbnail") or "").split("?")[0]
+                details = {
+                    "title": info.get("title", "") or "",
+                    "link": info.get("webpage_url", prepared) or prepared,
+                    "vidid": info.get("id", "") or "",
+                    "duration_min": info.get("duration"),
+                    "thumb": thumb,
+                    "cookiefile": self.cookie,
+                }
+                async with _meta_cache_lock:
+                    _meta_cache[key] = (now, details, info.get("id", ""))
+                return details, info.get("id", "")
+            except Exception:
+                pass
+
         return {"title": "Unknown", "link": prepared, "vidid": "", "duration_min": None, "thumb": "", "cookiefile": self.cookie}, ""
 
     async def details(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[str, Optional[str], int, str, str]:
         data, vid = await self.track(link, videoid)
-        if vid == "": raise ValueError("Video not found")
+        if vid == "":
+            raise ValueError("Video not found")
         dur = data.get("duration_min")
         sec = int(self._to_seconds(dur)) if dur else 0
         return data.get("title", ""), dur, sec, data.get("thumb", ""), vid
@@ -322,6 +391,24 @@ class YouTubeAPI:
     async def thumbnail(self, link: str, videoid: Union[bool, str, None] = None) -> str:
         d, _ = await self.track(link, videoid)
         return d.get("thumb", "")
+    
+    async def download_thumb(self, url: str) -> Optional[str]:
+        if not url: return None
+        try:
+            base_dir = "downloads"
+            if not os.path.exists(base_dir):
+                os.makedirs(base_dir, exist_ok=True)
+            path = os.path.join(base_dir, f"thumb_{int(time.time())}.jpg")
+            session = await _ensure_aio_session()
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.read()
+                    with open(path, "wb") as f:
+                        f.write(data)
+                    return path
+        except Exception as e:
+            log.warning(f"Failed to download thumbnail: {e}")
+        return None
 
     def _to_seconds(self, t: Optional[Union[str,int]]) -> int:
         if not t: return 0
@@ -332,16 +419,38 @@ class YouTubeAPI:
             for p in parts: s = s * 60 + p
             return s
         except Exception:
-            return 0
+            try: return int(float(t))
+            except Exception: return 0
 
-    # 🚀 الاستخراج المباشر والسريع
+    async def formats(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[List[Dict[str, Any]], str]:
+        prepared = _normalize_link(link, videoid)
+        ytdl_opts = {"quiet": True}
+        if cf := get_cookie_file():
+            ytdl_opts["cookiefile"] = cf
+        out: List[Dict[str, Any]] = []
+        try:
+            with yt_dlp.YoutubeDL(ytdl_opts) as ydl:
+                info = ydl.extract_info(prepared, download=False)
+                for fmt in info.get("formats", []):
+                    fs = fmt.get("filesize") or fmt.get("filesize_approx")
+                    out.append({
+                        "format": fmt.get("format"),
+                        "filesize": fs,
+                        "format_id": str(fmt.get("format_id")),
+                        "ext": fmt.get("ext"),
+                        "format_note": fmt.get("format_note", ""),
+                    })
+        except Exception as e:
+            log.debug("formats() extract failed: %s", e)
+        return out, prepared
+
+    # 🚀 هنا مربط الفرس: دمج Shrutibots API مع الحفاظ على yt-dlp كاحتياطي
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
         prepared = _normalize_link(link)
         if not prepared: return None
         key = prepared + ("::audio" if prefer_audio else "::video")
         now = int(time.time())
 
-        # 1. كاش الذاكرة
         async with _direct_cache_lock:
             cached = _direct_cache.get(key)
             if cached:
@@ -349,39 +458,43 @@ class YouTubeAPI:
                 if expiry > now + 3: return url
                 else: _direct_cache.pop(key, None)
 
-        # 🚀 2. الاعتماد الأساسي: الشحن الصاروخي عبر Shrutibots API 
+        # ==========================================
+        # 🚀 1. المحاولة الأولى: Shrutibots API (طلقة)
+        # ==========================================
         vid_id = None
-        # استخراج دقيق للـ ID لتجنب أخطاء البادئة الوهمية (مثل 0 أو 1 قبل الـ ID)
-        if "googleusercontent.com/youtube.com/" in prepared:
-            vid_id = prepared.split("/")[-1].split("?")[0]
-            if len(vid_id) == 12 and vid_id[0].isdigit(): vid_id = vid_id[1:] # إزالة الرقم الوهمي
-            elif len(vid_id) > 11: vid_id = vid_id[-11:]
+        # استخراج الـ ID الصحيح (11 حرف) من أي نوع رابط
+        if "googleusercontent.com" in prepared:
+            vid_temp = prepared.split("/")[-1].split("?")[0]
+            if len(vid_temp) >= 11:
+                vid_id = vid_temp[-11:]
         elif "v=" in prepared:
             vid_id = prepared.split("v=")[1].split("&")[0][:11]
         else:
             match = re.search(r"([0-9A-Za-z_-]{11})", prepared)
-            if match: vid_id = match.group(1)
+            if match:
+                vid_id = match.group(1)
 
-        # إذا كان الـ ID صحيح (11 حرف) نستخدم الـ API الصاروخي
         if vid_id and len(vid_id) == 11:
             media_type = "audio" if prefer_audio else "video"
             try:
                 sess = await _ensure_aio_session()
-                api_url = f"{SHRUTI_API_URL}/download"
-                async with sess.get(api_url, params={"url": vid_id, "type": media_type}, timeout=7) as resp:
+                # جلب التوكن
+                async with sess.get(f"{SHRUTI_API_URL}/download", params={"url": vid_id, "type": media_type}, timeout=6) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         token = data.get("download_token")
                         if token:
-                            # السيرفر بيشتغل كـ Proxy كما أثبت الفحص
+                            # تكوين رابط البث النهائي
                             stream_url = f"{SHRUTI_API_URL}/stream/{vid_id}?type={media_type}&token={token}"
                             async with _direct_cache_lock:
-                                _direct_cache[key] = (now + 18000, stream_url) # حفظ في الكاش لـ 5 ساعات
+                                _direct_cache[key] = (now + 18000, stream_url) # حفظ 5 ساعات
                             return stream_url
             except Exception as e:
-                log.warning(f"Shrutibots Fast Fetch failed: {e}. Falling back to yt-dlp...")
+                log.warning(f"Shrutibots API Error: {e}, falling back to yt-dlp...")
 
-        # 🔄 3. خطة الطوارئ (Fallback): العمل عبر yt-dlp لو السيرفر وقع
+        # ==========================================
+        # 🔄 2. المحاولة الثانية: yt-dlp Fallback (الأساسي بتاعك)
+        # ==========================================
         async with self.sema:
             loop = asyncio.get_running_loop()
             def _extract_info_blocking():
@@ -391,7 +504,7 @@ class YouTubeAPI:
                     "noplaylist": True,
                     "skip_download": True,
                     "socket_timeout": YTDLP_SOCKET_TIMEOUT,
-                    "extractor_args": {"youtube": {"player_client": ["web"], "player_skip": ["configs"]}},
+                    "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
                 }
                 if self.cookie: ydl_opts["cookiefile"] = self.cookie
                 if self.impersonate: ydl_opts["impersonate"] = "chrome"
@@ -405,15 +518,79 @@ class YouTubeAPI:
 
         if not info or (isinstance(info, dict) and info.get("_err")):
             try:
-                cmd = ["yt-dlp", "-g", "--no-warnings", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--force-ipv4", prepared]
+                cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", prepared]
+                if self.cookie: cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--no-warnings", "--force-ipv4", prepared]
                 out, _err = await _exec_proc(*cmd, timeout=8)
-                if out: return out.decode().splitlines()[0].strip()
+                if out:
+                    candidate = out.decode().splitlines()[0].strip()
+                    ok, _ctype = await _probe_url(candidate)
+                    if ok:
+                        expiry = _parse_expire(candidate) or (now + CACHE_DEFAULT_TTL)
+                        async with _direct_cache_lock: _direct_cache[key] = (int(expiry) - 3, candidate)
+                        return candidate
+            except Exception: pass
+            
+            try:
+                cmd = ["yt-dlp", "-g", "--no-warnings", "--remote-components", "ejs:github", "--force-ipv4", prepared]
+                if self.cookie: cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--remote-components", "ejs:github", "--no-warnings", "--force-ipv4", prepared]
+                out2, _err2 = await _exec_proc(*cmd, timeout=14)
+                if out2:
+                    candidate = out2.decode().splitlines()[0].strip()
+                    ok, _ctype = await _probe_url(candidate)
+                    if ok:
+                        expiry = _parse_expire(candidate) or (now + CACHE_DEFAULT_TTL)
+                        async with _direct_cache_lock: _direct_cache[key] = (int(expiry) - 3, candidate)
+                        return candidate
             except Exception: pass
             return None
 
         fmts: List[dict] = info.get("formats") or []
         top_url = info.get("url")
-        if top_url: return top_url
+        if top_url:
+            ok, _ = await _probe_url(top_url)
+            if ok:
+                expiry = _parse_expire(top_url) or (now + CACHE_DEFAULT_TTL)
+                async with _direct_cache_lock: _direct_cache[key] = (int(expiry) - 3, top_url)
+                return top_url
+
+        if not fmts:
+            try:
+                cmd = ["yt-dlp", "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
+                if self.cookie: cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
+                out3, _err3 = await _exec_proc(*cmd, timeout=16)
+                if out3:
+                    j = _loads_bytes(out3)
+                    fmts = j.get("formats") or []
+            except Exception:
+                fmts = []
+
+        candidates: List[Tuple[int, str]] = []
+        for f in fmts:
+            url = f.get("url")
+            if not url: continue
+            proto = (f.get("protocol") or "").lower()
+            if not proto.startswith(("http", "https", "m3u8")): continue
+            if prefer_audio and (f.get("acodec") or "") == "none": continue
+            if not prefer_audio and (f.get("vcodec") or "") != "none" and (f.get("acodec") or "") != "none":
+                candidates.append((_score_format(f, prefer_audio), url)); continue
+            if (f.get("acodec") or "") != "none":
+                candidates.append((_score_format(f, prefer_audio), url)); continue
+            if proto.startswith("m3u8"):
+                candidates.append((40, url))
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        tries = 0
+        for _score, cand in candidates:
+            if tries >= 6: break
+            tries += 1
+            ok, _ctype = await _probe_url(cand)
+            if ok:
+                expiry = _parse_expire(cand) or (now + CACHE_DEFAULT_TTL)
+                async with _direct_cache_lock: _direct_cache[key] = (int(expiry) - 3, cand)
+                return cand
+
+        if not prefer_audio:
+            return await self.get_direct_link(link, prefer_audio=True)
         return None
 
     async def download(
@@ -430,16 +607,116 @@ class YouTubeAPI:
         is_video = bool(video or songvideo)
         prepared = _normalize_link(link, videoid)
 
-        # 🚀 الصاروخ: جلب الرابط المباشر للـ API فوراً للـ pytgcalls 
+        try:
+            if videoid: vid = str(videoid)
+            elif "v=" in prepared: vid = prepared.split("v=")[1].split("&")[0]
+            elif "youtu.be/" in prepared: vid = prepared.split("youtu.be/")[1].split("?")[0]
+            else: vid = str(int(time.time()))
+        except Exception: vid = str(int(time.time()))
+
+        downloads_base = "/dev/shm" if os.path.exists("/dev/shm") else os.path.abspath("downloads")
+        ram_base = os.path.join(downloads_base, vid)
+        os.makedirs(os.path.dirname(ram_base), exist_ok=True)
+
+        for ext in (".mp4", ".m4a", ".mp3", ".webm"):
+            cand = f"{ram_base}{ext}"
+            try:
+                if os.path.exists(cand) and os.path.getsize(cand) > 1024:
+                    return cand, False
+            except Exception: continue
+
+        loop = asyncio.get_running_loop()
+
+        if format_id:
+            def _specific():
+                try:
+                    opts = {
+                        "format": (f"{format_id}+140" if songvideo else format_id),
+                        "outtmpl": f"{ram_base}.%(ext)s",
+                        "cookiefile": get_cookie_file(),
+                        "quiet": True,
+                        "force_ipv4": True,
+                        "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
+                    }
+                    if songaudio: opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
+                    if songvideo: opts["merge_output_format"] = "mp4"
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(prepared, download=True)
+                        path = ydl.prepare_filename(info)
+                        if songaudio and not path.endswith(".mp3"):
+                            p = os.path.splitext(path)[0] + ".mp3"
+                            if os.path.exists(p): return p
+                        return path
+                except Exception: return None
+            res = await loop.run_in_executor(self.pool, _specific)
+            return (res, False) if res else (None, False)
+
         try:
             direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
         except Exception: direct = None
 
         if direct:
-            # True تعني أن هذا رابط مباشر للتشغيل (Streaming)، وليس ملف محلي
+            def _delayed_cache():
+                try:
+                    time.sleep(6)
+                    out_template = f"{ram_base}.%(ext)s"
+                    self._background_download(prepared, out_template, is_video)
+                except Exception: pass
+            loop.run_in_executor(self.pool, _delayed_cache)
             return direct, True
 
+        def _fallback():
+            try:
+                fmt = "best[ext=mp4]/best" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
+                ydl_opts = {
+                    "format": fmt,
+                    "outtmpl": f"{ram_base}.%(ext)s",
+                    "cookiefile": get_cookie_file(),
+                    "quiet": True,
+                    "force_ipv4": True,
+                    "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
+                    "prefer_ffmpeg": True,
+                }
+                if not is_video: opts["postprocessors"] = [{"key": "FFmpegExtractAudio","preferredcodec": "mp3","preferredquality": "192"}]
+                else: ydl_opts["merge_output_format"] = "mp4"
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(prepared, download=True)
+                    path = ydl.prepare_filename(info)
+                    if not is_video and not path.endswith(".mp3"):
+                        mp3 = os.path.splitext(path)[0] + ".mp3"
+                        if os.path.exists(mp3): return mp3
+                    return path
+            except Exception: return None
+
+        downloaded = await loop.run_in_executor(self.pool, _fallback)
+        if downloaded and os.path.exists(downloaded): return downloaded, False
         return None, False
 
-# exported instance
-YouTube = YouTubeAPI()
+    def _background_download(self, link: str, out_template: str, is_video: bool):
+        try:
+            aria2_args = ["-x", "16", "-s", "16", "-j", "16", "-k", "1M", "--file-allocation=none", "--disable-ipv6=true"]
+            fmt = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
+            ydl_opts = {
+                "format": fmt,
+                "outtmpl": out_template,
+                "cookiefile": get_cookie_file(),
+                "quiet": True,
+                "force_ipv4": True,
+                "external_downloader": "aria2c",
+                "external_downloader_args": aria2_args,
+                "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
+                "prefer_ffmpeg": True,
+                "writethumbnail": True,
+                "addmetadata": True,
+            }
+            if not is_video: ydl_opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
+            else: ydl_opts["merge_output_format"] = "mp4"
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([link])
+        except Exception: pass
+
+    async def playlist(self, link, limit, user_id=None, videoid: Union[bool, str] = None):
+        if videoid: link = self.listbase + link
+        if "&" in link: link = link.split("&")[0]
+        cmd = (f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
+               f"--get-id --flat-playlist --playlist-end {limit} --skip
