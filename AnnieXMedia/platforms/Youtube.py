@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
-# Fixed: Added Official YouTube Data API v3 for Blazing Fast Search & Fallbacks
+# Fixed: Blazing Fast Official API + Strict Fast 'Web' Client ONLY (No mweb/android)
 
 import asyncio
 import contextlib
@@ -218,8 +218,8 @@ class YouTubeAPI:
         except Exception as e:
             log.warning(f"Official API Search Error, falling back to yt-dlp: {e}")
 
-        # 🔄 Fallback: لو الـ API خلص أو حصل خطأ، يرجع يستخدم الطريقة القديمة
-        cmd = ["yt-dlp", "--dump-json", f"ytsearch{limit}:{query}", "--flat-playlist", "--no-warnings", "--skip-download"]
+        # 🔄 Fallback: لو الـ API خلص أو حصل خطأ، يرجع يستخدم الطريقة القديمة (Web Only)
+        cmd = ["yt-dlp", "--dump-json", f"ytsearch{limit}:{query}", "--flat-playlist", "--no-warnings", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--skip-download"]
         if self.cookie:
             cmd.insert(1, "--cookies")
             cmd.insert(2, self.cookie)
@@ -328,9 +328,9 @@ class YouTubeAPI:
                 _meta_cache[key] = (now, details, data.get("id", ""))
             return details, data.get("id", "")
 
-        cmd = ["yt-dlp", "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
+        cmd = ["yt-dlp", "--dump-json", prepared, "--no-warnings", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
         if self.cookie:
-            cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
+            cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--no-warnings", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
         out, err = await _exec_proc(*cmd, timeout=12)
         if out:
             try:
@@ -350,9 +350,9 @@ class YouTubeAPI:
             except Exception:
                 pass
 
-        cmd2 = ["yt-dlp", "--remote-components", "ejs:github", "--dump-json", prepared, "--no-warnings"]
+        cmd2 = ["yt-dlp", "--remote-components", "ejs:github", "--dump-json", prepared, "--extractor-args", "youtube:player_client=web;player_skip=configs", "--no-warnings"]
         if self.cookie:
-            cmd2 = ["yt-dlp", "--cookies", self.cookie, "--remote-components", "ejs:github", "--dump-json", prepared, "--no-warnings"]
+            cmd2 = ["yt-dlp", "--cookies", self.cookie, "--remote-components", "ejs:github", "--dump-json", prepared, "--extractor-args", "youtube:player_client=web;player_skip=configs", "--no-warnings"]
         out2, err2 = await _exec_proc(*cmd2, timeout=16)
         if out2:
             try:
@@ -426,7 +426,8 @@ class YouTubeAPI:
 
     async def formats(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[List[Dict[str, Any]], str]:
         prepared = _normalize_link(link, videoid)
-        ytdl_opts = {"quiet": True}
+        # 🚀 Web Only strict definition
+        ytdl_opts = {"quiet": True, "extractor_args": {"youtube": {"player_client": ["web"], "player_skip": ["configs"]}}}
         if cf := get_cookie_file():
             ytdl_opts["cookiefile"] = cf
         out: List[Dict[str, Any]] = []
@@ -468,7 +469,8 @@ class YouTubeAPI:
                     "noplaylist": True,
                     "skip_download": True,
                     "socket_timeout": YTDLP_SOCKET_TIMEOUT,
-                    "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
+                    # 🚀 Web Only strict definition
+                    "extractor_args": {"youtube": {"player_client": ["web"], "player_skip": ["configs"]}},
                 }
                 if self.cookie: ydl_opts["cookiefile"] = self.cookie
                 if self.impersonate: ydl_opts["impersonate"] = "chrome"
@@ -482,8 +484,8 @@ class YouTubeAPI:
 
         if not info or (isinstance(info, dict) and info.get("_err")):
             try:
-                cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", prepared]
-                if self.cookie: cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--no-warnings", "--force-ipv4", prepared]
+                cmd = ["yt-dlp", "-g", "--no-warnings", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--force-ipv4", prepared]
+                if self.cookie: cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--no-warnings", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--force-ipv4", prepared]
                 out, _err = await _exec_proc(*cmd, timeout=8)
                 if out:
                     candidate = out.decode().splitlines()[0].strip()
@@ -495,8 +497,8 @@ class YouTubeAPI:
             except Exception: pass
             
             try:
-                cmd = ["yt-dlp", "-g", "--no-warnings", "--remote-components", "ejs:github", "--force-ipv4", prepared]
-                if self.cookie: cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--remote-components", "ejs:github", "--no-warnings", "--force-ipv4", prepared]
+                cmd = ["yt-dlp", "-g", "--no-warnings", "--remote-components", "ejs:github", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--force-ipv4", prepared]
+                if self.cookie: cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--remote-components", "ejs:github", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--no-warnings", "--force-ipv4", prepared]
                 out2, _err2 = await _exec_proc(*cmd, timeout=14)
                 if out2:
                     candidate = out2.decode().splitlines()[0].strip()
@@ -519,8 +521,8 @@ class YouTubeAPI:
 
         if not fmts:
             try:
-                cmd = ["yt-dlp", "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
-                if self.cookie: cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
+                cmd = ["yt-dlp", "--dump-json", prepared, "--remote-components", "ejs:github", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--no-warnings"]
+                if self.cookie: cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--remote-components", "ejs:github", "--extractor-args", "youtube:player_client=web;player_skip=configs", "--no-warnings"]
                 out3, _err3 = await _exec_proc(*cmd, timeout=16)
                 if out3:
                     j = _loads_bytes(out3)
@@ -600,7 +602,8 @@ class YouTubeAPI:
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
                         "force_ipv4": True,
-                        "extractor_args": {"youtube": {"player_client": ["web"]}},
+                        # 🚀 Web Only strict definition
+                        "extractor_args": {"youtube": {"player_client": ["web"], "player_skip": ["configs"]}},
                     }
                     if songaudio: opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
                     if songvideo: opts["merge_output_format"] = "mp4"
@@ -638,10 +641,11 @@ class YouTubeAPI:
                     "cookiefile": get_cookie_file(),
                     "quiet": True,
                     "force_ipv4": True,
-                    "extractor_args": {"youtube": {"player_client": ["web"]}},
+                    # 🚀 Web Only strict definition
+                    "extractor_args": {"youtube": {"player_client": ["web"], "player_skip": ["configs"]}},
                     "prefer_ffmpeg": True,
                 }
-                if not is_video: opts["postprocessors"] = [{"key": "FFmpegExtractAudio","preferredcodec": "mp3","preferredquality": "192"}]
+                if not is_video: ydl_opts["postprocessors"] = [{"key": "FFmpegExtractAudio","preferredcodec": "mp3","preferredquality": "192"}]
                 else: ydl_opts["merge_output_format"] = "mp4"
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(prepared, download=True)
@@ -668,7 +672,8 @@ class YouTubeAPI:
                 "force_ipv4": True,
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
-                "extractor_args": {"youtube": {"player_client": ["web"]}},
+                # 🚀 Web Only strict definition
+                "extractor_args": {"youtube": {"player_client": ["web"], "player_skip": ["configs"]}},
                 "prefer_ffmpeg": True,
                 "writethumbnail": True,
                 "addmetadata": True,
@@ -683,7 +688,7 @@ class YouTubeAPI:
         if videoid: link = self.listbase + link
         if "&" in link: link = link.split("&")[0]
         cmd = (f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
-               f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' 2>/dev/null")
+               f"--get-id --flat-playlist --playlist-end {limit} --extractor-args youtube:player_client=web;player_skip=configs --skip-download '{link}' 2>/dev/null")
         proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         out, _ = await proc.communicate()
         try: result = [key for key in out.decode().split("\n") if key]
