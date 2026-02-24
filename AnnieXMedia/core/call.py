@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: Call Controller (PyTgCalls v3.0 Native -> NTgCalls Backend)
-# Fixes: Zero-Stutter Pipeline, Studio Audio Quality, 4-Thread FFmpeg Decoding
+# Fixes: Zero-Stutter Pipeline, Studio Audio Quality, 4-Thread FFmpeg Decoding, Strict Type Fix
 # Status: Production Ready
 
 import asyncio
@@ -87,7 +87,6 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
     is_url = path.startswith("http")
     
     # 1. NTgCalls Direct Optimization Flags (16-Core Server Optimized)
-    # 4 Threads for decoding, ignoring errors, fast seeking
     base_flags = (
         "-threads 4 "
         "-probesize 10M -analyzeduration 10M "
@@ -96,21 +95,19 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
     
     # 2. Input specific flags
     if is_url:
-        # CRITICAL FIX: Removed '-re' for URLs. 
-        # NTgCalls has its own internal C++ buffer. FFmpeg must decode as fast as possible.
         base_flags += "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 10 -reconnect_on_http_error 4xx,5xx "
     else:
-        # Only local files need pacing to avoid memory flooding
         base_flags += "-re "
 
     # 3. Add Custom Opts (like Seek -ss)
     final_ffmpeg = base_flags + ffmpeg_opts
 
-    # 4. Return the Universal MediaStream Object directly tied to NTgCalls
+    # 4. Return the Universal MediaStream Object
+    # 🚨 FIXED: video_parameters no longer receives None. Flags control execution.
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.STUDIO,  # Max quality (48000Hz)
-        video_parameters=VideoQuality.HD_720p if video else None, 
+        audio_parameters=AudioQuality.STUDIO,  
+        video_parameters=VideoQuality.HD_720p, 
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
         ffmpeg_parameters=final_ffmpeg,
