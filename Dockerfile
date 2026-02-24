@@ -28,9 +28,9 @@ RUN apt-get update --fix-missing && \
     ffmpeg aria2 libffi-dev libxml2-dev libxslt-dev zlib1g-dev libssl-dev \
     # بايثون 3.13
     python3.13 python3.13-dev python3.13-venv \
-    # أدوات الواجهة الرسومية والمتصفح وكيبورد الشاشة
+    # أدوات الواجهة الرسومية والمتصفح وكيبورد الشاشة (مع الخطوط الضرورية اللي كانت ناقصة)
     xfce4 xfce4-goodies tightvncserver novnc websockify chromium-browser \
-    onboard dbus-x11 x11-xserver-utils \
+    onboard dbus-x11 x11-xserver-utils xfonts-base xfonts-75dpi xfonts-100dpi \
     # Node.js
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
@@ -82,17 +82,8 @@ RUN yt-dlp "ytsearch1:test" --dump-json > /dev/null 2>&1 || true
 # ========================================================
 COPY . .
 
-# إنشاء المايسترو (start.sh) ديناميكياً لتشغيل كل شيء
-RUN echo '#!/bin/bash\n\
-# تنظيف ملفات الكاش للـ VNC لتجنب أخطاء إعادة التشغيل\n\
-rm -rf /tmp/.X1-lock /tmp/.X11-unix/X1\n\
-# 1. تشغيل شاشة VNC داخلياً\n\
-vncserver :1 -geometry 1280x720 -depth 24\n\
-# 2. تحويل الشاشة لموقع ويب على بورت 8080\n\
-/usr/share/novnc/utils/launch.sh --vnc localhost:5901 --listen 8080 &\n\
-# 3. تشغيل بوت AnnieXBoda\n\
-python3 run.py' > start.sh && \
-    chmod +x start.sh
+# إعطاء صلاحية التشغيل لملف المايسترو
+RUN chmod +x start.sh
 
 # فتح بورت 8080 لواجهة الويب
 EXPOSE 8080
@@ -100,4 +91,4 @@ EXPOSE 8080
 # ========================================================
 # 🚀 LAUNCH
 # ========================================================
-CMD ["bash", "start.sh"]
+CMD ["./start.sh"]
