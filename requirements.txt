@@ -25,6 +25,8 @@ ffmpeg-python
 pydub
 mutagen
 hachoir
+ytmusicapi
+pytubefix
 # ⚠️ تم التبديل لنسخة السيرفرات (أسرع وأخف وتحل مشكلة المساحة)
 opencv-python-headless
 numpy
