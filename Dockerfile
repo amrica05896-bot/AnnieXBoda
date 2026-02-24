@@ -1,4 +1,4 @@
-# 1. الأساس: Ubuntu 26.04 (المستقبل)
+# 1. الأساس: Ubuntu 26.04
 FROM ubuntu:26.04
 
 # ========================================================
@@ -28,15 +28,21 @@ RUN apt-get update --fix-missing && \
     ffmpeg aria2 libffi-dev libxml2-dev libxslt-dev zlib1g-dev libssl-dev \
     # بايثون 3.13
     python3.13 python3.13-dev python3.13-venv \
-    # أدوات الواجهة الرسومية والمتصفح وكيبورد الشاشة (مع الخطوط الضرورية اللي كانت ناقصة)
-    xfce4 xfce4-goodies tightvncserver novnc websockify chromium-browser \
+    # أدوات الواجهة الرسومية وكيبورد الشاشة وأدوات المراقبة
+    xfce4 xfce4-goodies tightvncserver novnc websockify \
     onboard dbus-x11 x11-xserver-utils xfonts-base xfonts-75dpi xfonts-100dpi \
+    htop mousepad xfce4-terminal \
     # Node.js
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     # Deno
     && curl -fsSL https://deno.land/install.sh | sh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# تثبيت Google Chrome الرسمي عشان يوتيوب والكابتشا
+RUN wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    apt-get install -y ./google-chrome-stable_current_amd64.deb && \
+    rm google-chrome-stable_current_amd64.deb
 
 # ربط Python 3.13
 RUN ln -sf /usr/bin/python3.13 /usr/bin/python3 && \
