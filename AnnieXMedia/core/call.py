@@ -1,8 +1,3 @@
-# Authored By Certified Coders © 2026
-# System: Call Controller (PyTgCalls v3.0 Native -> NTgCalls Backend)
-# Fixes: Zero-Stutter Pipeline, Studio Audio Quality, 4-Thread FFmpeg Decoding, Strict Type Fix
-# Status: Production Ready
-
 import asyncio
 from datetime import datetime, timedelta
 from typing import Union, Optional
@@ -11,7 +6,7 @@ import yt_dlp
 from pyrogram.types import InlineKeyboardMarkup
 from pyrogram.errors import ChatAdminRequired
 
-# Imports based on PyTgCalls v3.0 Docs (Powered natively by NTgCalls C++ Engine)
+# Imports based on PyTgCalls v3.0 Docs
 from pytgcalls import PyTgCalls, filters
 from pytgcalls.types import (
     MediaStream,
@@ -80,22 +75,22 @@ async def get_direct_link(videoid: str, video: bool = False):
 
 def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> MediaStream:
     """
-    Constructs a MediaStream object compatible with NTgCalls Engine.
-    Engineered for ZERO stutter by properly feeding the C++ Jitter Buffer.
+    Constructs a MediaStream object compatible with PyTgCalls v3.0.
+    Handles Audio/Video flags and FFmpeg parameters.
     """
     path = str(path)
     is_url = path.startswith("http")
     
-    # 1. NTgCalls Direct Optimization Flags (16-Core Server Optimized)
+    # 1. Base FFmpeg parameters
     base_flags = (
-        "-threads 4 "
+        "-threads 2 "
         "-probesize 10M -analyzeduration 10M "
-        "-fflags +genpts+igndts+fastseek -err_detect ignore_err "
+        "-fflags +genpts+igndts+nobuffer -sync ext "
     )
     
     # 2. Input specific flags
     if is_url:
-        base_flags += "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 10 -reconnect_on_http_error 4xx,5xx "
+        base_flags += "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
     else:
         base_flags += "-re "
 
@@ -103,10 +98,9 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
     final_ffmpeg = base_flags + ffmpeg_opts
 
     # 4. Return the Universal MediaStream Object
-    # 🚨 FIXED: video_parameters no longer receives None. Flags control execution.
     return MediaStream(
         media_path=path,
-        audio_parameters=AudioQuality.STUDIO,  
+        audio_parameters=AudioQuality.HIGH, 
         video_parameters=VideoQuality.HD_720p, 
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
