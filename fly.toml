@@ -8,6 +8,17 @@ primary_region = "iad"
   dockerfile = "Dockerfile"
 
 # ===============================
+# 🌐 Web Interface (VNC) Port 8080 
+# ===============================
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # ⚠️ مهم جداً للبوت: منع إيقاف السيرفر تلقائياً عند عدم تصفح الموقع
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+# ===============================
 # Environment Variables ([env])
 # ===============================
 [env]
