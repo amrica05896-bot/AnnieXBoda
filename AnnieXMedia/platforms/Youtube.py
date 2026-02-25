@@ -62,7 +62,12 @@ def get_cookie_file() -> Optional[str]:
 
 def get_yt_opts(extra_opts: dict = None) -> dict:
     """تجلب إعدادات yt-dlp وتستخدم متصفح كروم كبديل تلقائي للكوكيز"""
-    opts = {"quiet": True, "no_warnings": True, "socket_timeout": YTDLP_SOCKET_TIMEOUT}
+    opts = {
+        "quiet": True, 
+        "no_warnings": True, 
+        "socket_timeout": YTDLP_SOCKET_TIMEOUT,
+        "extractor_args": {"youtube": {"player_client": ["web"]}} # ✅ تسريع وتخطي الحظر
+    }
     cf = get_cookie_file()
     if cf:
         opts["cookiefile"] = cf
@@ -79,6 +84,15 @@ async def _ensure_aio_session() -> aiohttp.ClientSession:
     if _aio_session is None or _aio_session.closed:
         _aio_session = aiohttp.ClientSession(connector=_aio_connector, raise_for_status=False)
     return _aio_session
+
+async def _exec_proc(*args: str, timeout: int = 15) -> Tuple[bytes, bytes]:
+    proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return out, err
+    except asyncio.TimeoutError:
+        with contextlib.suppress(Exception): proc.kill()
+        return b"", b"timeout"
 
 def _normalize_link(link: str, videoid: Union[bool, str, None] = None) -> str:
     if videoid: return "https://www.youtube.com/watch?v=" + str(videoid)
@@ -117,6 +131,9 @@ def _score_format(fmt: dict, prefer_audio: bool) -> int:
     proto = (fmt.get("protocol") or "").lower()
     ext = (fmt.get("ext") or "").lower()
     vcodec, acodec = fmt.get("vcodec") or "", fmt.get("acodec") or ""
+    
+    # أولوية للـ m3u8 لو البث مباشر
+    if "m3u8" in proto: score += 100
     if proto.startswith("https"): score += 30
     if proto.startswith("http"): score += 20
     if vcodec and vcodec != "none" and acodec and acodec != "none": score += 50
@@ -232,6 +249,7 @@ class YouTubeAPI:
     async def thumbnail(self, link: str, videoid: Union[bool, str, None] = None) -> str:
         return (await self.track(link, videoid))[0].get("thumb", "")
     
+    # ✅ دالة الصورة الأساسية عشان التشغيل ميوقعش
     async def download_thumb(self, url: str) -> Optional[str]:
         if not url: return None
         try:
@@ -265,6 +283,7 @@ class YouTubeAPI:
         except: return [], prepared
 
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
+        """✅ استخراج الرابط المباشر (البث المباشر) بسرعة وتخطي"""
         prepared = _normalize_link(link)
         if not prepared: return None
         key = prepared + ("::audio" if prefer_audio else "::video")
@@ -275,12 +294,12 @@ class YouTubeAPI:
                 if cached[0] > now + 3: return cached[1]
                 _direct_cache.pop(key, None)
 
+        info = None
         async with self.sema:
             loop = asyncio.get_running_loop()
             def _extract_fast():
                 opts = get_yt_opts({
-                    "noplaylist": True, "skip_download": True, "nocheckcertificate": True,
-                    "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}}
+                    "noplaylist": True, "skip_download": True, "nocheckcertificate": True
                 })
                 if self.impersonate: opts["impersonate"] = "chrome"
                 try:
@@ -289,10 +308,34 @@ class YouTubeAPI:
 
             info = await loop.run_in_executor(self.pool, _extract_fast)
 
-        if not info or info.get("_err"): return None
+        # لو الـ API فشل، نشغل Subprocess -g كحل بديل فوري
+        if not info or info.get("_err"):
+            cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", "--extractor-args", "youtube:player_client=web"]
+            cf = get_cookie_file()
+            if cf:
+                cmd.extend(["--cookies", cf])
+            cmd.append(prepared)
+            
+            out, _ = await _exec_proc(*cmd, timeout=10)
+            if out:
+                urls = out.decode().splitlines()
+                if urls:
+                    cand = urls[0].strip()
+                    if (await _probe_url(cand))[0]:
+                        async with _direct_cache_lock: _direct_cache[key] = (int(_parse_expire(cand) or now + CACHE_DEFAULT_TTL) - 3, cand)
+                        return cand
+            return None
+
+        # التعامل مع البث المباشر (is_live)
+        is_live = info.get("is_live") or info.get("live_status") == "is_live"
+        if is_live and info.get("url"):
+            top_url = info.get("url")
+            if (await _probe_url(top_url))[0]:
+                async with _direct_cache_lock: _direct_cache[key] = (now + CACHE_DEFAULT_TTL, top_url)
+                return top_url
 
         if top_url := info.get("url"):
-            if (await _probe_url(top_url))[0]:
+            if not is_live and (await _probe_url(top_url))[0]:
                 async with _direct_cache_lock: _direct_cache[key] = (int(_parse_expire(top_url) or now + CACHE_DEFAULT_TTL) - 3, top_url)
                 return top_url
 
@@ -304,7 +347,7 @@ class YouTubeAPI:
             if not prefer_audio and (f.get("vcodec") or "none") != "none" and (f.get("acodec") or "none") != "none":
                 candidates.append((_score_format(f, prefer_audio), url)); continue
             if (f.get("acodec") or "none") != "none": candidates.append((_score_format(f, prefer_audio), url)); continue
-            if url.startswith("m3u8"): candidates.append((40, url))
+            if "m3u8" in url: candidates.append((100, url))
 
         candidates.sort(key=lambda x: x[0], reverse=True)
 
