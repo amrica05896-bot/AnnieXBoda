@@ -1,5 +1,5 @@
-# 1. الأساس: Ubuntu 26.04 (المستقبل)
-FROM ubuntu:26.04
+# 1. الأساس: Python 3.13 (النسخة الكاملة الرسمية)
+FROM python:3.13
 
 # ========================================================
 # ⚡ UV PACKAGE MANAGER
@@ -26,10 +26,8 @@ RUN apt-get update --fix-missing && \
     apt-get install -y --no-install-recommends \
     software-properties-common build-essential cmake git curl wget unzip \
     ffmpeg aria2 libffi-dev libxml2-dev libxslt-dev zlib1g-dev libssl-dev \
-    # بايثون 3.13
-    python3.13 python3.13-dev python3.13-venv \
-    # أدوات الواجهة الرسومية والمتصفح وكيبورد الشاشة (مع الخطوط الضرورية اللي كانت ناقصة)
-    xfce4 xfce4-goodies tightvncserver novnc websockify chromium-browser \
+    # أدوات الواجهة الرسومية والمتصفح (chromium) وكيبورد الشاشة
+    xfce4 xfce4-goodies tightvncserver novnc websockify chromium \
     onboard dbus-x11 x11-xserver-utils xfonts-base xfonts-75dpi xfonts-100dpi \
     # Node.js
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -38,11 +36,7 @@ RUN apt-get update --fix-missing && \
     && curl -fsSL https://deno.land/install.sh | sh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# ربط Python 3.13
-RUN ln -sf /usr/bin/python3.13 /usr/bin/python3 && \
-    ln -sf /usr/bin/python3.13 /usr/bin/python
-
-RUN rm -f /usr/lib/python3.13/EXTERNALLY-MANAGED
+# (تم إزالة أوامر ربط وتسطيب بايثون يدوياً لأننا نستخدم نسخة بايثون 3.13 كـ Base Image)
 
 # ========================================================
 # 🖥️ VNC & GUI SETUP (إعداد الواجهة وكلمة السر)
