@@ -1,4 +1,4 @@
-# 1. الأساس: Python 3.13 (النسخة الكاملة الرسمية)
+# 1. الأساس: Python 3.13 (النسخة الكاملة الرسمية والمحدثة)
 FROM python:3.13
 
 # ========================================================
@@ -22,21 +22,17 @@ WORKDIR /app
 # ========================================================
 # 🛠 SYSTEM DEPENDENCIES & WEB GUI
 # ========================================================
+# تم إزالة software-properties-common لتوافقها التام مع ديبايان الجديد
 RUN apt-get update --fix-missing && \
     apt-get install -y --no-install-recommends \
-    software-properties-common build-essential cmake git curl wget unzip \
+    build-essential cmake git curl wget unzip \
     ffmpeg aria2 libffi-dev libxml2-dev libxslt-dev zlib1g-dev libssl-dev \
-    # أدوات الواجهة الرسومية والمتصفح (chromium) وكيبورد الشاشة
     xfce4 xfce4-goodies tightvncserver novnc websockify chromium \
     onboard dbus-x11 x11-xserver-utils xfonts-base xfonts-75dpi xfonts-100dpi \
-    # Node.js
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
-    # Deno
     && curl -fsSL https://deno.land/install.sh | sh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# (تم إزالة أوامر ربط وتسطيب بايثون يدوياً لأننا نستخدم نسخة بايثون 3.13 كـ Base Image)
 
 # ========================================================
 # 🖥️ VNC & GUI SETUP (إعداد الواجهة وكلمة السر)
