@@ -25,9 +25,9 @@ RUN apt-get update --fix-missing && \
     && curl -fsSL https://deno.land/install.sh | sh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# تثبيت جوجل كروم وحل مشكلة فتحه من الأيقونة كـ Root
-RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - && \
-    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list && \
+# تثبيت جوجل كروم بالطريقة الحديثة والمشفرة (بدون apt-key) وحل مشكلة الـ Root
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && apt-get install -y google-chrome-stable && \
     mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable-orig && \
     echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable-orig --no-sandbox "$@"' > /usr/bin/google-chrome-stable && \
