@@ -16,14 +16,23 @@ WORKDIR /app
 
 RUN apt-get update --fix-missing && \
     apt-get install -y --no-install-recommends \
-    build-essential cmake git curl wget unzip \
+    build-essential cmake git curl wget unzip gnupg \
     ffmpeg aria2 libffi-dev libxml2-dev libxslt-dev zlib1g-dev libssl-dev \
-    xfce4 xfce4-goodies tightvncserver novnc websockify chromium \
+    xfce4 xfce4-goodies tightvncserver novnc websockify \
     onboard dbus-x11 x11-xserver-utils xfonts-base xfonts-75dpi xfonts-100dpi \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && curl -fsSL https://deno.land/install.sh | sh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# تثبيت جوجل كروم وحل مشكلة فتحه من الأيقونة كـ Root
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - && \
+    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list && \
+    apt-get update && apt-get install -y google-chrome-stable && \
+    mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable-orig && \
+    echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable-orig --no-sandbox "$@"' > /usr/bin/google-chrome-stable && \
+    chmod +x /usr/bin/google-chrome-stable && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN rm -f /usr/lib/python3.13/EXTERNALLY-MANAGED || true
 
