@@ -1,28 +1,19 @@
-# 1. الأساس: Python 3.13 (النسخة الكاملة الرسمية والمحدثة)
 FROM python:3.13
 
-# ========================================================
-# ⚡ UV PACKAGE MANAGER
-# ========================================================
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-# ========================================================
-# 🚀 SYSTEM CONFIGURATION
-# ========================================================
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_SYSTEM_PYTHON=1 \
+    UV_BREAK_SYSTEM_PACKAGES=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
     DENO_INSTALL="/root/.deno" \
     PATH="/root/.deno/bin:/usr/bin:${PATH}" \
     USER=root
 
 WORKDIR /app
 
-# ========================================================
-# 🛠 SYSTEM DEPENDENCIES & WEB GUI
-# ========================================================
-# تم إزالة software-properties-common لتوافقها التام مع ديبايان الجديد
 RUN apt-get update --fix-missing && \
     apt-get install -y --no-install-recommends \
     build-essential cmake git curl wget unzip \
@@ -34,24 +25,19 @@ RUN apt-get update --fix-missing && \
     && curl -fsSL https://deno.land/install.sh | sh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# ========================================================
-# 🖥️ VNC & GUI SETUP (إعداد الواجهة وكلمة السر)
-# ========================================================
-# كلمة السر للتحكم هي: 123456
+RUN rm -f /usr/lib/python3.13/EXTERNALLY-MANAGED || true
+
 RUN mkdir -p ~/.vnc && \
     echo "123456" | vncpasswd -f > ~/.vnc/passwd && \
     chmod 600 ~/.vnc/passwd
 
-# إعداد ملف تشغيل واجهة XFCE
 RUN echo "#!/bin/bash\n\
 export USER=root\n\
 startxfce4 &" > ~/.vnc/xstartup && \
     chmod +x ~/.vnc/xstartup
 
-# ========================================================
-# 📦 PYTHON PREP & LOCAL PYTGCALLS
-# ========================================================
 RUN uv pip install --upgrade setuptools wheel
+
 COPY pytgcalls /app/pytgcalls
 COPY requirements.txt .
 
@@ -60,25 +46,14 @@ RUN grep -v -E -i '^(py-tgcalls|pytgcalls|deepai|numba|llvmlite|quimb)' requirem
 
 RUN uv pip install --no-cache uvloop g4f curl_cffi
 
-# ========================================================
-# ⚙️ YOUTUBE ENGINE & CACHE WARMUP
-# ========================================================
 RUN mkdir -p /etc/yt-dlp && \
     echo "--remote-components ejs:github" > /etc/yt-dlp.conf
 RUN yt-dlp "ytsearch1:test" --dump-json > /dev/null 2>&1 || true
 
-# ========================================================
-# 📂 SOURCE CODE & LAUNCH SCRIPT
-# ========================================================
 COPY . .
 
-# إعطاء صلاحية التشغيل لملف المايسترو
 RUN chmod +x start.sh
 
-# فتح بورت 8080 لواجهة الويب
 EXPOSE 8080
 
-# ========================================================
-# 🚀 LAUNCH
-# ========================================================
 CMD ["./start.sh"]
