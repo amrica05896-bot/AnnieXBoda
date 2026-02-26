@@ -10,8 +10,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     DENO_INSTALL="/root/.deno" \
     PATH="/root/.deno/bin:/usr/bin:${PATH}" \
-    USER=root \
-    KASM_VNC_PASSWORD=123456
+    USER=root
 
 WORKDIR /app
 
@@ -26,13 +25,13 @@ RUN apt-get update --fix-missing && \
     && apt-get install -y nodejs \
     && curl -fsSL https://deno.land/install.sh | sh
 
-# تثبيت KasmVNC 
+# تثبيت KasmVNC
 RUN wget https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_bookworm_1.3.2_amd64.deb -O kasmvnc.deb && \
     apt-get install -y ./kasmvnc.deb || apt-get install -f -y && \
     rm kasmvnc.deb && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# تثبيت كروم (نسخة التخفي لتشغيل ببجي والمواقع)
+# تثبيت كروم (نسخة التخفي لتشغيل الألعاب)
 RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg && \
     echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && apt-get install -y google-chrome-stable && \
@@ -41,11 +40,6 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearm
     chmod +x /usr/bin/google-chrome-stable
 
 RUN rm -f /usr/lib/python3.13/EXTERNALLY-MANAGED || true
-
-# إنشاء مسارات KasmVNC والشهادات الوهمية 
-RUN mkdir -p /root/.vnc && \
-    mkdir -p /etc/kasmvnc/certs && \
-    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/kasmvnc/certs/kasmvnc.key -out /etc/kasmvnc/certs/kasmvnc.pem -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
 
 # تثبيت مكتبات بوت التليجرام الخاص بك
 RUN uv pip install --upgrade setuptools wheel
