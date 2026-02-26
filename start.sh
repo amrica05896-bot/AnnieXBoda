@@ -9,12 +9,11 @@ rm -rf /tmp/.X* /tmp/.x*
 # 2. تشغيل خادم الصوت
 pulseaudio -D --exit-idle-time=-1 --system
 
-# 3. إعداد ملف KasmVNC في "المسار الصحيح" اللي السيرفر كان بيدور عليه
+# 3. إعداد ملف KasmVNC (تم تصحيح الـ Protocol لـ http ليقبله السيرفر)
 mkdir -p /root/.vnc
 cat <<EOF > /root/.vnc/kasmvnc.yaml
 network:
-  protocol: ipv4
-  interface: 0.0.0.0
+  protocol: http
   websocket_port: 8080
   ssl:
     require_ssl: false
@@ -22,7 +21,7 @@ desktop:
   session: xfce
 EOF
 
-# 4. إعداد ملف xstartup احتياطي عشان نأكد عليه
+# 4. إعداد ملف xstartup 
 cat <<EOF > /root/.vnc/xstartup
 #!/bin/bash
 startxfce4 &
@@ -35,5 +34,5 @@ echo -e "123456\n123456\n" | kasmvncpasswd -u root -w
 # 6. تشغيل بوت التليجرام (AnnieXBoda) في الخلفية
 python3 run.py &
 
-# 7. تشغيل KasmVNC مع إجباره المباشر على اختيار واجهة xfce
+# 7. تشغيل KasmVNC في الواجهة
 vncserver :1 -depth 24 -geometry 1280x720 -select-de xfce -fg
