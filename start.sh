@@ -2,6 +2,7 @@
 export USER=root
 export HOME=/root
 export DISPLAY=:1
+export HOSTNAME=localhost
 
 # 1. مسح الكاش القديم
 rm -rf /tmp/.X* /tmp/.x* /root/.vnc/*.log /root/.vnc/*.pid
@@ -23,11 +24,14 @@ exec startxfce4
 EOF
 chmod +x /root/.vnc/xstartup
 
-# 5. تشغيل سيرفر TigerVNC الأساسي
+# 5. تشغيل سيرفر TigerVNC
 vncserver :1 -geometry 1280x720 -depth 24 -localhost no -SecurityTypes VncAuth -PasswordFile /root/.vnc/passwd
 
-# 6. ربط VNC بمتصفح الويب عن طريق noVNC (بورت 8080)
-websockify --web /usr/share/novnc/ 8080 localhost:5901 &
+# 6. ننتظر 3 ثواني عشان السيرفر يفتح البورت براحته وميرفضش الاتصال
+sleep 3
 
-# 7. تشغيل بوت التليجرام
+# 7. ربط VNC بمتصفح الويب (تم إضافة 0.0.0.0 عشان Fly.io تشوفه)
+websockify --web /usr/share/novnc/ 0.0.0.0:8080 127.0.0.1:5901 &
+
+# 8. تشغيل بوت التليجرام
 python3 run.py
