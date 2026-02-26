@@ -1,19 +1,17 @@
 #!/bin/bash
-
-# 0. تعريف المستخدم (خطوة ضرورية جداً لنظام بايثون/ديبايان الجديد عشان VNC يشتغل)
 export USER=root
+export DISPLAY=:1
 
-# 1. تنظيف ملفات الكاش القديمة عشان لو السيرفر عمل ريستارت الواجهة ما تعلقش
-rm -rf /tmp/.X1-lock /tmp/.X11-unix/X1 /tmp/.X0-lock /tmp/.X11-unix/X0
+# 1. تشغيل خادم الصوت
+pulseaudio -D --exit-idle-time=-1 --system
 
-# 2. تشغيل شاشة VNC داخلياً (الواجهة الرسومية اللي هتفتح فيها المتصفح)
-tightvncserver :1 -geometry 1280x720 -depth 24
+# 2. تشغيل KasmVNC (بيعمل شاشة وهمية وبيشغل سيرفر الويب في نفس الوقت)
+# هنستخدم بورت 8080 عشان Fly.io يفتحه مباشر من الرابط بتاعك
+vncserver :1 -depth 24 -geometry 1280x720 -websocketPort 8080 -cert /etc/ssl/certs/ssl-cert-snakeoil.pem -key /etc/ssl/private/ssl-cert-snakeoil.key -Listen 0.0.0.0 &
+sleep 3
 
-# 3. إعطاء السيرفر ثانية واحدة عشان يلحق يقوم قبل ما الجسر يشتغل (لتفادي الأخطاء)
-sleep 1
+# 3. تشغيل واجهة XFCE (عشان تشوف التيرمينال والمتصفح)
+startxfce4 &
 
-# 4. تشغيل الجسر (noVNC) وتوجيهه للشبكة الخارجية (0.0.0.0:8080) في الخلفية
-websockify --web=/usr/share/novnc/ 0.0.0.0:8080 localhost:5901 &
-
-# 5. تشغيل بوت الميوزك (المايسترو) في الواجهة الأساسية عشان السيرفر يفضل شغال
+# 4. تشغيل بوت التليجرام
 python3 run.py
