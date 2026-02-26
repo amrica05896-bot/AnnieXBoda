@@ -1,34 +1,30 @@
 #!/bin/bash
 export USER=root
+export HOME=/root
 export DISPLAY=:1
 
-# 1. تشغيل خادم الصوت (PulseAudio)
+# 1. تشغيل خادم الصوت
 pulseaudio -D --exit-idle-time=-1 --system
 
-# 2. إنشاء ملف إعدادات KasmVNC ديناميكياً
-cat <<EOF > /etc/kasmvnc/kasmvnc.yaml
+# 2. إنشاء ملف إعدادات KasmVNC (لتعطيل SSL وتحديد بورت 8080)
+mkdir -p /root/.kasmvnc
+cat <<EOF > /root/.kasmvnc/kasmvnc.yaml
 network:
+  protocol: ipv4
   websocket_port: 8080
   ssl:
-    require_ssl: true
-    pem_certificate: /etc/kasmvnc/certs/kasmvnc.pem
-    pem_key: /etc/kasmvnc/certs/kasmvnc.key
-desktop:
-  session: xfce4-session
-logging:
-  level: warning
+    require_ssl: false
 EOF
 
-# 3. إعداد باسورد KasmVNC من المتغير البيئي (بدون تفاعل)
-echo -e "${KASM_VNC_PASSWORD}\n${KASM_VNC_PASSWORD}\n" | kasmvncpasswd -u root -wo /root/.vnc/passwd
-chmod 600 /root/.vnc/passwd
+# 3. إعداد الباسورد (123456) وإضافة اليوزر تلقائياً بدون تدخل
+echo -e "123456\n123456\n" | kasmvncpasswd -u root -w
 
-# 4. تشغيل خادم KasmVNC (تجاوز الواجهة التفاعلية)
-vncserver :1 -depth 24 -geometry 1280x720 -websocketPort 8080 -cert /etc/ssl/certs/ssl-cert-snakeoil.pem -key /etc/ssl/private/ssl-cert-snakeoil.key -Listen 0.0.0.0 -SecurityTypes VncAuth -PasswordFile /root/.vnc/passwd &
-sleep 5
+# 4. تشغيل KasmVNC (الآن لن يظهر الـ Wizard لأن الباسورد موجود)
+vncserver :1 -depth 24 -geometry 1280x720 &
+sleep 3
 
 # 5. تشغيل واجهة الكمبيوتر (XFCE)
 startxfce4 &
 
-# 6. تشغيل بوت التليجرام الخاص بك
+# 6. تشغيل بوت التليجرام (Run)
 python3 run.py
