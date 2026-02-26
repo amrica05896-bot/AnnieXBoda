@@ -9,7 +9,7 @@ rm -rf /tmp/.X* /tmp/.x*
 # 2. تشغيل خادم الصوت
 pulseaudio -D --exit-idle-time=-1 --system
 
-# 3. إعداد ملف KasmVNC (شيلنا كلمة desktop اللي كانت بتعمل الـ Error)
+# 3. إعداد ملف KasmVNC 
 mkdir -p /root/.vnc
 cat <<EOF > /root/.vnc/kasmvnc.yaml
 network:
@@ -27,11 +27,12 @@ startxfce4 &
 EOF
 chmod +x /root/.vnc/xstartup
 
-# 5. إعداد الباسورد (123456)
-echo -e "123456\n123456\n" | kasmvncpasswd -u root -w
+# 5. هنا السر: هنعمل اليوزر admin بدل root عشان KasmVNC ميرفضوش
+echo -e "123456\n123456\n" | kasmvncpasswd -u admin -w /root/.vnc/kasmpasswd
+chmod 600 /root/.vnc/kasmpasswd
 
 # 6. تشغيل بوت التليجرام (AnnieXBoda) في الخلفية
 python3 run.py &
 
-# 7. تشغيل KasmVNC في الواجهة مع اختيار XFCE من سطر الأوامر
+# 7. تشغيل KasmVNC في الواجهة 
 vncserver :1 -depth 24 -geometry 1280x720 -select-de xfce -fg
