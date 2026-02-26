@@ -10,7 +10,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     DENO_INSTALL="/root/.deno" \
     PATH="/root/.deno/bin:/usr/bin:${PATH}" \
-    USER=root
+    USER=root \
+    KASM_VNC_PASSWORD=123456
 
 WORKDIR /app
 
@@ -25,7 +26,7 @@ RUN apt-get update --fix-missing && \
     && apt-get install -y nodejs \
     && curl -fsSL https://deno.land/install.sh | sh
 
-# تثبيت KasmVNC (البديل السريع جداً لـ VNC القديم)
+# تثبيت KasmVNC 
 RUN wget https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_bookworm_1.3.2_amd64.deb -O kasmvnc.deb && \
     apt-get install -y ./kasmvnc.deb || apt-get install -f -y && \
     rm kasmvnc.deb && \
@@ -41,10 +42,10 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearm
 
 RUN rm -f /usr/lib/python3.13/EXTERNALLY-MANAGED || true
 
-# إعداد باسورد KasmVNC للواجهة (الباسورد: 123456)
+# إنشاء مسارات KasmVNC والشهادات الوهمية 
 RUN mkdir -p /root/.vnc && \
-    printf "123456\n123456\n" | kasmvncpasswd -u root -wo /root/.vnc/passwd && \
-    chmod 600 /root/.vnc/passwd
+    mkdir -p /etc/kasmvnc/certs && \
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/kasmvnc/certs/kasmvnc.key -out /etc/kasmvnc/certs/kasmvnc.pem -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
 
 # تثبيت مكتبات بوت التليجرام الخاص بك
 RUN uv pip install --upgrade setuptools wheel
@@ -61,7 +62,6 @@ RUN yt-dlp "ytsearch1:test" --dump-json > /dev/null 2>&1 || true
 COPY . .
 RUN chmod +x start.sh
 
-# بورت KasmVNC المخصص للويب
 EXPOSE 8444 8080
 
 CMD ["./start.sh"]
