@@ -2,9 +2,8 @@
 export USER=root
 export HOME=/root
 
-# 1. حل مشكلة الشهادة الوهمية اللي بتخلي السيرفر يقفل (الضربة القاضية للخطأ الأخير)
-mkdir -p /etc/ssl/private /etc/ssl/certs
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/private/ssl-cert-snakeoil.key -out /etc/ssl/certs/ssl-cert-snakeoil.pem -subj "/CN=kasm"
+# 1. توليد الشهادة الوهمية باستخدام أداة ديبيان الرسمية لتجنب خطأ ssl-cert-snakeoil.key
+make-ssl-cert generate-default-snakeoil --force-overwrite
 chmod 644 /etc/ssl/private/ssl-cert-snakeoil.key
 
 # 2. تشغيل خادم الصوت كمسؤول
@@ -14,7 +13,7 @@ pulseaudio -D --exit-idle-time=-1 --system
 useradd -m -s /bin/bash boda || true
 usermod -aG audio,video boda
 
-# 4. إعداد KasmVNC لليوزر boda
+# 4. إعداد KasmVNC لليوزر boda (تم إيقاف الـ ssl من الإعدادات كمان زيادة تأكيد)
 mkdir -p /home/boda/.vnc
 cat <<EOF > /home/boda/.vnc/kasmvnc.yaml
 network:
