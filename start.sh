@@ -3,33 +3,32 @@ export USER=root
 export HOME=/root
 export DISPLAY=:1
 
-# 1. مسح الكاش
-rm -rf /tmp/.X* /tmp/.x* /root/.vnc/*.log /root/.vnc/*.pid
+# 1. مسح أي ملفات قديمة
+rm -rf /tmp/.X* /tmp/.x* /root/.kasmpasswd
 
-# 2. تشغيل الصوت
+# 2. تشغيل خادم الصوت (مهم جداً عشان اليوتيوب)
 pulseaudio -D --exit-idle-time=-1 --system
 
-# 3. إعداد باسورد الـ VNC
+# 3. إعداد KasmVNC
 mkdir -p /root/.vnc
-echo "123456" | vncpasswd -f > /root/.vnc/passwd
-chmod 600 /root/.vnc/passwd
+cat <<EOF > /root/.vnc/kasmvnc.yaml
+network:
+  protocol: http
+  interface: 0.0.0.0
+  websocket_port: 8080
+  ssl:
+    require_ssl: false
+EOF
 
-# 4. إعداد ملف xstartup
+# 4. إعداد ملف الواجهة
 cat <<EOF > /root/.vnc/xstartup
-#!/bin/sh
-xrdb $HOME/.Xclients
-xsetroot -solid grey
-export XKL_XMODMAP_DISABLE=1
-/etc/X11/Xsession
+#!/bin/bash
 startxfce4 &
 EOF
 chmod +x /root/.vnc/xstartup
 
-# 5. تشغيل سيرفر VNC
-tightvncserver :1 -geometry 1280x720 -depth 24
+# 5. تشغيل بوت التليجرام
+python3 run.py &
 
-# 6. تشغيل noVNC (يربط بورت 8080 للعامة بالـ VNC الداخلي)
-websockify --web /usr/share/novnc/ 0.0.0.0:8080 127.0.0.1:5901 &
-
-# 7. تشغيل البوت
-python3 run.py
+# 6. تشغيل KasmVNC (السر كله هنا: -SecurityTypes None هتلغي الباسورد خالص)
+vncserver :1 -depth 24 -geometry 1280x720 -select-de xfce -SecurityTypes None -fg
