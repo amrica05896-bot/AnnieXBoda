@@ -41,12 +41,9 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearm
 
 RUN rm -f /usr/lib/python3.13/EXTERNALLY-MANAGED || true
 
-# إعداد باسورد KasmVNC للواجهة (الباسورد: 123456) - الطريقة الصحيحة
+# إعداد باسورد KasmVNC للواجهة (الباسورد: 123456)
 RUN mkdir -p /root/.vnc && \
-    mkdir -p /etc/kasmvnc && \
-    echo "123456" > /tmp/vncpass && \
-    cat /tmp/vncpass | kasmvncpasswd -wo /root/.vnc/passwd && \
-    rm /tmp/vncpass && \
+    printf "123456\n123456\n" | kasmvncpasswd -u root -wo /root/.vnc/passwd && \
     chmod 600 /root/.vnc/passwd
 
 # تثبيت مكتبات بوت التليجرام الخاص بك
