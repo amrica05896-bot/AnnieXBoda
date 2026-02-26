@@ -25,7 +25,7 @@ RUN apt-get update --fix-missing && \
     && apt-get install -y nodejs \
     && curl -fsSL https://deno.land/install.sh | sh
 
-# تثبيت KasmVNC (أفضل وأسرع نظام للصوت والفيديو)
+# تثبيت KasmVNC (عشان الصوت والفيديو السلس)
 RUN wget https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_bookworm_1.3.2_amd64.deb -O kasmvnc.deb && \
     apt-get install -y ./kasmvnc.deb || apt-get install -f -y && \
     rm kasmvnc.deb && \
@@ -41,7 +41,7 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearm
 
 RUN rm -f /usr/lib/python3.13/EXTERNALLY-MANAGED || true
 
-# تثبيت مكتبات بوت التليجرام الخاص بك
+# تثبيت مكتبات البوت
 RUN uv pip install --upgrade setuptools wheel
 COPY pytgcalls /app/pytgcalls
 COPY requirements.txt .
