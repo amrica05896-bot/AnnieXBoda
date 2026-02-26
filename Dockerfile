@@ -14,22 +14,17 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-# تثبيت واجهة XFCE والصوت (PulseAudio) والمتطلبات الأساسية
+# تثبيت واجهة XFCE و tightvnc و noVNC
 RUN apt-get update --fix-missing && \
     apt-get install -y --no-install-recommends \
     build-essential cmake git curl wget unzip gnupg \
     ffmpeg aria2 libffi-dev libxml2-dev libxslt-dev zlib1g-dev libssl-dev \
     xfce4 xfce4-goodies dbus-x11 x11-xserver-utils xfonts-base \
-    pulseaudio xvfb x11-apps pciutils ssl-cert \
+    pulseaudio xvfb x11-apps pciutils \
+    tightvncserver novnc websockify \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && curl -fsSL https://deno.land/install.sh | sh
-
-# تثبيت KasmVNC (عشان الصوت والفيديو السلس)
-RUN wget https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_bookworm_1.3.2_amd64.deb -O kasmvnc.deb && \
-    apt-get install -y ./kasmvnc.deb || apt-get install -f -y && \
-    rm kasmvnc.deb && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # تثبيت جوجل كروم
 RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg && \
