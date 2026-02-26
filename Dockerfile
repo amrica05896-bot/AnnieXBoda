@@ -14,7 +14,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-# تثبيت واجهة XFCE كاملة (عشان التيرمينال والمتصفح) مع خادم الصوت PulseAudio
+# تثبيت واجهة XFCE والصوت (PulseAudio) والمتطلبات الأساسية
 RUN apt-get update --fix-missing && \
     apt-get install -y --no-install-recommends \
     build-essential cmake git curl wget unzip gnupg \
@@ -25,13 +25,13 @@ RUN apt-get update --fix-missing && \
     && apt-get install -y nodejs \
     && curl -fsSL https://deno.land/install.sh | sh
 
-# تثبيت Sunshine (لنقل الشاشة بسرعة 60 فريم)
-RUN wget https://github.com/LizardByte/Sunshine/releases/latest/download/sunshine-debian-bookworm-amd64.deb -O sunshine.deb && \
-    apt-get install -y ./sunshine.deb || apt-get install -f -y && \
-    rm sunshine.deb && \
+# تثبيت KasmVNC (البديل السريع جداً لـ noVNC و TightVNC واللي بيدعم الصوت)
+RUN wget https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_bookworm_1.3.2_amd64.deb -O kasmvnc.deb && \
+    apt-get install -y ./kasmvnc.deb || apt-get install -f -y && \
+    rm kasmvnc.deb && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# تثبيت كروم (نسخة التخفي لتشغيل الألعاب)
+# تثبيت كروم (نسخة التخفي لتشغيل ببجي والمواقع)
 RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg && \
     echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && apt-get install -y google-chrome-stable && \
@@ -41,7 +41,12 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearm
 
 RUN rm -f /usr/lib/python3.13/EXTERNALLY-MANAGED || true
 
-# تثبيت مكتبات بوت التليجرام الخاص بك
+# إعداد باسورد للواجهة (الباسورد: 123456)
+RUN mkdir -p ~/.vnc && \
+    echo "123456\n123456\n" | vncpasswd -u root -w && \
+    chmod 600 ~/.vnc/passwd
+
+# تثبيت مكتبات بوت التليجرام (AnnieXBoda)
 RUN uv pip install --upgrade setuptools wheel
 COPY pytgcalls /app/pytgcalls
 COPY requirements.txt .
@@ -56,5 +61,7 @@ RUN yt-dlp "ytsearch1:test" --dump-json > /dev/null 2>&1 || true
 COPY . .
 RUN chmod +x start.sh
 
-EXPOSE 8080 47984 47989 48010 47998 48000 48002
+# بورت KasmVNC المخصص للويب
+EXPOSE 8444 8080
+
 CMD ["./start.sh"]
