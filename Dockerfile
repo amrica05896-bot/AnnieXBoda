@@ -25,7 +25,7 @@ RUN apt-get update --fix-missing && \
     && apt-get install -y nodejs \
     && curl -fsSL https://deno.land/install.sh | sh
 
-# تثبيت KasmVNC (البديل السريع جداً لـ noVNC و TightVNC واللي بيدعم الصوت)
+# تثبيت KasmVNC (البديل السريع جداً لـ VNC القديم)
 RUN wget https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_bookworm_1.3.2_amd64.deb -O kasmvnc.deb && \
     apt-get install -y ./kasmvnc.deb || apt-get install -f -y && \
     rm kasmvnc.deb && \
@@ -41,12 +41,15 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearm
 
 RUN rm -f /usr/lib/python3.13/EXTERNALLY-MANAGED || true
 
-# إعداد باسورد للواجهة (الباسورد: 123456)
-RUN mkdir -p ~/.vnc && \
-    echo "123456\n123456\n" | vncpasswd -u root -w && \
-    chmod 600 ~/.vnc/passwd
+# إعداد باسورد KasmVNC للواجهة (الباسورد: 123456) - الطريقة الصحيحة
+RUN mkdir -p /root/.vnc && \
+    mkdir -p /etc/kasmvnc && \
+    echo "123456" > /tmp/vncpass && \
+    cat /tmp/vncpass | kasmvncpasswd -wo /root/.vnc/passwd && \
+    rm /tmp/vncpass && \
+    chmod 600 /root/.vnc/passwd
 
-# تثبيت مكتبات بوت التليجرام (AnnieXBoda)
+# تثبيت مكتبات بوت التليجرام الخاص بك
 RUN uv pip install --upgrade setuptools wheel
 COPY pytgcalls /app/pytgcalls
 COPY requirements.txt .
