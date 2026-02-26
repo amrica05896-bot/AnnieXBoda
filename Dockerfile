@@ -14,19 +14,19 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-# تثبيت واجهة XFCE و VNC و noVNC
+# تثبيت واجهة XFCE و tightvnc و noVNC
 RUN apt-get update --fix-missing && \
     apt-get install -y --no-install-recommends \
     build-essential cmake git curl wget unzip gnupg \
     ffmpeg aria2 libffi-dev libxml2-dev libxslt-dev zlib1g-dev libssl-dev \
     xfce4 xfce4-goodies dbus-x11 x11-xserver-utils xfonts-base \
     pulseaudio xvfb x11-apps pciutils \
-    tigervnc-standalone-server novnc websockify \
+    tightvncserver novnc websockify \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && curl -fsSL https://deno.land/install.sh | sh
 
-# تثبيت جوجل كروم (نسخة التخفي)
+# تثبيت جوجل كروم
 RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg && \
     echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && apt-get install -y google-chrome-stable && \
@@ -36,7 +36,7 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearm
 
 RUN rm -f /usr/lib/python3.13/EXTERNALLY-MANAGED || true
 
-# تثبيت مكتبات بوت التليجرام
+# تثبيت مكتبات البوت
 RUN uv pip install --upgrade setuptools wheel
 COPY pytgcalls /app/pytgcalls
 COPY requirements.txt .
