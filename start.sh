@@ -2,16 +2,17 @@
 export USER=root
 export HOME=/root
 
-# 1. تنظيف الكاش القديم
-rm -rf /tmp/.X* /tmp/.x* /root/.vnc/*.log /root/.vnc/*.pid /root/.vnc/passwd
+# 1. تنظيف السيرفر من أي كاش قديم
+rm -rf /tmp/.X* /tmp/.x* /root/.vnc/*.log /root/.vnc/*.pid
 
-# 2. تشغيل خادم الصوت كمسؤول
+# 2. تشغيل خادم الصوت (عشان اليوتيوب والألعاب)
 pulseaudio -D --exit-idle-time=-1 --system
 
-# 3. توليد شهادة SSL صامتة لتجنب أي كراش أمني
+# 3. توليد شهادة SSL الوهمية عشان السيرفر ميقفلش
 make-ssl-cert generate-default-snakeoil --force-overwrite
+chmod 644 /etc/ssl/private/ssl-cert-snakeoil.key
 
-# 4. إنشاء إعدادات KasmVNC وتوجيهها للشهادات الافتراضية
+# 4. إعداد KasmVNC لفتح البورت بدون SSL
 mkdir -p /root/.vnc
 cat <<EOF > /root/.vnc/kasmvnc.yaml
 network:
@@ -22,20 +23,16 @@ network:
     require_ssl: false
 EOF
 
-# 5. إعداد ملف واجهة XFCE
+# 5. إعداد واجهة XFCE
 cat <<EOF > /root/.vnc/xstartup
 #!/bin/bash
 startxfce4 &
 EOF
 chmod +x /root/.vnc/xstartup
 
-# 6. السر الحقيقي: عمل الباسورد بطريقة مباشرة للمستخدم root وإجباره يتجاهل الويزارد
-echo "123456" | kasmvncpasswd -f > /root/.vnc/passwd
-chmod 600 /root/.vnc/passwd
-
-# 7. تشغيل بوت التليجرام الخاص بك في الخلفية
+# 6. تشغيل بوت التليجرام الخاص بك (AnnieXBoda) في الخلفية
 cd /app
 python3 run.py &
 
-# 8. تشغيل الواجهة بصلاحيات root مع تحديد ملف الباسورد اللي عملناه وتخطي الحماية
-vncserver :1 -depth 24 -geometry 1280x720 -select-de xfce -PasswordFile /root/.vnc/passwd -disableBasicAuth -fg
+# 7. الضربة القاضية: هنبعتله رقم "2" تلقائياً عشان نجاوب على سؤاله المستفز ونجبره يفتح بدون باسورد!
+echo "2" | vncserver :1 -depth 24 -geometry 1280x720 -select-de xfce -SecurityTypes None -disableBasicAuth -fg
