@@ -1,5 +1,5 @@
 # file: AnnieXMedia/platforms/Youtube.py
-# 🚀 Ultra-Lightweight YouTube API using ytubefix & ytmusicapi
+# 🚀 Ultra-Lightweight YouTube API using pytubefix & ytmusicapi
 # No yt-dlp, No local downloads (Live Stream Only)
 
 import asyncio
@@ -10,7 +10,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import aiohttp
 from ytmusicapi import YTMusic
-from pytubefix import YouTube as YTFix, Playlist
+from pytubefix import YouTube as YTFix, Playlist  # ✅ تم تصحيح اسم المكتبة هنا
+
 # Logging Setup
 log = logging.getLogger("AnnieXMedia.YouTube")
 log.setLevel(logging.INFO)
@@ -76,7 +77,7 @@ class YouTubeAPI:
                 return []
         return await loop.run_in_executor(None, _execute_search)
 
-    # 🚀 2. جلب التفاصيل باستخدام ytubefix (بدون تحميل)
+    # 🚀 2. جلب التفاصيل باستخدام pytubefix (بدون تحميل)
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
         prepared = _normalize_link(link, videoid)
         loop = asyncio.get_running_loop()
