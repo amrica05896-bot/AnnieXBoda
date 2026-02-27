@@ -10,8 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import aiohttp
 from ytmusicapi import YTMusic
-from ytubefix import YouTube as YTFix, Playlist
-
+from pytubefix import YouTube as YTFix, Playlist
 # Logging Setup
 log = logging.getLogger("AnnieXMedia.YouTube")
 log.setLevel(logging.INFO)
