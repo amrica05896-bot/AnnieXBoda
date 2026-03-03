@@ -20,7 +20,7 @@ pytgcrypto
 apscheduler
 
 # ===== Media / Audio / Video =====
-yt-dlp>=2026.02.21
+yt-dlp>=2026.3.3
 ffmpeg-python
 pydub
 mutagen
