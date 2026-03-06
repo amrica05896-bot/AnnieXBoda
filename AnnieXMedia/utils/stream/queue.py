@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: Queue Manager (Database Handler)
-# Updated: Compatible with PyTgCalls v3.0 Data Structure
+# Updated: Python 3.13 Compatible & Optimized Autoclean
 
 import asyncio
 from typing import Union
@@ -44,20 +44,20 @@ async def put_queue(
         "played": 0,
     }
     
+    # Initialize list if chat_id not in db
+    if chat_id not in db:
+        db[chat_id] = []
+        
     if forceplay:
-        check = db.get(chat_id)
-        if check:
-            check.insert(0, put)
-        else:
-            db[chat_id] = []
-            db[chat_id].append(put)
+        db[chat_id].insert(0, put)
     else:
         # Standard append
-        db.get(chat_id, []).append(put)
+        db[chat_id].append(put)
         
-    # Add to autoclean list to remove file later
-    if file not in autoclean:
-        autoclean.append(file)
+    # 🔥 تعديل احترافي: عدم إضافة الروابط أو الـ IDs لقائمة التنظيف (Autoclean)
+    if isinstance(file, str) and not file.startswith(("http", "vid_", "youtube")):
+        if file not in autoclean:
+            autoclean.append(file)
 
 
 async def put_queue_index(
@@ -75,11 +75,11 @@ async def put_queue_index(
     Queue Insert for M3U8 / Live Streams / Index Links
     """
     # Specific check for known IP streams or direct URLs
-    if "20.212.146.162" in vidid:
+    if "20.212.146.162" in str(vidid):
         try:
-            dur = await asyncio.get_event_loop().run_in_executor(
-                None, check_duration, vidid
-            )
+            # 🔥 تحديث بايثون 3.13
+            loop = asyncio.get_running_loop()
+            dur = await loop.run_in_executor(None, check_duration, vidid)
             duration = seconds_to_min(dur)
         except:
             duration = "ᴜʀʟ sᴛʀᴇᴀᴍ"
@@ -99,15 +99,12 @@ async def put_queue_index(
         "played": 0,
     }
     
+    # Initialize list if chat_id not in db
+    if chat_id not in db:
+        db[chat_id] = []
+        
     if forceplay:
-        check = db.get(chat_id)
-        if check:
-            check.insert(0, put)
-        else:
-            db[chat_id] = []
-            db[chat_id].append(put)
+        db[chat_id].insert(0, put)
     else:
-        # Create list if not exists, then append
-        if chat_id not in db:
-            db[chat_id] = []
         db[chat_id].append(put)
+
