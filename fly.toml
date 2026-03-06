@@ -1,4 +1,4 @@
-app = "anniexboda-58zqrq"
+app = "anniexboda-1dnefw"
 primary_region = "iad"
 
 # ===============================
@@ -61,5 +61,5 @@ primary_region = "iad"
 # ===============================
 [[vm]]
   cpu_kind = "performance"
-  cpus = 16
+  cpus = 10
   memory_mb = 131072
