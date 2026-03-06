@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: Stream Controller (Logic & Queue Bridge)
-# Updated: Python 3.13 Native, DRY Code, Direct Link Expiration Fix
+# Updated: Python 3.13 Native, DRY Code, Direct Link Expiration Fix, Bug Fix
 
 import asyncio
 from random import randint
@@ -122,7 +122,6 @@ async def stream(
             if duration_sec and duration_sec > config.DURATION_LIMIT: continue
 
             if await is_active_chat(chat_id):
-                # Save identifier 'vid_{vidid}' NOT direct link
                 await put_queue(
                     chat_id, original_chat_id, f"vid_{vidid}", title, duration_min,
                     user_name, vidid, user_id, "video" if is_video else "audio",
@@ -174,7 +173,6 @@ async def stream(
     # ==========================
     # 3. UNIFIED MEDIA MODE (YT, SC, TG, LIVE, INDEX)
     # ==========================
-    # Extract details safely
     is_index = (streamtype == "index")
     is_live = (streamtype == "live")
     
@@ -189,8 +187,7 @@ async def stream(
         duration_min = "Live Track" if is_live else result.get("duration_min", result.get("dur", "00:00"))
         file_path = result.get("path", result.get("filepath", ""))
 
-    # --- Handle Queue Path ---
-    # Crucial Fix: Store 'vid_id' instead of expiring direct URLs for YouTube
+    # Handle Queue Path
     if streamtype == "youtube":
         q_path = f"vid_{vidid}"
     elif is_live:
@@ -222,11 +219,11 @@ async def stream(
     # --- ACTION 2: PLAY IMMEDIATELY ---
     if not forceplay: db[chat_id] = []
 
-    # Get streamable direct path based on type
     play_path = file_path
     try:
         if streamtype == "youtube":
-            play_path, _ = await YouTube.download(vidid, mystic, video=is_video, videoid=get_download_id(vidid))
+            # تم إصلاح الخطأ هنا: استخدام direct بدلاً من _
+            play_path, direct = await YouTube.download(vidid, mystic, video=is_video, videoid=get_download_id(vidid))
         elif is_live:
             n, play_path = await YouTube.video(link)
             if n == 0: raise AssistantErr(_["str_3"])
@@ -242,7 +239,6 @@ async def stream(
         await safe_delete(mystic)
         return await app.send_message(original_chat_id, text=f"Error: {e}")
 
-    # Register in DB as currently playing
     if is_index:
         await put_queue_index(chat_id, original_chat_id, q_path, title, duration_min, user_name, link, "video" if is_video else "audio", forceplay=True)
     else:
@@ -264,7 +260,7 @@ async def stream(
     elif streamtype == "index":
         photo = config.STREAM_IMG_URL
         caption = _["stream_2"].format(user_name)
-    else: # YouTube & Live
+    else:
         photo = await get_thumb(vidid)
         caption = _["stream_1"].format(f"https://t.me/{app.username}?start=info_{vidid}", title[:23], duration_min, user_name)
 
