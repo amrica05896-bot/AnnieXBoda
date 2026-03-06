@@ -630,15 +630,6 @@ class YouTubeAPI:
             direct = None
 
         if direct:
-            # schedule background cache
-            def _delayed_cache():
-                try:
-                    time.sleep(6)
-                    out_template = f"{ram_base}.%(ext)s"
-                    self._background_download(prepared, out_template, is_video)
-                except Exception:
-                    pass
-            loop.run_in_executor(self.pool, _delayed_cache)
             return direct, True
 
         # 4) fallback: download to RAM immediately
