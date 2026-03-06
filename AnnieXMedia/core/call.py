@@ -1,10 +1,13 @@
 import asyncio
+import logging
+import time
 from datetime import datetime, timedelta
 from typing import Union, Optional
-from asyncio import Lock  # 👈 تم استدعاء مكتبة الأقفال لمنع التداخل
+from asyncio import Lock
 
 import yt_dlp
-from pyrogram.types import InlineKeyboardMarkup
+from pyrogram import enums, errors
+from pyrogram.types import InlineKeyboardMarkup, InputMediaPhoto
 from pyrogram.errors import ChatAdminRequired
 
 # Imports based on PyTgCalls v3.0 Docs
@@ -47,6 +50,15 @@ from AnnieXMedia.utils.stream.autoclear import auto_clean
 from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
+# ✨ ميزة من Hasii: إخفاء أخطاء PyTgCalls الوهمية من الكونسول
+class PyTgCallsErrorFilter(logging.Filter):
+    def filter(self, record):
+        if 'UpdateGroupCall' in record.getMessage(): return False
+        if 'Connection with chat id' in record.getMessage() and 'not found' in record.getMessage(): return False
+        return True
+
+logging.getLogger('pyrogram.dispatcher').addFilter(PyTgCallsErrorFilter())
+
 autoend = {}
 counter = {}
 
@@ -77,28 +89,22 @@ async def get_direct_link(videoid: str, video: bool = False):
 def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> MediaStream:
     """
     Constructs a MediaStream object compatible with PyTgCalls v3.0.
-    Handles Audio/Video flags and FFmpeg parameters.
+    ✨ تعديلات Hasii: تم إضافة إعدادات البافر لمنع التقطيع، وتم مسح reconnect، مع الحفاظ على threads للسيرفر.
     """
     path = str(path)
-    is_url = path.startswith("http")
     
-    # 1. Base FFmpeg parameters
+    # 1. Base FFmpeg parameters (دمج قوة Hasii مع Annie)
+    # استخدام 2 كور للمكالمة + أحجام بافر كبيرة + ضبط التزامن
     base_flags = (
         "-threads 2 "
-        "-probesize 10M -analyzeduration 10M "
+        "-probesize 10M -analyzeduration 10M -rtbufsize 5M "
         "-fflags +genpts+igndts+nobuffer -sync ext "
     )
-    
-    # 2. Input specific flags
-    if is_url:
-        base_flags += "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 5 "
-    else:
-        base_flags += "-re "
 
-    # 3. Add Custom Opts (like Seek -ss)
+    # 2. Add Custom Opts (like Seek -ss)
     final_ffmpeg = base_flags + ffmpeg_opts
 
-    # 4. Return the Universal MediaStream Object
+    # 3. Return the Universal MediaStream Object
     return MediaStream(
         media_path=path,
         audio_parameters=AudioQuality.HIGH, 
@@ -137,143 +143,168 @@ class Call:
         self.five = PyTgCalls(self.userbot5) if self.userbot5 else None
 
         self.active_calls: set[int] = set()
-        self.chat_locks: dict[int, Lock] = {}  # 👈 سجل الأقفال (لحماية كل جروب على حدة)
+        self.chat_locks: dict[int, Lock] = {}
+        
+        # ✨ ميزة من Hasii: منع تكرار الأوامر لو فيه أكتر من مساعد في الجروب
+        self._stream_end_cache = {} 
 
-    # 👈 الدالة المسؤولة عن توفير قفل آمن لكل جروب
     def get_lock(self, chat_id: int) -> Lock:
         if chat_id not in self.chat_locks:
             self.chat_locks[chat_id] = Lock()
         return self.chat_locks[chat_id]
 
-    # --- Ping System ---
-    async def ping(self) -> str:
-        return "PONG"
+    # ✨ ميزة من Hasii: التعامل مع حظر تيليجرام لتعديل وإرسال الرسايل
+    async def _edit_media_with_retry(self, message, media_obj: InputMediaPhoto, reply_markup):
+        try: return await message.edit_media(media=media_obj, reply_markup=reply_markup)
+        except errors.FloodWait as fw:
+            await asyncio.sleep(fw.value + 1)
+            try: return await message.edit_media(media=media_obj, reply_markup=reply_markup)
+            except: return None
+        except: return None
+
+    async def _send_photo_with_retry(self, chat_id: int, photo, caption: str, reply_markup):
+        try: return await app.send_photo(chat_id=chat_id, photo=photo, caption=caption, reply_markup=reply_markup)
+        except errors.FloodWait as fw:
+            await asyncio.sleep(fw.value + 1)
+            try: return await app.send_photo(chat_id=chat_id, photo=photo, caption=caption, reply_markup=reply_markup)
+            except: return None
+        except: return None
 
     # --- Standard Controls ---
     async def pause_stream(self, chat_id: int) -> None:
-        async with self.get_lock(chat_id): # 👈 حماية
+        async with self.get_lock(chat_id):
             assistant = await group_assistant(self, chat_id)
             await assistant.pause(chat_id)
 
     async def resume_stream(self, chat_id: int) -> None:
-        async with self.get_lock(chat_id): # 👈 حماية
+        async with self.get_lock(chat_id):
             assistant = await group_assistant(self, chat_id)
             await assistant.resume(chat_id)
 
     async def mute_stream(self, chat_id: int) -> None:
-        async with self.get_lock(chat_id): # 👈 حماية
+        async with self.get_lock(chat_id):
             assistant = await group_assistant(self, chat_id)
             await assistant.mute(chat_id)
 
     async def unmute_stream(self, chat_id: int) -> None:
-        async with self.get_lock(chat_id): # 👈 حماية
+        async with self.get_lock(chat_id):
             assistant = await group_assistant(self, chat_id)
             await assistant.unmute(chat_id)
 
     async def stop_stream(self, chat_id: int) -> None:
-        async with self.get_lock(chat_id): # 👈 حماية لمنع مسح البيانات أثناء التشغيل
+        async with self.get_lock(chat_id):
             assistant = await group_assistant(self, chat_id)
-            await _clear_(chat_id)
+            
+            # ✨ ميزة من Hasii: إيقاف التحميل المسبق عند إيقاف البوت
             try:
-                await assistant.leave_call(chat_id)
+                from AnnieXMedia import preload
+                await preload.cancel_preload(chat_id)
             except: pass
-            finally:
-                self.active_calls.discard(chat_id)
+            
+            await _clear_(chat_id)
+            try: await assistant.leave_call(chat_id)
+            except: pass
+            finally: self.active_calls.discard(chat_id)
 
     async def force_stop_stream(self, chat_id: int) -> None:
-        async with self.get_lock(chat_id): # 👈 حماية
+        async with self.get_lock(chat_id):
             assistant = await group_assistant(self, chat_id)
             try:
                 check = db.get(chat_id)
                 if check: check.pop(0)
             except: pass
+            
+            try:
+                from AnnieXMedia import preload
+                await preload.cancel_preload(chat_id)
+            except: pass
+
             await remove_active_video_chat(chat_id)
             await remove_active_chat(chat_id)
             await _clear_(chat_id)
-            try:
-                await assistant.leave_call(chat_id)
+            try: await assistant.leave_call(chat_id)
             except: pass
-            finally:
-                self.active_calls.discard(chat_id)
+            finally: self.active_calls.discard(chat_id)
 
-    # --- Volume Control ---
     async def change_volume_call(self, chat_id: int, volume: int) -> None:
-        async with self.get_lock(chat_id): # 👈 حماية
+        async with self.get_lock(chat_id):
             assistant = await group_assistant(self, chat_id)
-            try:
-                await assistant.change_volume_call(chat_id, volume)
+            try: await assistant.change_volume_call(chat_id, volume)
             except Exception as e:
                 LOGGER(__name__).error(f"Failed to change volume for {chat_id}: {e}")
                 raise AssistantErr(f"Failed to change volume: {e}")
 
-    # --- Advanced Controls (Seek & Skip) ---
+    # --- Advanced Controls ---
     async def seek_stream(self, chat_id: int, file_path: str, to_seek: int, duration: int, mode: str) -> None:
-        async with self.get_lock(chat_id): # 👈 حماية
+        async with self.get_lock(chat_id):
             assistant = await group_assistant(self, chat_id)
             ffmpeg_opts = f"-ss {to_seek} "
             is_video = (mode == "video")
-            
             stream = _build_stream(file_path, video=is_video, ffmpeg_opts=ffmpeg_opts)
-            
-            await assistant.play(
-                chat_id,
-                stream,
-                config=GroupCallConfig(auto_start=True)
-            )
+            await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=True))
 
     async def skip_stream(self, chat_id: int, link: str, video: bool = False) -> None:
-        async with self.get_lock(chat_id): # 👈 حماية
+        async with self.get_lock(chat_id):
             assistant = await group_assistant(self, chat_id)
             stream = _build_stream(link, video=video)
-            
-            await assistant.play(
-                chat_id,
-                stream,
-                config=GroupCallConfig(auto_start=True)
-            )
+            await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=True))
 
     # --- Core Join/Play Logic ---
     async def join_call(self, chat_id: int, original_chat_id: int, link: str, video: bool = False, image: str = None) -> None:
-        async with self.get_lock(chat_id): # 👈 القفل الأساسي لمنع التداخل في الجروبات الجديدة
+        async with self.get_lock(chat_id):
             assistant = await group_assistant(self, chat_id)
             lang = await get_lang(chat_id)
             _ = get_string(lang)
 
-            final_link = link
-            if "youtube" in str(link) or "youtu.be" in str(link):
-                pass
+            # ✨ ميزة من Hasii: التأكد إن البوت مش مطرود أو المايك مقفول
+            try:
+                chat = await app.get_chat(chat_id)
+                if chat.type == enums.ChatType.CHANNEL:
+                    assistant_member = await app.get_chat_member(chat_id, assistant.me.id)
+                    if assistant_member.status == enums.ChatMemberStatus.BANNED:
+                        raise AssistantErr("❌ Assistant is banned in this channel.")
+            except: pass
 
+            final_link = link
             stream = _build_stream(final_link, video=video)
 
-            try:
-                await assistant.play(
-                    chat_id,
-                    stream,
-                    config=GroupCallConfig(auto_start=True)
-                )
-                
-                self.active_calls.add(chat_id)
-                await add_active_chat(chat_id)
-                await music_on(chat_id)
-                if video:
-                    await add_active_video_chat(chat_id)
-                
-                if await is_autoend():
-                    counter[chat_id] = {}
-                    try:
-                        users = len(await assistant.get_participants(chat_id))
-                        if users == 1:
-                            autoend[chat_id] = datetime.now() + timedelta(minutes=1)
-                    except: pass
-                        
-            except NoActiveGroupCall:
-                 raise AssistantErr(_["call_8"])
-            except ChatAdminRequired:
-                raise AssistantErr(_["call_8"])
-            except Exception as e:
-                if "group call not found" in str(e).lower():
+            # ✨ ميزة من Hasii: نظام إعادة المحاولة (Retry) في حالة تهنيج حالة المكالمة
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    await assistant.play(chat_id, stream, config=GroupCallConfig(auto_start=True))
+                    break # نجاح
+                except (NoActiveGroupCall, ChatAdminRequired):
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(1)
+                        continue
                     raise AssistantErr(_["call_8"])
-                raise AssistantErr(f"Error: {e}")
+                except Exception as e:
+                    if "group call not found" in str(e).lower() or "cannot be initialized" in str(e).lower():
+                        if attempt < max_retries - 1:
+                            try: await assistant.leave_call(chat_id)
+                            except: pass
+                            await asyncio.sleep(1)
+                            continue
+                    raise AssistantErr(f"Error: {e}")
+
+            self.active_calls.add(chat_id)
+            await add_active_chat(chat_id)
+            await music_on(chat_id)
+            if video: await add_active_video_chat(chat_id)
+            
+            if await is_autoend():
+                counter[chat_id] = {}
+                try:
+                    users = len(await assistant.get_participants(chat_id))
+                    if users == 1: autoend[chat_id] = datetime.now() + timedelta(minutes=1)
+                except: pass
+
+            # ✨ ميزة من Hasii: بدء التحميل المسبق للأغاني الجاية
+            try:
+                from AnnieXMedia import preload
+                asyncio.create_task(preload.start_preload(chat_id, count=2))
+            except: pass
 
     async def start(self) -> None:
         LOGGER(__name__).info("Starting PyTgCalls Clients (v3.0)...")
@@ -288,27 +319,33 @@ class Call:
         assistants = list(filter(None, [self.one, self.two, self.three, self.four, self.five]))
         
         for assistant in assistants:
-            
             @assistant.on_update(filters.stream_end())
             async def stream_end_handler(client, update: Update):
                 chat_id = update.chat_id
+                
+                # ✨ ميزة من Hasii: نظام الكاش لمنع التكرار لو فيه أكتر من مساعد
+                current_time = asyncio.get_event_loop().time()
+                if chat_id in self._stream_end_cache:
+                    if current_time - self._stream_end_cache[chat_id] < 2.0:
+                        return # رسالة مكررة، تجاهلها
+                self._stream_end_cache[chat_id] = current_time
+                self._stream_end_cache = {cid: t for cid, t in self._stream_end_cache.items() if current_time - t < 5.0}
+                
                 LOGGER(__name__).info(f"Stream ended for chat {chat_id}")
                 await self.play(client, chat_id)
 
             @assistant.on_update(filters.chat_update(ChatUpdate.Status.LEFT_CALL))
             async def left_call_handler(client, update: Update):
-                chat_id = update.chat_id
-                await self.stop_stream(chat_id)
+                await self.stop_stream(update.chat_id)
             
             @assistant.on_update(filters.chat_update(ChatUpdate.Status.KICKED))
             async def kicked_handler(client, update: Update):
-                chat_id = update.chat_id
-                await self.stop_stream(chat_id)
+                await self.stop_stream(update.chat_id)
 
     # --- Queue Processing ---
     @capture_internal_err
     async def play(self, client, chat_id: int) -> None:
-        async with self.get_lock(chat_id): # 👈 أهم قفل (بيمنع تداخل الطابور نهائياً)
+        async with self.get_lock(chat_id):
             check = db.get(chat_id)
             if not check:
                 await _clear_(chat_id)
@@ -330,6 +367,11 @@ class Call:
                     try: await client.leave_call(chat_id)
                     except: pass
                     finally: self.active_calls.discard(chat_id)
+                    
+                    # ✨ ميزة من Hasii: رسالة الـ Auto End لو الطابور خلص
+                    if config.AUTO_END:
+                        try: await app.send_message(chat_id, "✅ Queue finished. Stream ended automatically.")
+                        except: pass
                     return
             except:
                 try: await _clear_(chat_id); return await client.leave_call(chat_id)
@@ -341,7 +383,7 @@ class Call:
             original_chat_id = check[0].get("chat_id")
             streamtype = check[0].get("streamtype")
             videoid = check[0].get("vidid")
-            duration = check[0].get("dur")
+            duration_str = check[0].get("dur")
             
             is_video = str(streamtype) == "video"
             
@@ -355,43 +397,53 @@ class Call:
             stream = _build_stream(final_link, video=is_video)
 
             try:
-                await client.play(
-                    chat_id,
-                    stream,
-                    config=GroupCallConfig(auto_start=True)
-                )
+                await client.play(chat_id, stream, config=GroupCallConfig(auto_start=True))
                 
-                if is_video:
-                    await add_active_video_chat(chat_id)
-                else:
-                    await remove_active_video_chat(chat_id)
+                if is_video: await add_active_video_chat(chat_id)
+                else: await remove_active_video_chat(chat_id)
 
                 img = await get_thumb(videoid)
                 from AnnieXMedia.utils.inline import stream_markup
                 button = stream_markup(get_string(await get_lang(chat_id)), chat_id)
                 
+                # مسح الرسالة القديمة بنظافة
                 try:
                     if db[chat_id][0].get("mystic"):
                         await db[chat_id][0].get("mystic").delete()
                 except: pass
                 
-                run = await app.send_photo(
+                # ✨ ميزة من Hasii: إضافة شريط التقدم الوهمي الجمالي في الكابشن
+                timer_bar = "—" * 12 + "●" + "—" * 0 # شكل مبدئي للشريط
+                caption_text = get_string(await get_lang(chat_id))["stream_1"].format(
+                    f"https://t.me/{app.username}?start=info_{videoid}", 
+                    title[:23], 
+                    duration_str, 
+                    user
+                )
+                caption_text += f"\n\n⏳ `00:00 {timer_bar} {duration_str}`"
+
+                # إرسال الرسالة بنظام الـ Retry للحماية من الفلود
+                run = await self._send_photo_with_retry(
                     chat_id=original_chat_id,
                     photo=img,
-                    caption=get_string(await get_lang(chat_id))["stream_1"].format(
-                        f"https://t.me/{app.username}?start=info_{videoid}", 
-                        title[:23], 
-                        duration, 
-                        user
-                    ),
+                    caption=caption_text,
                     reply_markup=InlineKeyboardMarkup(button),
                 )
-                db[chat_id][0]["mystic"] = run
-                db[chat_id][0]["markup"] = "stream"
+                
+                if run:
+                    db[chat_id][0]["mystic"] = run
+                    db[chat_id][0]["markup"] = "stream"
+                
+                # ✨ ميزة من Hasii: تشغيل البريلود للأغنية اللي عليها الدور
+                try:
+                    from AnnieXMedia import preload
+                    asyncio.create_task(preload.start_preload(chat_id, count=2))
+                except: pass
                 
             except Exception as e:
                 LOGGER(__name__).error(f"Queue Play Error: {e}")
                 await _clear_(chat_id)
-                await app.send_message(original_chat_id, "Failed to switch stream.")
+                try: await app.send_message(original_chat_id, "❌ Failed to switch stream.")
+                except: pass
 
 StreamController = Call()
