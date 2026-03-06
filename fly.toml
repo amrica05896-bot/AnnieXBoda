@@ -1,65 +1,36 @@
 app = "anniexboda-1dnefw"
 primary_region = "iad"
 
-# ===============================
-# Build Configuration
-# ===============================
 [build]
   dockerfile = "Dockerfile"
 
-# ===============================
-# 🌐 Web Interface (VNC) Port 8080 
-# ===============================
 [http_service]
   internal_port = 8080
   force_https = true
-  # ⚠️ مهم جداً للبوت: منع إيقاف السيرفر تلقائياً عند عدم تصفح الموقع
   auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
 
-# ===============================
-# Environment Variables ([env])
-# ===============================
 [env]
-  # تحسينات بايثون العامة
   PYTHONUNBUFFERED = "1"
   PYTHONDONTWRITEBYTECODE = "1"
-  
-  # توجيه الملفات المؤقتة للرام ديسك (ضروري مع الكود الجديد)
   TMPDIR = "/dev/shm"
-
-  # ⚠️ إجبار النظام على استخدام IPv4 فقط
-  # هذا أهم سطر لمنع حظر يوتيوب (HTTP 429 Errors)
   IP_VERSION = "4"
+  OMP_NUM_THREADS = "10"
+  MKL_NUM_THREADS = "10"
+  NUMEXPR_NUM_THREADS = "10"
 
-  # CPU Acceleration (للاستفادة من الـ 16 كور في OpenCV و Numpy)
-  OMP_NUM_THREADS = "16"
-  MKL_NUM_THREADS = "16"
-  NUMEXPR_NUM_THREADS = "16"
-
-# ===============================
-# Network Tuning (YouTube Booster) 🚀
-# ===============================
 [sysctl]
-  # تفعيل خوارزمية BBR (صاروخ يوتيوب)
   "net.core.default_qdisc" = "fq"
   "net.ipv4.tcp_congestion_control" = "bbr"
-
-  # فتح صنبور الداتا (Buffers) لاستغلال الرام الـ 100 جيجا
   "net.core.rmem_max" = "16777216"
   "net.core.wmem_max" = "16777216"
   "net.ipv4.tcp_rmem" = "4096 87380 16777216"
   "net.ipv4.tcp_wmem" = "4096 65536 16777216"
-  
-  # منع التقطيع عند الضغط
   "net.ipv4.tcp_window_scaling" = "1"
   "net.ipv4.tcp_slow_start_after_idle" = "0"
 
-# ===============================
-# Machine Specs (The Beast)
-# ===============================
 [[vm]]
   cpu_kind = "performance"
   cpus = 10
-  memory_mb = 131072
+  memory_mb = 66560
