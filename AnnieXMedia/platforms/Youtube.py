@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
-# Fixed: Added download_thumb method logic & Search Function & Keep-Alive
+# Fixed: Added download_thumb method logic & Search Function & Keep-Alive & Seek Fix
 
 import asyncio
 import contextlib
@@ -710,6 +710,16 @@ class YouTubeAPI:
         except Exception:
             result = []
         return result
+
+    async def video(self, link: str, download: bool = False):
+        """حل مشكلة إيرور التقديم (Seek)"""
+        path = await self.get_direct_link(link, prefer_audio=False)
+        return (1, path) if path else (0, None)
+
+    async def audio(self, link: str, download: bool = False):
+        """حل مشكلة إيرور التشغيل الصوتي (Seek)"""
+        path = await self.get_direct_link(link, prefer_audio=True)
+        return (1, path) if path else (0, None)
 
 # exported instance
 YouTube = YouTubeAPI()
