@@ -59,32 +59,14 @@ logging.getLogger('pyrogram.dispatcher').addFilter(PyTgCallsErrorFilter())
 autoend = {}
 counter = {}
 
-async def get_direct_link(videoid: str, video: bool = False):
-    if not videoid: return None
-    link = f"https://www.youtube.com/watch?v={videoid}"
-    fmt = "best[ext=mp4]/best" if video else "bestaudio/best"
-    opts = {
-        "format": fmt,
-        "quiet": True,
-        "no_warnings": True,
-        "geo_bypass": True,
-        "nocheckcertificate": True
-    }
-    try:
-        loop = asyncio.get_running_loop()
-        def _extract():
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(link, download=False)
-                return info.get("url")
-        return await loop.run_in_executor(None, _extract)
-    except: return link
-
 def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> MediaStream:
     path = str(path)
+    # إعدادات FFmpeg محدثة لعام 2026 لتناسب المعالجات القوية وتمنع التقطيع
     base_flags = (
-        "-threads 2 "
-        "-probesize 10M -analyzeduration 10M -rtbufsize 5M "
-        "-fflags +genpts+igndts+nobuffer -sync ext "
+        "-threads 0 "
+        "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
+        "-probesize 16M -analyzeduration 20M -rtbufsize 16M "
+        "-fflags +genpts+igndts+fastseek -sync ext "
     )
     final_ffmpeg = base_flags + ffmpeg_opts
     
@@ -335,13 +317,16 @@ class Call:
             duration_str = check[0].get("dur")
             
             is_video = str(streamtype) == "video"
-            
             final_link = queued
-            if "youtube" in str(queued):
+            
+            # إصلاح نظام الطابور: استدعاء الرابط المباشر من YouTube.py السريع مباشرةً
+            if str(streamtype) == "youtube" or "vid_" in str(queued) or "youtube" in str(queued):
                  try:
-                    direct = await get_direct_link(videoid, video=is_video)
-                    if direct: final_link = direct
-                 except: pass
+                    direct = await YouTube.get_direct_link(videoid, prefer_audio=not is_video)
+                    if direct: 
+                        final_link = direct
+                 except Exception as e:
+                     LOGGER(__name__).error(f"Failed to get direct link from queue: {e}")
 
             stream = _build_stream(final_link, video=is_video)
 
