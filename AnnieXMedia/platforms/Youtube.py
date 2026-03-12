@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
-# Fixed: Added download_thumb method logic & Search Function & Keep-Alive & Bypassed YouTube Bot Protection
+# Fixed: Added download_thumb method logic & Search Function & Keep-Alive
 
 import asyncio
 import contextlib
@@ -60,10 +60,6 @@ COOKIE_PATHS = [
     "platforms/cookies.txt",
     "/app/cookies.txt",
 ]
-
-# Magic Args to bypass YouTube "The page needs to be reloaded" issue
-YT_EXTRACTOR_ARGS = "youtube:player_client=android,ios,web;player_skip=webpage,configs"
-YT_EXTRACTOR_DICT = {"youtube": {"player_client": ["android", "ios", "web"], "player_skip": ["webpage", "configs"]}}
 
 def get_cookie_file() -> Optional[str]:
     for p in COOKIE_PATHS:
@@ -202,7 +198,6 @@ class YouTubeAPI:
             "--flat-playlist",
             "--no-warnings",
             "--skip-download",
-            "--extractor-args", YT_EXTRACTOR_ARGS
         ]
         if self.cookie:
             cmd.insert(1, "--cookies")
@@ -264,9 +259,9 @@ class YouTubeAPI:
             return details, data.get("id", "")
 
         # fallback: yt-dlp --dump-json (simple)
-        cmd = ["yt-dlp", "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT), "--extractor-args", YT_EXTRACTOR_ARGS]
+        cmd = ["yt-dlp", "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
         if self.cookie:
-            cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT), "--extractor-args", YT_EXTRACTOR_ARGS]
+            cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
         out, err = await _exec_proc(*cmd, timeout=12)
         if out:
             try:
@@ -287,9 +282,9 @@ class YouTubeAPI:
                 log.debug("dump-json parse failed; stderr=%s", (err.decode() if err else ""))
 
         # second fallback: dump-json with remote-components (EJS GitHub)
-        cmd2 = ["yt-dlp", "--remote-components", "ejs:github", "--dump-json", prepared, "--no-warnings", "--extractor-args", YT_EXTRACTOR_ARGS]
+        cmd2 = ["yt-dlp", "--remote-components", "ejs:github", "--dump-json", prepared, "--no-warnings"]
         if self.cookie:
-            cmd2 = ["yt-dlp", "--cookies", self.cookie, "--remote-components", "ejs:github", "--dump-json", prepared, "--no-warnings", "--extractor-args", YT_EXTRACTOR_ARGS]
+            cmd2 = ["yt-dlp", "--cookies", self.cookie, "--remote-components", "ejs:github", "--dump-json", prepared, "--no-warnings"]
         out2, err2 = await _exec_proc(*cmd2, timeout=16)
         if out2:
             try:
@@ -377,7 +372,7 @@ class YouTubeAPI:
 
     async def formats(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[List[Dict[str, Any]], str]:
         prepared = _normalize_link(link, videoid)
-        ytdl_opts = {"quiet": True, "extractor_args": YT_EXTRACTOR_DICT}
+        ytdl_opts = {"quiet": True}
         if cf := get_cookie_file():
             ytdl_opts["cookiefile"] = cf
         out: List[Dict[str, Any]] = []
@@ -430,7 +425,7 @@ class YouTubeAPI:
                     "noplaylist": True,
                     "skip_download": True,
                     "socket_timeout": YTDLP_SOCKET_TIMEOUT,
-                    "extractor_args": YT_EXTRACTOR_DICT,
+                    "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
                 }
                 if self.cookie:
                     ydl_opts["cookiefile"] = self.cookie
@@ -450,9 +445,9 @@ class YouTubeAPI:
             log.debug("yt-dlp API failed for %s: %s", prepared, info.get("_err") if isinstance(info, dict) else repr(info))
             # try simple -g
             try:
-                cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", "--extractor-args", YT_EXTRACTOR_ARGS, prepared]
+                cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", prepared]
                 if self.cookie:
-                    cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--no-warnings", "--force-ipv4", "--extractor-args", YT_EXTRACTOR_ARGS, prepared]
+                    cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--no-warnings", "--force-ipv4", prepared]
                 out, _err = await _exec_proc(*cmd, timeout=8)
                 if out:
                     candidate = out.decode().splitlines()[0].strip()
@@ -467,9 +462,9 @@ class YouTubeAPI:
                 pass
             # try -g with remote-components ejs:github
             try:
-                cmd = ["yt-dlp", "-g", "--no-warnings", "--remote-components", "ejs:github", "--force-ipv4", "--extractor-args", YT_EXTRACTOR_ARGS, prepared]
+                cmd = ["yt-dlp", "-g", "--no-warnings", "--remote-components", "ejs:github", "--force-ipv4", prepared]
                 if self.cookie:
-                    cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--remote-components", "ejs:github", "--no-warnings", "--force-ipv4", "--extractor-args", YT_EXTRACTOR_ARGS, prepared]
+                    cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--remote-components", "ejs:github", "--no-warnings", "--force-ipv4", prepared]
                 out2, _err2 = await _exec_proc(*cmd, timeout=14)
                 if out2:
                     candidate = out2.decode().splitlines()[0].strip()
@@ -501,9 +496,9 @@ class YouTubeAPI:
         # if no formats, attempt dump-json with remote components
         if not fmts:
             try:
-                cmd = ["yt-dlp", "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings", "--extractor-args", YT_EXTRACTOR_ARGS]
+                cmd = ["yt-dlp", "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
                 if self.cookie:
-                    cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings", "--extractor-args", YT_EXTRACTOR_ARGS]
+                    cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
                 out3, _err3 = await _exec_proc(*cmd, timeout=16)
                 if out3:
                     j = _loads_bytes(out3)
@@ -607,7 +602,7 @@ class YouTubeAPI:
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
                         "force_ipv4": True,
-                        "extractor_args": YT_EXTRACTOR_DICT,
+                        "extractor_args": {"youtube": {"player_client": ["web"]}},
                     }
                     if songaudio:
                         opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
@@ -656,7 +651,7 @@ class YouTubeAPI:
                     "cookiefile": get_cookie_file(),
                     "quiet": True,
                     "force_ipv4": True,
-                    "extractor_args": YT_EXTRACTOR_DICT,
+                    "extractor_args": {"youtube": {"player_client": ["web"]}},
                     "prefer_ffmpeg": True,
                 }
                 if not is_video:
@@ -693,7 +688,7 @@ class YouTubeAPI:
                 "force_ipv4": True,
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
-                "extractor_args": YT_EXTRACTOR_DICT,
+                "extractor_args": {"youtube": {"player_client": ["web"]}},
                 "prefer_ffmpeg": True,
                 "writethumbnail": True,
                 "addmetadata": True,
@@ -715,12 +710,8 @@ class YouTubeAPI:
         cmd = (
             f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
             f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
-            f"--extractor-args '{YT_EXTRACTOR_ARGS}' "
+            f"2>/dev/null"
         )
-        if self.cookie:
-             cmd += f"--cookies '{self.cookie}' "
-        cmd += "2>/dev/null"
-        
         proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         out, _ = await proc.communicate()
         try:
