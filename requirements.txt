@@ -21,7 +21,6 @@ apscheduler
 
 # ===== Media / Audio / Video =====
 yt-dlp
-ffmpeg
 pydub
 mutagen
 hachoir
