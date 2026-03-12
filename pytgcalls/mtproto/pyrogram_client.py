@@ -12,13 +12,7 @@ from pyrogram.errors import AuthBytesInvalid
 from pyrogram.errors import BadRequest
 from pyrogram.errors import FileMigrate
 from pyrogram.errors import FloodWait
-
-# التعديل تم هنا لحل مشكلة استيراد GroupcallForbidden
-try:
-    from pyrogram.errors import GroupcallForbidden
-except ImportError:
-    from pyrogram.errors.exceptions.forbidden_403 import Forbidden as GroupcallForbidden
-
+from pyrogram.errors import GroupcallForbidden
 from pyrogram.raw.base import InputPeer
 from pyrogram.raw.base import InputUser
 from pyrogram.raw.functions.auth import ExportAuthorization
