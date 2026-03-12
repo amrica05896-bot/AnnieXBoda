@@ -20,14 +20,13 @@ pytgcrypto
 apscheduler
 
 # ===== Media / Audio / Video =====
-yt-dlp>=2026.3.3
-ffmpeg-python
+yt-dlp
+ffmpeg
 pydub
 mutagen
 hachoir
 ytmusicapi
 pytubefix
-# ⚠️ تم التبديل لنسخة السيرفرات (أسرع وأخف وتحل مشكلة المساحة)
 opencv-python-headless
 numpy
 pillow>=12.0.0
