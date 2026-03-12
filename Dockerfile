@@ -7,17 +7,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     UV_SYSTEM_PYTHON=1 \
     DENO_INSTALL="/root/.deno" \
-    PATH="/root/.deno/bin:/usr/local/bin:/usr/bin:${PATH}" \
-    USER=root
+    PATH="/root/.deno/bin:/usr/local/bin:/usr/bin:${PATH}"
 
 WORKDIR /app
 
-# ضفنا هنا xfce4 و tightvncserver و novnc و firefox
 RUN apt-get update --fix-missing && \
     apt-get install -y --no-install-recommends \
     build-essential cmake git curl wget unzip \
     ffmpeg aria2 libffi-dev libxml2-dev libxslt-dev zlib1g-dev libssl-dev \
-    xfce4 xfce4-terminal tightvncserver websockify novnc firefox-esr \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && curl -fsSL https://deno.land/install.sh | sh \
@@ -26,12 +23,16 @@ RUN apt-get update --fix-missing && \
 RUN uv pip install --upgrade setuptools wheel
 
 COPY pytgcalls /app/pytgcalls
+
 COPY requirements.txt .
 
 RUN grep -v -E -i '^(py-tgcalls|pytgcalls|deepai|numba|llvmlite|quimb)' requirements.txt > filtered.txt && \
     uv pip install --no-cache -r filtered.txt
 
-RUN uv pip install --no-cache uvloop g4f curl_cffi
+RUN uv pip install --no-cache \
+    uvloop \
+    g4f \
+    curl_cffi
 
 RUN mkdir -p /etc/yt-dlp && \
     echo "--remote-components ejs:github" > /etc/yt-dlp.conf
@@ -40,8 +41,4 @@ RUN yt-dlp "ytsearch1:test" --dump-json > /dev/null 2>&1 || true
 
 COPY . .
 
-# إعطاء صلاحية التشغيل لملف البدء
-RUN chmod +x start.sh
-
-# تغيير أمر التشغيل لملف البدء اللي هيشغل الشاشة والبوت مع بعض
-CMD ["./start.sh"]
+CMD ["python3", "run.py"]
