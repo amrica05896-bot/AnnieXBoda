@@ -19,7 +19,7 @@ pytgcrypto
 # ===== Scheduling =====
 apscheduler
 
-# ===== Media / Audio / Video =====
+# ===== Media / Audio / Video ====
 yt-dlp
 pydub
 mutagen
