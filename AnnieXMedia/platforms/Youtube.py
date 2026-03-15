@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
-# Fixed: Added download_thumb method logic & Search Function & Keep-Alive
+# Fixed: Added download_thumb method logic & Search Function & Keep-Alive & Missing Functions (slider, video)
 
 import asyncio
 import contextlib
@@ -217,6 +217,37 @@ class YouTubeAPI:
                 except Exception:
                     pass
         return results
+
+    # ✅ الإضافة الأولى: دالة slider لمعالجة أزرار التقليب في قائمة التشغيل والبحث
+    async def slider(self, query: str, query_type: int) -> Tuple[str, str, str, str]:
+        results = await self.search(query, limit=10)
+        if not results:
+            raise ValueError("No results found")
+        
+        # حماية من تجاوز الفهرس (Index) لضمان الدوران السليم
+        idx = query_type % len(results)
+        item = results[idx]
+        vid = item["vidid"]
+        
+        # جلب التفاصيل الكاملة للأغنية المختارة
+        d, _ = await self.track(vid, videoid=vid)
+        return d.get("title", "Unknown"), str(d.get("duration_min", "00:00")), d.get("thumb", ""), vid
+
+    # ✅ الإضافة الثانية: دالة video لمعالجة روابط البث المباشر (Live Streams & M3U8)
+    async def video(self, link: str, is_live: bool = False) -> Tuple[int, str]:
+        try:
+            prepared = _normalize_link(link)
+            cmd = ["yt-dlp", "-g", "--force-ipv4", prepared]
+            if self.cookie:
+                cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--force-ipv4", prepared]
+            out, err = await _exec_proc(*cmd, timeout=10)
+            if out:
+                url = out.decode().splitlines()[0].strip()
+                return 1, url
+            return 0, ""
+        except Exception as e:
+            log.debug(f"Video extraction failed: {e}")
+            return 0, ""
 
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
         """Return basic metadata (cached) and vid id."""
