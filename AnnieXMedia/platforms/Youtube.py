@@ -456,7 +456,7 @@ class YouTubeAPI:
                     "noplaylist": True,
                     "skip_download": True,
                     "socket_timeout": YTDLP_SOCKET_TIMEOUT,
-                    "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
+                    "extractor_args": {"youtube": {"player_client": ["mweb"], "player_skip": ["webpage", "configs"]}}, # ✅ تم وضع mweb هنا
                 }
                 if self.cookie:
                     ydl_opts["cookiefile"] = self.cookie
@@ -633,7 +633,7 @@ class YouTubeAPI:
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
                         "force_ipv4": True,
-                        "extractor_args": {"youtube": {"player_client": ["web"]}},
+                        "extractor_args": {"youtube": {"player_client": ["mweb"]}}, # ✅ تم وضع mweb هنا
                     }
                     if songaudio:
                         opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
@@ -661,15 +661,15 @@ class YouTubeAPI:
             direct = None
 
         if direct:
-            # schedule background cache
-            def _delayed_cache():
-                try:
-                    time.sleep(6)
-                    out_template = f"{ram_base}.%(ext)s"
-                    self._background_download(prepared, out_template, is_video)
-                except Exception:
-                    pass
-            loop.run_in_executor(self.pool, _delayed_cache)
+            # ✅ تم إيقاف التنزيل التلقائي في الخلفية هنا لعدم استهلاك الموارد بدون داعٍ
+            # def _delayed_cache():
+            #     try:
+            #         time.sleep(6)
+            #         out_template = f"{ram_base}.%(ext)s"
+            #         self._background_download(prepared, out_template, is_video)
+            #     except Exception:
+            #         pass
+            # loop.run_in_executor(self.pool, _delayed_cache)
             return direct, True
 
         # 4) fallback: download to RAM immediately
@@ -682,7 +682,7 @@ class YouTubeAPI:
                     "cookiefile": get_cookie_file(),
                     "quiet": True,
                     "force_ipv4": True,
-                    "extractor_args": {"youtube": {"player_client": ["web"]}},
+                    "extractor_args": {"youtube": {"player_client": ["mweb"]}}, # ✅ تم وضع mweb هنا
                     "prefer_ffmpeg": True,
                 }
                 if not is_video:
@@ -719,7 +719,7 @@ class YouTubeAPI:
                 "force_ipv4": True,
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
-                "extractor_args": {"youtube": {"player_client": ["web"]}},
+                "extractor_args": {"youtube": {"player_client": ["mweb"]}}, # ✅ تم وضع mweb هنا للموثوقية
                 "prefer_ffmpeg": True,
                 "writethumbnail": True,
                 "addmetadata": True,
