@@ -1,5 +1,5 @@
 # Ultra Fast YouTube InnerTube (NO API KEY)
-# AnnieXMedia - 2026 Version
+# AnnieXMedia - 2026 FIXED
 
 import asyncio
 import aiohttp
@@ -48,10 +48,14 @@ async def get_session():
 
 
 def get_video_id(link: str) -> str:
+    if not link:
+        return ""
     if "youtu.be" in link:
-        return link.split("/")[-1]
+        return link.split("/")[-1].split("?")[0]
     m = re.search(r"v=([a-zA-Z0-9_-]+)", link)
-    return m.group(1) if m else link
+    if m:
+        return m.group(1)
+    return link
 
 
 def thumbnail(vid):
@@ -94,6 +98,32 @@ class YouTubeAPI:
         async with session.post(url, json=data, headers=HEADERS) as r:
             return await r.json()
 
+    # ✅ FIX: الدالة الناقصة (المهمه)
+    async def url(self, message) -> Optional[str]:
+        if not message:
+            return None
+
+        msgs = [message]
+        if getattr(message, "reply_to_message", None):
+            msgs.append(message.reply_to_message)
+
+        for msg in msgs:
+            text = getattr(msg, "text", None) or getattr(msg, "caption", None) or ""
+            entities = (getattr(msg, "entities", None) or []) + (getattr(msg, "caption_entities", None) or [])
+
+            for ent in entities:
+                try:
+                    if getattr(ent, "type", None) == "url":
+                        off = getattr(ent, "offset", 0)
+                        ln = getattr(ent, "length", 0)
+                        return text[off: off + ln]
+                    if getattr(ent, "url", None):
+                        return ent.url
+                except:
+                    continue
+
+        return None
+
     # =========================
     # SEARCH
     # =========================
@@ -110,19 +140,16 @@ class YouTubeAPI:
 
         results = []
 
-        for item in str(data).split("videoId"):
-            if len(results) >= limit:
-                break
+        # FIX parsing (أفضل بكتير من split)
+        contents = str(data)
+        vids = re.findall(r'"videoId":"(.*?)"', contents)
 
-            try:
-                vid = item.split('"')[2]
-                results.append({
-                    "title": "YouTube Video",
-                    "vidid": vid,
-                    "thumb": thumbnail(vid)
-                })
-            except:
-                pass
+        for vid in vids[:limit]:
+            results.append({
+                "title": "YouTube Video",
+                "vidid": vid,
+                "thumb": thumbnail(vid)
+            })
 
         _cache[query] = (time.time(), results)
         return results
