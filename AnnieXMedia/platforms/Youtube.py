@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
-# Fixed: Added download_thumb method logic & Search Function & Keep-Alive & Missing Functions (slider, video)
+# Fixed: Added download_thumb method logic & Search Function & Keep-Alive & Missing Functions (slider, video) & Boolean ID Fix
 
 import asyncio
 import contextlib
@@ -87,7 +87,8 @@ async def _exec_proc(*args: str, timeout: int = 10) -> Tuple[bytes, bytes]:
         return b"", b"timeout"
 
 def _normalize_link(link: str, videoid: Union[bool, str, None] = None) -> str:
-    if videoid:
+    # ✅ FIX: Prevent boolean True/False from becoming a URL
+    if videoid and str(videoid) not in ["True", "False"]:
         return "https://www.youtube.com/watch?v=" + str(videoid)
     if not link:
         return ""
@@ -276,18 +277,22 @@ class YouTubeAPI:
 
         if results:
             data = results[0]
+            v_id = data.get("id", "")
+            # ✅ FIX: Ignore Boolean True ID
+            if str(v_id) in ["True", "False"]: v_id = ""
+            
             thumb = (data.get("thumbnails") or [{}])[-1].get("url", "")
             details = {
                 "title": data.get("title", "") or "",
                 "link": data.get("link", prepared) or prepared,
-                "vidid": data.get("id", "") or "",
+                "vidid": v_id,
                 "duration_min": data.get("duration"),
                 "thumb": thumb.split("?")[0] if thumb else "",
                 "cookiefile": self.cookie,
             }
             async with _meta_cache_lock:
-                _meta_cache[key] = (now, details, data.get("id", ""))
-            return details, data.get("id", "")
+                _meta_cache[key] = (now, details, v_id)
+            return details, v_id
 
         # fallback: yt-dlp --dump-json (simple)
         cmd = ["yt-dlp", "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
@@ -297,18 +302,22 @@ class YouTubeAPI:
         if out:
             try:
                 info = _loads_bytes(out)
+                v_id = info.get("id", "")
+                # ✅ FIX: Ignore Boolean True ID
+                if str(v_id) in ["True", "False"]: v_id = ""
+                
                 thumb = (info.get("thumbnail") or "").split("?")[0]
                 details = {
                     "title": info.get("title", "") or "",
                     "link": info.get("webpage_url", prepared) or prepared,
-                    "vidid": info.get("id", "") or "",
+                    "vidid": v_id,
                     "duration_min": info.get("duration"),
                     "thumb": thumb,
                     "cookiefile": self.cookie,
                 }
                 async with _meta_cache_lock:
-                    _meta_cache[key] = (now, details, info.get("id", ""))
-                return details, info.get("id", "")
+                    _meta_cache[key] = (now, details, v_id)
+                return details, v_id
             except Exception:
                 log.debug("dump-json parse failed; stderr=%s", (err.decode() if err else ""))
 
@@ -320,18 +329,22 @@ class YouTubeAPI:
         if out2:
             try:
                 info = _loads_bytes(out2)
+                v_id = info.get("id", "")
+                # ✅ FIX: Ignore Boolean True ID
+                if str(v_id) in ["True", "False"]: v_id = ""
+                
                 thumb = (info.get("thumbnail") or "").split("?")[0]
                 details = {
                     "title": info.get("title", "") or "",
                     "link": info.get("webpage_url", prepared) or prepared,
-                    "vidid": info.get("id", "") or "",
+                    "vidid": v_id,
                     "duration_min": info.get("duration"),
                     "thumb": thumb,
                     "cookiefile": self.cookie,
                 }
                 async with _meta_cache_lock:
-                    _meta_cache[key] = (now, details, info.get("id", ""))
-                return details, info.get("id", "")
+                    _meta_cache[key] = (now, details, v_id)
+                return details, v_id
             except Exception:
                 log.debug("remote dump-json parse failed; stderr=%s", (err2.decode() if err2 else ""))
 
@@ -339,11 +352,12 @@ class YouTubeAPI:
 
     async def details(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[str, Optional[str], int, str, str]:
         data, vid = await self.track(link, videoid)
-        if vid == "":
+        # ✅ FIX: Block "True" from passing as a valid ID
+        if not vid or str(vid) in ["True", "False"]:
             raise ValueError("Video not found")
         dur = data.get("duration_min")
         sec = int(self._to_seconds(dur)) if dur else 0
-        return data.get("title", ""), dur, sec, data.get("thumb", ""), vid
+        return data.get("title", ""), dur, sec, data.get("thumb", ""), str(vid)
 
     async def title(self, link: str, videoid: Union[bool, str, None] = None) -> str:
         d, _ = await self.track(link, videoid)
@@ -597,7 +611,8 @@ class YouTubeAPI:
 
         # compute vid
         try:
-            if videoid:
+            # ✅ FIX: Block Boolean IDs here as well
+            if videoid and str(videoid) not in ["True", "False"]:
                 vid = str(videoid)
             elif "v=" in prepared:
                 vid = prepared.split("v=")[1].split("&")[0]
