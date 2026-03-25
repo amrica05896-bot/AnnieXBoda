@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
-# Robust YouTube resolver for AnnieXMedia
-# Fixed: Forced Direct Links Only, iOS/TV Client Bypass (No PO Token required)
+# Robust YouTube resolver for AnnieXMedia (2026)
+# Ultimate Speed: mweb client + Cookies + curl_cffi Impersonation (No Downloads)
 
 import asyncio
 import contextlib
@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import time
-import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse, parse_qs
@@ -48,9 +47,19 @@ _direct_cache_lock = asyncio.Lock()
 _meta_cache: Dict[str, Tuple[float, Dict[str, Any], str]] = {}
 _meta_cache_lock = asyncio.Lock()
 
-# 🚀 الحل: استخدام عميل الايفون والتلفزيون لتجاوز حظر التوكن
-CLIENT_ARGS = ["--extractor-args", "youtube:player_client=ios,tv"]
-CLIENT_API_ARGS = {"youtube": {"player_client": ["ios", "tv"]}}
+# تحديد مسار الكوكيز بذكاء (ليدعم التشغيل من أي مكان في السيرفر)
+COOKIES_PATH = os.path.abspath(os.path.join("AnnieXMedia", "assets", "cookies.txt"))
+if not os.path.exists(COOKIES_PATH):
+    COOKIES_PATH = os.path.abspath(os.path.join("assets", "cookies.txt"))
+if not os.path.exists(COOKIES_PATH):
+    COOKIES_PATH = os.path.abspath("cookies.txt")
+
+# استخدام mweb للحصول على السرعة الصاروخية
+CLIENT_ARGS = ["--extractor-args", "youtube:player_client=mweb,default"]
+if os.path.exists(COOKIES_PATH):
+    CLIENT_ARGS.extend(["--cookies", COOKIES_PATH])
+    
+CLIENT_API_ARGS = {"youtube": {"player_client": ["mweb", "default"]}}
 
 async def _ensure_aio_session() -> aiohttp.ClientSession:
     global _aio_session
@@ -92,7 +101,7 @@ def _parse_expire(url: str) -> Optional[int]:
 async def _probe_url(url: str, timeout: float = PROBE_TIMEOUT) -> Tuple[bool, Optional[str]]:
     try:
         sess = await _ensure_aio_session()
-        headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X)"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         try:
             async with sess.head(url, headers=headers, timeout=timeout) as r:
                 if r.status < 400: return True, r.headers.get("Content-Type")
@@ -110,7 +119,11 @@ class YouTubeAPI:
         self.listbase = "https://youtube.com/playlist?list="
         self.pool = _thread_pool
         self.sema = _extract_sema
-        self.impersonate = False
+        try:
+            import curl_cffi  # type: ignore
+            self.impersonate = True
+        except Exception:
+            self.impersonate = False
 
     async def url(self, message) -> Optional[str]:
         if not message: return None
@@ -217,7 +230,7 @@ class YouTubeAPI:
         key = prepared + ("::audio" if prefer_audio else "::video")
         now = int(time.time())
 
-        # الكاش (0.001 ثانية)
+        # الكاش: الاستجابة في 0.001 ثانية لو الأغنية انطلبت قبل كده
         async with _direct_cache_lock:
             cached = _direct_cache.get(key)
             if cached and cached[0] > now + 3: return cached[1]
@@ -225,9 +238,8 @@ class YouTubeAPI:
         async with self.sema:
             loop = asyncio.get_running_loop()
             def _extract_info_blocking():
-                # جلب الرابط المباشر فقط وتجاهل التنزيل
                 ydl_opts = {
-                    "format": "140/251/bestaudio" if prefer_audio else "best",
+                    "format": "bestaudio/best" if prefer_audio else "best", # استخدام صيغة مرنة عشان ميضربش Error
                     "quiet": True, 
                     "no_warnings": True, 
                     "noplaylist": True, 
@@ -235,9 +247,21 @@ class YouTubeAPI:
                     "socket_timeout": YTDLP_SOCKET_TIMEOUT, 
                     "extractor_args": CLIENT_API_ARGS
                 }
+                
+                # تفعيل الكوكيز لو الملف موجود
+                if os.path.exists(COOKIES_PATH):
+                    ydl_opts["cookiefile"] = COOKIES_PATH
+                    
+                # التخفي باستخدام curl_cffi المتاح في مكتباتك
+                if self.impersonate: 
+                    ydl_opts["impersonate"] = "chrome"
+                    
                 try:
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl: return ydl.extract_info(prepared, download=False)
-                except Exception as e: return {"_err": str(e)}
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl: 
+                        return ydl.extract_info(prepared, download=False)
+                except Exception as e: 
+                    return {"_err": str(e)}
+                    
             info = await loop.run_in_executor(self.pool, _extract_info_blocking)
 
         if info and not info.get("_err"):
@@ -251,17 +275,16 @@ class YouTubeAPI:
 
         return None
 
-    # 🚀 هنا التعديل الأهم: إجبار الدالة على إرجاع رابط مباشر فقط، وإلغاء التنزيل المادي!
+    # دالة التحميل تم تعديلها لإرجاع رابط مباشر (Stream) فقط بدون تنزيل ملفات
     async def download(self, link: str, mystic: Any, video=None, videoid=None, songaudio=None, songvideo=None, format_id=None, title=None) -> Tuple[Optional[str], bool]:
         is_video = bool(video or songvideo)
         prepared = _normalize_link(link, videoid)
         
-        # استخراج الرابط المباشر فقط
         direct_url = await self.get_direct_link(prepared, prefer_audio=not is_video)
         
         if direct_url:
             log.info(f"✅ Extracted Direct Link successfully for {prepared}")
-            return direct_url, True  # True معناها إن ده Stream مش ملف محمل
+            return direct_url, True  # True تعني تشغيل مباشر (Stream) وليس ملف
             
         log.error(f"❌ Failed to extract Direct Link for {prepared}")
         return None, False
