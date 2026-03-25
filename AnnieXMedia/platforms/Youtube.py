@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
-# Fixed: Added download_thumb method logic & Search Function & Keep-Alive
+# Fixed: Boolean ID Fix (True/False truncated error) + mweb + curl_cffi Impersonate
 
 import asyncio
 import contextlib
@@ -87,7 +87,8 @@ async def _exec_proc(*args: str, timeout: int = 10) -> Tuple[bytes, bytes]:
         return b"", b"timeout"
 
 def _normalize_link(link: str, videoid: Union[bool, str, None] = None) -> str:
-    if videoid:
+    # ✅ تم حل مشكلة True / False هنا لتجنب خطأ Incomplete YouTube ID
+    if videoid and str(videoid) not in ["True", "False"]:
         return "https://www.youtube.com/watch?v=" + str(videoid)
     if not link:
         return ""
@@ -246,17 +247,23 @@ class YouTubeAPI:
         if results:
             data = results[0]
             thumb = (data.get("thumbnails") or [{}])[-1].get("url", "")
+            
+            # ✅ حماية معرف الفيديو
+            v_id = data.get("id", "")
+            if str(v_id) in ["True", "False"]:
+                v_id = ""
+
             details = {
                 "title": data.get("title", "") or "",
                 "link": data.get("link", prepared) or prepared,
-                "vidid": data.get("id", "") or "",
+                "vidid": v_id,
                 "duration_min": data.get("duration"),
                 "thumb": thumb.split("?")[0] if thumb else "",
                 "cookiefile": self.cookie,
             }
             async with _meta_cache_lock:
-                _meta_cache[key] = (now, details, data.get("id", ""))
-            return details, data.get("id", "")
+                _meta_cache[key] = (now, details, v_id)
+            return details, v_id
 
         # fallback: yt-dlp --dump-json (simple)
         cmd = ["yt-dlp", "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
@@ -267,17 +274,22 @@ class YouTubeAPI:
             try:
                 info = _loads_bytes(out)
                 thumb = (info.get("thumbnail") or "").split("?")[0]
+                
+                v_id = info.get("id", "")
+                if str(v_id) in ["True", "False"]:
+                    v_id = ""
+
                 details = {
                     "title": info.get("title", "") or "",
                     "link": info.get("webpage_url", prepared) or prepared,
-                    "vidid": info.get("id", "") or "",
+                    "vidid": v_id,
                     "duration_min": info.get("duration"),
                     "thumb": thumb,
                     "cookiefile": self.cookie,
                 }
                 async with _meta_cache_lock:
-                    _meta_cache[key] = (now, details, info.get("id", ""))
-                return details, info.get("id", "")
+                    _meta_cache[key] = (now, details, v_id)
+                return details, v_id
             except Exception:
                 log.debug("dump-json parse failed; stderr=%s", (err.decode() if err else ""))
 
@@ -290,17 +302,22 @@ class YouTubeAPI:
             try:
                 info = _loads_bytes(out2)
                 thumb = (info.get("thumbnail") or "").split("?")[0]
+                
+                v_id = info.get("id", "")
+                if str(v_id) in ["True", "False"]:
+                    v_id = ""
+
                 details = {
                     "title": info.get("title", "") or "",
                     "link": info.get("webpage_url", prepared) or prepared,
-                    "vidid": info.get("id", "") or "",
+                    "vidid": v_id,
                     "duration_min": info.get("duration"),
                     "thumb": thumb,
                     "cookiefile": self.cookie,
                 }
                 async with _meta_cache_lock:
-                    _meta_cache[key] = (now, details, info.get("id", ""))
-                return details, info.get("id", "")
+                    _meta_cache[key] = (now, details, v_id)
+                return details, v_id
             except Exception:
                 log.debug("remote dump-json parse failed; stderr=%s", (err2.decode() if err2 else ""))
 
@@ -308,11 +325,12 @@ class YouTubeAPI:
 
     async def details(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[str, Optional[str], int, str, str]:
         data, vid = await self.track(link, videoid)
-        if vid == "":
+        # ✅ حماية إضافية
+        if not vid or str(vid) in ["True", "False"]:
             raise ValueError("Video not found")
         dur = data.get("duration_min")
         sec = int(self._to_seconds(dur)) if dur else 0
-        return data.get("title", ""), dur, sec, data.get("thumb", ""), vid
+        return data.get("title", ""), dur, sec, data.get("thumb", ""), str(vid)
 
     async def title(self, link: str, videoid: Union[bool, str, None] = None) -> str:
         d, _ = await self.track(link, videoid)
@@ -425,7 +443,8 @@ class YouTubeAPI:
                     "noplaylist": True,
                     "skip_download": True,
                     "socket_timeout": YTDLP_SOCKET_TIMEOUT,
-                    "extractor_args": {"youtube": {"player_client": ["android", "web"], "player_skip": ["webpage", "configs"]}},
+                    # ✅ تم التعديل لتشغيل mweb مع دعم كامل لمتصفح Chrome
+                    "extractor_args": {"youtube": {"player_client": ["mweb", "default"], "player_skip": ["webpage", "configs"]}},
                 }
                 if self.cookie:
                     ydl_opts["cookiefile"] = self.cookie
@@ -445,9 +464,9 @@ class YouTubeAPI:
             log.debug("yt-dlp API failed for %s: %s", prepared, info.get("_err") if isinstance(info, dict) else repr(info))
             # try simple -g
             try:
-                cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", prepared]
+                cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", "--extractor-args", "youtube:player_client=mweb,default", prepared]
                 if self.cookie:
-                    cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--no-warnings", "--force-ipv4", prepared]
+                    cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--no-warnings", "--force-ipv4", "--extractor-args", "youtube:player_client=mweb,default", prepared]
                 out, _err = await _exec_proc(*cmd, timeout=8)
                 if out:
                     candidate = out.decode().splitlines()[0].strip()
@@ -462,9 +481,9 @@ class YouTubeAPI:
                 pass
             # try -g with remote-components ejs:github
             try:
-                cmd = ["yt-dlp", "-g", "--no-warnings", "--remote-components", "ejs:github", "--force-ipv4", prepared]
+                cmd = ["yt-dlp", "-g", "--no-warnings", "--remote-components", "ejs:github", "--force-ipv4", "--extractor-args", "youtube:player_client=mweb,default", prepared]
                 if self.cookie:
-                    cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--remote-components", "ejs:github", "--no-warnings", "--force-ipv4", prepared]
+                    cmd = ["yt-dlp", "-g", "--cookies", self.cookie, "--remote-components", "ejs:github", "--no-warnings", "--force-ipv4", "--extractor-args", "youtube:player_client=mweb,default", prepared]
                 out2, _err2 = await _exec_proc(*cmd, timeout=14)
                 if out2:
                     candidate = out2.decode().splitlines()[0].strip()
@@ -496,9 +515,9 @@ class YouTubeAPI:
         # if no formats, attempt dump-json with remote components
         if not fmts:
             try:
-                cmd = ["yt-dlp", "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
+                cmd = ["yt-dlp", "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings", "--extractor-args", "youtube:player_client=mweb,default"]
                 if self.cookie:
-                    cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
+                    cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings", "--extractor-args", "youtube:player_client=mweb,default"]
                 out3, _err3 = await _exec_proc(*cmd, timeout=16)
                 if out3:
                     j = _loads_bytes(out3)
@@ -566,7 +585,8 @@ class YouTubeAPI:
 
         # compute vid
         try:
-            if videoid:
+            # ✅ تم حل مشكلة الحماية في هذه الدالة أيضاً لمنع True/False
+            if videoid and str(videoid) not in ["True", "False"]:
                 vid = str(videoid)
             elif "v=" in prepared:
                 vid = prepared.split("v=")[1].split("&")[0]
@@ -602,7 +622,8 @@ class YouTubeAPI:
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
                         "force_ipv4": True,
-                        "extractor_args": {"youtube": {"player_client": ["web"]}},
+                        # ✅ تفعيل mweb هنا
+                        "extractor_args": {"youtube": {"player_client": ["mweb", "default"]}},
                     }
                     if songaudio:
                         opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
@@ -651,7 +672,8 @@ class YouTubeAPI:
                     "cookiefile": get_cookie_file(),
                     "quiet": True,
                     "force_ipv4": True,
-                    "extractor_args": {"youtube": {"player_client": ["web"]}},
+                    # ✅ تفعيل mweb في الخطة البديلة أيضاً
+                    "extractor_args": {"youtube": {"player_client": ["mweb", "default"]}},
                     "prefer_ffmpeg": True,
                 }
                 if not is_video:
@@ -688,7 +710,8 @@ class YouTubeAPI:
                 "force_ipv4": True,
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
-                "extractor_args": {"youtube": {"player_client": ["web"]}},
+                # ✅ تفعيل mweb في التحميل الخلفي
+                "extractor_args": {"youtube": {"player_client": ["mweb", "default"]}},
                 "prefer_ffmpeg": True,
                 "writethumbnail": True,
                 "addmetadata": True,
@@ -708,7 +731,7 @@ class YouTubeAPI:
         if "&" in link:
             link = link.split("&")[0]
         cmd = (
-            f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
+            f"yt-dlp --extractor-args 'youtube:player_client=mweb,default' -i --compat-options no-youtube-unavailable-videos "
             f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
             f"2>/dev/null"
         )
