@@ -12,7 +12,7 @@ import orjson
 from youtubesearchpython.aio import VideosSearch
 from pyrogram import enums, types
 
-from Elevenyts import config
+import config
 
 # إعدادات اللوج
 logger = logging.getLogger("AnnieXMedia.YouTube")
