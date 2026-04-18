@@ -1,5 +1,5 @@
 # file: AnnieXMedia/platforms/Youtube.py
-# 100% Fully Compatible with AnnieXMedia Call System + Ultra Fast API
+# Optimized for Abdullah's 10-Core Fly.io API (2026 Edition)
 
 import asyncio
 import re
@@ -18,16 +18,16 @@ try:
 except ImportError:
     import json as orjson
 
-# Logging Setup
+# إعداد السجلات
 log = logging.getLogger("AnnieXMedia.YouTube")
-log.setLevel(logging.INFO)
 
 # ==========================================
-# ⚡ إعدادات API السريع جداً
+# ⚡ إعدادات API السيرفر الـ 10 كور الخاص بك
 # ==========================================
-API_URL = getattr(config, "YOUTUBE_API_URL", "https://shrutibots.site")
+# تم تثبيت الرابط الخاص بك مباشرة لضمان أعلى سرعة استجابة
+API_URL = "https://api-tx-stq.fly.dev"
 
-# Keep-Alive Connection للحفاظ على السرعة القصوى مع سيرفر 16 كور
+# استخدام TCPConnector للحفاظ على "الماسورة" مفتوحة دائماً
 _aio_connector = aiohttp.TCPConnector(limit=100, ssl=False, keepalive_timeout=300)
 _aio_session: Optional[aiohttp.ClientSession] = None
 
@@ -40,19 +40,17 @@ async def get_session() -> aiohttp.ClientSession:
 class YouTubeAPI:
     def __init__(self):
         self.base = "https://www.youtube.com/watch?v="
-        self.listbase = "https://youtube.com/playlist?list="
         self.regex = re.compile(
             r"(https?://)?(www\.|m\.|music\.)?"
             r"(youtube\.com/(watch\?v=|shorts/|playlist\?list=)|youtu\.be/)"
             r"([A-Za-z0-9_-]{11}|PL[A-Za-z0-9_-]+)([&?][^\s]*)?"
         )
+        # السماح بـ 15 طلب متوازي لاستغلال الـ 10 كور بكفاءة
         self._api_sema = asyncio.Semaphore(15)
 
-    # ✅ تم إضافة async هنا عشان الـ play decorator
     async def valid(self, url: str) -> bool:
         return bool(re.match(self.regex, url))
 
-    # ✅ تم إضافة async هنا عشان الـ play decorator
     async def url(self, message) -> Optional[str]:
         if not message:
             return None
@@ -65,35 +63,24 @@ class YouTubeAPI:
             entities = (getattr(msg, "entities", None) or []) + (getattr(msg, "caption_entities", None) or [])
             for ent in entities:
                 try:
-                    t = getattr(ent, "type", None)
-                    off = getattr(ent, "offset", None)
-                    ln = getattr(ent, "length", None)
-                    if t == "url" and off is not None and ln is not None:
-                        return text[off: off + ln].split("&si")[0]
-                    u = getattr(ent, "url", None)
-                    if u:
-                        return u.split("&si")[0]
-                except Exception:
+                    if ent.type == enums.MessageEntityType.URL:
+                        return text[ent.offset : ent.offset + ent.length].split("&si")[0]
+                    if ent.url:
+                        return ent.url.split("&si")[0]
+                except:
                     continue
         return None
 
-    def _to_seconds(self, t: Optional[Union[str,int]]) -> int:
-        if not t:
-            return 0
-        if isinstance(t, int):
-            return t
+    def _to_seconds(self, t: Optional[Union[str, int]]) -> int:
+        if not t: return 0
+        if isinstance(t, int): return t
         try:
             parts = [int(p) for p in str(t).split(":")]
             s = 0
-            for p in parts:
-                s = s * 60 + p
+            for p in parts: s = s * 60 + p
             return s
-        except Exception:
-            return 0
+        except: return 0
 
-    # ---------------------------------------------------------
-    # دوال جلب التفاصيل الأساسية المتوافقة مع سورس أنين
-    # ---------------------------------------------------------
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
         vid = ""
         if videoid and str(videoid) not in ["True", "False"]:
@@ -103,7 +90,6 @@ class YouTubeAPI:
             except: pass
             
         query = vid if vid else link
-
         try:
             res = await VideosSearch(query, limit=1).next()
             results = res.get("result", [])
@@ -111,168 +97,64 @@ class YouTubeAPI:
                 data = results[0]
                 v_id = data.get("id", vid)
                 thumb = (data.get("thumbnails") or [{}])[-1].get("url", "").split("?")[0]
-                duration = data.get("duration", "0:00")
                 details = {
                     "title": data.get("title", "Unknown"),
-                    "link": data.get("link", f"https://www.youtube.com/watch?v={v_id}"),
+                    "link": f"https://www.youtube.com/watch?v={v_id}",
                     "vidid": v_id,
-                    "duration_min": duration,
+                    "duration_min": data.get("duration", "0:00"),
                     "thumb": thumb,
                 }
                 return details, v_id
         except Exception as e:
-            log.debug(f"Track search error: {e}")
-            
+            log.debug(f"Search error: {e}")
         return {"title": "Unknown", "duration_min": "0:00", "thumb": "", "vidid": vid, "link": link}, vid
 
     async def details(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[str, Optional[str], int, str, str]:
         data, vid = await self.track(link, videoid)
         dur = data.get("duration_min", "0:00")
-        sec = self._to_seconds(dur)
-        return data.get("title", "Unknown"), dur, sec, data.get("thumb", ""), str(vid)
+        return data["title"], dur, self._to_seconds(dur), data["thumb"], str(vid)
 
-    async def title(self, link: str, videoid: Union[bool, str, None] = None) -> str:
-        d, _ = await self.track(link, videoid)
-        return d.get("title", "Unknown")
-
-    async def duration(self, link: str, videoid: Union[bool, str, None] = None) -> Optional[str]:
-        d, _ = await self.track(link, videoid)
-        return d.get("duration_min")
-
-    async def thumbnail(self, link: str, videoid: Union[bool, str, None] = None) -> str:
-        d, _ = await self.track(link, videoid)
-        return d.get("thumb", "")
-
-    async def download_thumb(self, url: str) -> Optional[str]:
-        if not url:
-            return None
-        try:
-            base_dir = "downloads"
-            os.makedirs(base_dir, exist_ok=True)
-            path = os.path.join(base_dir, f"thumb_{int(time.time())}.jpg")
-            session = await get_session()
-            async with session.get(url) as resp:
-                if resp.status == 200:
-                    data = await resp.read()
-                    with open(path, "wb") as f:
-                        f.write(data)
-                    return path
-        except Exception:
-            pass
-        return None
-
-    async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
-        try:
-            res = await VideosSearch(query, limit=limit).next()
-            results = []
-            for data in res.get("result", []):
-                results.append({
-                    "title": data.get("title", "Unknown"),
-                    "vidid": data.get("id", ""),
-                    "duration": data.get("duration", "0:00")
-                })
-            return results
-        except Exception:
-            return []
-
-    async def slider(self, query: str, query_type: int) -> Tuple[str, str, str, str]:
-        results = await self.search(query, limit=10)
-        if not results:
-            raise ValueError("No results found")
-        idx = query_type % len(results)
-        item = results[idx]
-        vid = item["vidid"]
-        d, _ = await self.track(vid, videoid=vid)
-        return d.get("title", "Unknown"), str(d.get("duration_min", "0:00")), d.get("thumb", ""), vid
-
-    async def formats(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[List[Dict[str, Any]], str]:
-        return [], link
-
-    async def playlist(self, link, limit, user_id=None, videoid: Union[bool, str] = None):
-        return []
-
-    async def video(self, link: str, is_live: bool = False) -> Tuple[int, str]:
-        return 0, ""
-
-    # ---------------------------------------------------------
-    # 🔥 دالة Direct Link المستخدمة داخل call.py للتبديل بين الأغاني
-    # ---------------------------------------------------------
-    async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
-        vid = ""
-        if "v=" in link:
-            try: vid = link.split("v=")[1].split("&")[0]
-            except: pass
-        if not vid: return link
-        
-        file_type = "audio" if prefer_audio else "video"
-        session = await get_session()
-        try:
-            async with self._api_sema:
-                async with session.get(f"{API_URL}/download", params={"url": vid, "type": file_type}, timeout=7) as resp:
-                    if resp.status == 200:
-                        text = await resp.text()
-                        try: data = orjson.loads(text)
-                        except: import json; data = json.loads(text)
-                        token = data.get("download_token")
-                        if token:
-                            return f"{API_URL}/stream/{vid}?type={file_type}&token={token}"
-        except Exception as e:
-            log.error(f"get_direct_link error for {vid}: {e}")
-        return link  # Fallback to original link if API fails
-
-    # ---------------------------------------------------------
-    # 🔥 دالة Download الأساسية
-    # ---------------------------------------------------------
     async def download(
         self,
         link: str,
         mystic: Any,
         video: Union[bool, str] = None,
         videoid: Union[bool, str] = None,
-        songaudio: Union[bool, str] = None,
-        songvideo: Union[bool, str] = None,
-        format_id: Union[bool, str] = None,
-        title: Union[bool, str] = None,
-    ) -> Union[str, Tuple[Optional[str], bool]]:
+        **kwargs
+    ) -> Optional[str]:
         """
-        ترجع رابط البث المباشر (String) الذي سيخزن في قاعدة البيانات.
+        تتواصل مع الـ API الخاص بك وتجلب الرابط المباشر فوراً.
         """
-        is_video = bool(video or songvideo)
+        vid = str(videoid) if videoid and str(videoid) not in ["True", "False"] else ""
+        if not vid and "v=" in link:
+            vid = link.split("v=")[1].split("&")[0]
         
-        vid = ""
-        if videoid and str(videoid) not in ["True", "False"]:
-            vid = str(videoid)
-        elif link and "v=" in link:
-            try: vid = link.split("v=")[1].split("&")[0]
-            except: pass
-        elif link and "youtu.be/" in link:
-            try: vid = link.split("youtu.be/")[1].split("?")[0]
-            except: pass
-
-        if not vid:
-            return None
-
-        file_type = "video" if is_video else "audio"
+        target_url = f"https://www.youtube.com/watch?v={vid}" if vid else link
+        file_type = "video" if video else "audio"
+        
         session = await get_session()
-
         try:
             async with self._api_sema:
-                async with session.get(f"{API_URL}/download", params={"url": vid, "type": file_type}, timeout=10) as resp:
+                params = {"url": target_url, "type": file_type}
+                async with session.get(f"{API_URL}/download", params=params, timeout=15) as resp:
                     if resp.status == 200:
-                        text = await resp.text()
-                        try:
-                            data = orjson.loads(text)
-                        except:
-                            import json
-                            data = json.loads(text)
-                        
-                        token = data.get("download_token")
-                        if token:
-                            direct_stream_url = f"{API_URL}/stream/{vid}?type={file_type}&token={token}"
-                            return direct_stream_url 
+                        data = await resp.json()
+                        direct_url = data.get("direct_url")
+                        if direct_url:
+                            return direct_url
+                    log.error(f"API Error: {resp.status}")
         except Exception as e:
-            log.error(f"API Streaming Error for {vid}: {e}")
+            log.error(f"Download API Failure: {e}")
+        return None
 
-        return link
+    # دالة التبديل السريع (الرابط المباشر)
+    async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
+        return await self.download(link, None, video=not prefer_audio)
+
+    async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
+        try:
+            res = await VideosSearch(query, limit=limit).next()
+            return [{"title": d["title"], "vidid": d["id"], "duration": d["duration"]} for d in res.get("result", [])]
+        except: return []
 
 YouTube = YouTubeAPI()
