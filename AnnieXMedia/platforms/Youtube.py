@@ -48,10 +48,12 @@ class YouTubeAPI:
         )
         self._api_sema = asyncio.Semaphore(15)
 
-    def valid(self, url: str) -> bool:
+    # ✅ تم إضافة async هنا عشان الـ play decorator
+    async def valid(self, url: str) -> bool:
         return bool(re.match(self.regex, url))
 
-    def url(self, message) -> Optional[str]:
+    # ✅ تم إضافة async هنا عشان الـ play decorator
+    async def url(self, message) -> Optional[str]:
         if not message:
             return None
         msgs = [message]
@@ -219,7 +221,7 @@ class YouTubeAPI:
         return link  # Fallback to original link if API fails
 
     # ---------------------------------------------------------
-    # 🔥 دالة Download الأساسية (متوافقة بنسبة 100%)
+    # 🔥 دالة Download الأساسية
     # ---------------------------------------------------------
     async def download(
         self,
@@ -233,8 +235,7 @@ class YouTubeAPI:
         title: Union[bool, str] = None,
     ) -> Union[str, Tuple[Optional[str], bool]]:
         """
-        ترجع رابط البث المباشر (String) الذي سيخزن في قاعدة البيانات كـ `file` أو `queued`.
-        متوافق مع دالة `call.py` اللي بتعمل fetch للـ file.
+        ترجع رابط البث المباشر (String) الذي سيخزن في قاعدة البيانات.
         """
         is_video = bool(video or songvideo)
         
@@ -256,7 +257,6 @@ class YouTubeAPI:
 
         try:
             async with self._api_sema:
-                # طلب التوكن
                 async with session.get(f"{API_URL}/download", params={"url": vid, "type": file_type}, timeout=10) as resp:
                     if resp.status == 200:
                         text = await resp.text()
@@ -268,14 +268,11 @@ class YouTubeAPI:
                         
                         token = data.get("download_token")
                         if token:
-                            # السورس مستني مسار ملف أو رابط يقدر يشغله
-                            # هنرجعله الرابط ده كـ String مباشر بدل Tuple عشان ميضربش إيرور في الـ DB
                             direct_stream_url = f"{API_URL}/stream/{vid}?type={file_type}&token={token}"
                             return direct_stream_url 
         except Exception as e:
             log.error(f"API Streaming Error for {vid}: {e}")
 
-        # لو فشل، رجع اللينك الأصلي والـ Pytgcalls هيحاول يتعامل معاه
         return link
 
 YouTube = YouTubeAPI()
