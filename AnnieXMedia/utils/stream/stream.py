@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: Stream Controller (Logic & Queue Bridge)
-# Updated: Python 3.13 Native, DRY Code, Structural Pattern Matching, PEP 604
+# Updated: Python 3.14 Native, 10-Core Fly.io API Compatible, PEP 604
 
 import asyncio
 import contextlib
@@ -70,7 +70,7 @@ async def stream(
         return f"{vid}_v" if is_video else str(vid)
 
     # ==========================
-    # Structural Pattern Matching (Python 3.10+ / Highly Optimized in 3.13)
+    # Structural Pattern Matching (Python 3.10+ / Highly Optimized in 3.13+)
     # ==========================
     match streamtype:
         
@@ -84,9 +84,11 @@ async def stream(
             duration_min = result.get("duration_min", "00:00")
 
             try:
-                file_path, direct = await YouTube.download(
+                # 🚀 استلام قيمة واحدة (رابط مباشر) من سيرفر Fly.io
+                file_path = await YouTube.download(
                     vidid, None, video=is_video, videoid=get_download_id(vidid)
                 )
+                direct = True
             except Exception:
                 return await app.send_message(original_chat_id, text=_["play_14"])
 
@@ -169,9 +171,11 @@ async def stream(
                     db[chat_id] = []
 
                 try:
-                    file_path, direct = await YouTube.download(
+                    # 🚀 استلام قيمة واحدة للرابط المباشر في قوائم التشغيل
+                    file_path = await YouTube.download(
                         vidid, mystic, video=is_video, videoid=get_download_id(vidid)
                     )
+                    direct = True
                     if not file_path:
                         continue
                     await StreamController.join_call(chat_id, original_chat_id, file_path, video=is_video)
@@ -312,15 +316,21 @@ async def stream(
             try:
                 match streamtype:
                     case "youtube":
-                        play_path, direct = await YouTube.download(
+                        # 🚀 استلام الرابط المباشر فقط من السيرفر الصاروخي
+                        play_path = await YouTube.download(
                             vidid, mystic, video=is_video, videoid=get_download_id(vidid)
                         )
+                        direct = True
                     case "live":
                         n, play_path = await YouTube.video(link)
+                        direct = True
                         if n == 0:
                             raise AssistantErr(_["str_3"])
                     case "index":
                         play_path = link
+                        direct = True
+                    case _:
+                        direct = False
 
                 if not play_path:
                     raise AssistantErr(_["play_14"])
