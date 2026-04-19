@@ -1,6 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Robust YouTube resolver for AnnieXMedia (2026)
-# Fixed: Added download_thumb method logic & Search Function & Keep-Alive & Missing Functions (slider, video) & Boolean ID Fix
+# Fixed: aiohttp TCPConnector Event Loop Error + Fast Playlist Extraction + MWEB bypass
 
 import asyncio
 import contextlib
@@ -43,8 +43,7 @@ META_CACHE_TTL = 3600
 _thread_pool = ThreadPoolExecutor(max_workers=MAX_YTDLP_THREADS)
 _extract_sema = asyncio.Semaphore(MAX_CONCURRENT_EXTRACTS)
 
-# 🛑 تعديل الجسر (Keep-Alive): زيادة وقت البقاء حياً لمنع الخمول
-_aio_connector = aiohttp.TCPConnector(limit=AIO_CONN_LIMIT, ssl=False, keepalive_timeout=300)
+# تم إزالة _aio_connector من هنا لحل مشكلة RuntimeError
 _aio_session: Optional[aiohttp.ClientSession] = None
 
 _direct_cache: Dict[str, Tuple[int, str]] = {}   # key -> (expiry_epoch, url)
@@ -73,7 +72,9 @@ def get_cookie_file() -> Optional[str]:
 async def _ensure_aio_session() -> aiohttp.ClientSession:
     global _aio_session
     if _aio_session is None or _aio_session.closed:
-        _aio_session = aiohttp.ClientSession(connector=_aio_connector, raise_for_status=False)
+        # ✅ الحل الجذري لمشكلة الـ Event Loop: تعريف الـ Connector هنا
+        connector = aiohttp.TCPConnector(limit=AIO_CONN_LIMIT, ssl=False, keepalive_timeout=300)
+        _aio_session = aiohttp.ClientSession(connector=connector, raise_for_status=False)
     return _aio_session
 
 async def _exec_proc(*args: str, timeout: int = 10) -> Tuple[bytes, bytes]:
@@ -189,7 +190,6 @@ class YouTubeAPI:
                     continue
         return None
 
-    # 🛑 الدالة الجديدة: بحث القائمة (Search 10)
     async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
         """Returns a list of videos [{title, vidid}] for the list command."""
         cmd = [
@@ -219,22 +219,18 @@ class YouTubeAPI:
                     pass
         return results
 
-    # ✅ الإضافة الأولى: دالة slider لمعالجة أزرار التقليب في قائمة التشغيل والبحث
     async def slider(self, query: str, query_type: int) -> Tuple[str, str, str, str]:
         results = await self.search(query, limit=10)
         if not results:
             raise ValueError("No results found")
         
-        # حماية من تجاوز الفهرس (Index) لضمان الدوران السليم
         idx = query_type % len(results)
         item = results[idx]
         vid = item["vidid"]
         
-        # جلب التفاصيل الكاملة للأغنية المختارة
         d, _ = await self.track(vid, videoid=vid)
         return d.get("title", "Unknown"), str(d.get("duration_min", "00:00")), d.get("thumb", ""), vid
 
-    # ✅ الإضافة الثانية: دالة video لمعالجة روابط البث المباشر (Live Streams & M3U8)
     async def video(self, link: str, is_live: bool = False) -> Tuple[int, str]:
         try:
             prepared = _normalize_link(link)
@@ -263,7 +259,6 @@ class YouTubeAPI:
                     return data, vid
                 _meta_cache.pop(key, None)
 
-        # fast path: youtubesearchpython (optional)
         results = []
         try:
             from youtubesearchpython.aio import VideosSearch  # type: ignore
@@ -278,7 +273,6 @@ class YouTubeAPI:
         if results:
             data = results[0]
             v_id = data.get("id", "")
-            # ✅ FIX: Ignore Boolean True ID
             if str(v_id) in ["True", "False"]: v_id = ""
             
             thumb = (data.get("thumbnails") or [{}])[-1].get("url", "")
@@ -294,7 +288,6 @@ class YouTubeAPI:
                 _meta_cache[key] = (now, details, v_id)
             return details, v_id
 
-        # fallback: yt-dlp --dump-json (simple)
         cmd = ["yt-dlp", "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
         if self.cookie:
             cmd = ["yt-dlp", "--cookies", self.cookie, "--dump-json", prepared, "--no-warnings", "--socket-timeout", str(YTDLP_SOCKET_TIMEOUT)]
@@ -303,7 +296,6 @@ class YouTubeAPI:
             try:
                 info = _loads_bytes(out)
                 v_id = info.get("id", "")
-                # ✅ FIX: Ignore Boolean True ID
                 if str(v_id) in ["True", "False"]: v_id = ""
                 
                 thumb = (info.get("thumbnail") or "").split("?")[0]
@@ -321,7 +313,6 @@ class YouTubeAPI:
             except Exception:
                 log.debug("dump-json parse failed; stderr=%s", (err.decode() if err else ""))
 
-        # second fallback: dump-json with remote-components (EJS GitHub)
         cmd2 = ["yt-dlp", "--remote-components", "ejs:github", "--dump-json", prepared, "--no-warnings"]
         if self.cookie:
             cmd2 = ["yt-dlp", "--cookies", self.cookie, "--remote-components", "ejs:github", "--dump-json", prepared, "--no-warnings"]
@@ -330,7 +321,6 @@ class YouTubeAPI:
             try:
                 info = _loads_bytes(out2)
                 v_id = info.get("id", "")
-                # ✅ FIX: Ignore Boolean True ID
                 if str(v_id) in ["True", "False"]: v_id = ""
                 
                 thumb = (info.get("thumbnail") or "").split("?")[0]
@@ -352,7 +342,6 @@ class YouTubeAPI:
 
     async def details(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[str, Optional[str], int, str, str]:
         data, vid = await self.track(link, videoid)
-        # ✅ FIX: Block "True" from passing as a valid ID
         if not vid or str(vid) in ["True", "False"]:
             raise ValueError("Video not found")
         dur = data.get("duration_min")
@@ -371,15 +360,10 @@ class YouTubeAPI:
         d, _ = await self.track(link, videoid)
         return d.get("thumb", "")
     
-    # -------------------------------------------------------------
-    # ✅ FIX: Added download_thumb method for song.py compatibility
-    # -------------------------------------------------------------
     async def download_thumb(self, url: str) -> Optional[str]:
-        """Downloads the thumbnail to a temp path and returns the path."""
         if not url:
             return None
         try:
-            # Ensure downloads dir exists
             base_dir = "downloads"
             if not os.path.exists(base_dir):
                 os.makedirs(base_dir, exist_ok=True)
@@ -401,7 +385,6 @@ class YouTubeAPI:
         if not t:
             return 0
         try:
-            # if already int
             if isinstance(t, int):
                 return t
             parts = [int(p) for p in str(t).split(":")]
@@ -438,17 +421,12 @@ class YouTubeAPI:
         return out, prepared
 
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
-        """
-        Return a direct playable URL quickly, or None.
-        prefer_audio=True recommended for audio-only calls (faster).
-        """
         prepared = _normalize_link(link)
         if not prepared:
             return None
         key = prepared + ("::audio" if prefer_audio else "::video")
         now = int(time.time())
 
-        # cache check
         async with _direct_cache_lock:
             cached = _direct_cache.get(key)
             if cached:
@@ -459,7 +437,6 @@ class YouTubeAPI:
                 else:
                     _direct_cache.pop(key, None)
 
-        # extraction with yt-dlp API in threadpool guarded by semaphore
         async with self.sema:
             loop = asyncio.get_running_loop()
 
@@ -470,12 +447,11 @@ class YouTubeAPI:
                     "noplaylist": True,
                     "skip_download": True,
                     "socket_timeout": YTDLP_SOCKET_TIMEOUT,
-                    "extractor_args": {"youtube": {"player_client": ["mweb"], "player_skip": ["webpage", "configs"]}}, # ✅ تم وضع mweb هنا
+                    "extractor_args": {"youtube": {"player_client": ["mweb"], "player_skip": ["webpage", "configs"]}},
                 }
                 if self.cookie:
                     ydl_opts["cookiefile"] = self.cookie
                 if self.impersonate:
-                    # Python API uses 'impersonate' option when curl_cffi present
                     ydl_opts["impersonate"] = "chrome"
                 try:
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -485,10 +461,8 @@ class YouTubeAPI:
 
             info = await loop.run_in_executor(self.pool, _extract_info_blocking)
 
-        # fallback to subprocess -g if API failed
         if not info or (isinstance(info, dict) and info.get("_err")):
             log.debug("yt-dlp API failed for %s: %s", prepared, info.get("_err") if isinstance(info, dict) else repr(info))
-            # try simple -g
             try:
                 cmd = ["yt-dlp", "-g", "--no-warnings", "--force-ipv4", prepared]
                 if self.cookie:
@@ -505,7 +479,6 @@ class YouTubeAPI:
                         return candidate
             except Exception:
                 pass
-            # try -g with remote-components ejs:github
             try:
                 cmd = ["yt-dlp", "-g", "--no-warnings", "--remote-components", "ejs:github", "--force-ipv4", prepared]
                 if self.cookie:
@@ -524,10 +497,7 @@ class YouTubeAPI:
                 pass
             return None
 
-        # inspect info
         fmts: List[dict] = info.get("formats") or []
-
-        # top-level url quick try
         top_url = info.get("url")
         if top_url:
             ok, _ = await _probe_url(top_url)
@@ -538,7 +508,6 @@ class YouTubeAPI:
                     _direct_cache[key] = (expiry, top_url)
                 return top_url
 
-        # if no formats, attempt dump-json with remote components
         if not fmts:
             try:
                 cmd = ["yt-dlp", "--dump-json", prepared, "--remote-components", "ejs:github", "--no-warnings"]
@@ -551,7 +520,6 @@ class YouTubeAPI:
             except Exception:
                 fmts = []
 
-        # build and score candidates
         candidates: List[Tuple[int, str]] = []
         for f in fmts:
             url = f.get("url")
@@ -562,7 +530,6 @@ class YouTubeAPI:
                 continue
             if prefer_audio and (f.get("acodec") or "") == "none":
                 continue
-            # prefer muxed if video requested
             if not prefer_audio and (f.get("vcodec") or "") != "none" and (f.get("acodec") or "") != "none":
                 candidates.append((_score_format(f, prefer_audio), url)); continue
             if (f.get("acodec") or "") != "none":
@@ -572,7 +539,6 @@ class YouTubeAPI:
 
         candidates.sort(key=lambda x: x[0], reverse=True)
 
-        # probe top candidates
         tries = 0
         for _score, cand in candidates:
             if tries >= 6:
@@ -586,7 +552,6 @@ class YouTubeAPI:
                     _direct_cache[key] = (expiry, cand)
                 return cand
 
-        # if failed and prefer_audio was False, try audio fallback
         if not prefer_audio:
             return await self.get_direct_link(link, prefer_audio=True)
 
@@ -603,15 +568,10 @@ class YouTubeAPI:
         format_id: Union[bool, str] = None,
         title: Union[bool, str] = None,
     ) -> Tuple[Optional[str], bool]:
-        """
-        Return (path_or_direct_url_or_None, is_direct_flag)
-        """
         is_video = bool(video or songvideo)
         prepared = _normalize_link(link, videoid)
 
-        # compute vid
         try:
-            # ✅ FIX: Block Boolean IDs here as well
             if videoid and str(videoid) not in ["True", "False"]:
                 vid = str(videoid)
             elif "v=" in prepared:
@@ -627,7 +587,6 @@ class YouTubeAPI:
         ram_base = os.path.join(downloads_base, vid)
         os.makedirs(os.path.dirname(ram_base), exist_ok=True)
 
-        # 1) RAM cache check
         for ext in (".mp4", ".m4a", ".mp3", ".webm"):
             cand = f"{ram_base}{ext}"
             try:
@@ -638,7 +597,6 @@ class YouTubeAPI:
 
         loop = asyncio.get_running_loop()
 
-        # 2) format_id specific
         if format_id:
             def _specific():
                 try:
@@ -648,7 +606,7 @@ class YouTubeAPI:
                         "cookiefile": get_cookie_file(),
                         "quiet": True,
                         "force_ipv4": True,
-                        "extractor_args": {"youtube": {"player_client": ["mweb"]}}, # ✅ تم وضع mweb هنا
+                        "extractor_args": {"youtube": {"player_client": ["mweb"]}},
                     }
                     if songaudio:
                         opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
@@ -668,7 +626,6 @@ class YouTubeAPI:
             res = await loop.run_in_executor(self.pool, _specific)
             return (res, False) if res else (None, False)
 
-        # 3) try direct fast-path
         try:
             direct = await self.get_direct_link(prepared, prefer_audio=not is_video)
         except Exception as e:
@@ -676,18 +633,8 @@ class YouTubeAPI:
             direct = None
 
         if direct:
-            # ✅ تم إيقاف التنزيل التلقائي في الخلفية هنا لعدم استهلاك الموارد بدون داعٍ
-            # def _delayed_cache():
-            #     try:
-            #         time.sleep(6)
-            #         out_template = f"{ram_base}.%(ext)s"
-            #         self._background_download(prepared, out_template, is_video)
-            #     except Exception:
-            #         pass
-            # loop.run_in_executor(self.pool, _delayed_cache)
             return direct, True
 
-        # 4) fallback: download to RAM immediately
         def _fallback():
             try:
                 fmt = "best[ext=mp4]/best" if is_video else "bestaudio[ext=m4a]/bestaudio/best"
@@ -697,7 +644,7 @@ class YouTubeAPI:
                     "cookiefile": get_cookie_file(),
                     "quiet": True,
                     "force_ipv4": True,
-                    "extractor_args": {"youtube": {"player_client": ["mweb"]}}, # ✅ تم وضع mweb هنا
+                    "extractor_args": {"youtube": {"player_client": ["mweb"]}},
                     "prefer_ffmpeg": True,
                 }
                 if not is_video:
@@ -734,7 +681,7 @@ class YouTubeAPI:
                 "force_ipv4": True,
                 "external_downloader": "aria2c",
                 "external_downloader_args": aria2_args,
-                "extractor_args": {"youtube": {"player_client": ["mweb"]}}, # ✅ تم وضع mweb هنا للموثوقية
+                "extractor_args": {"youtube": {"player_client": ["mweb"]}},
                 "prefer_ffmpeg": True,
                 "writethumbnail": True,
                 "addmetadata": True,
@@ -748,20 +695,27 @@ class YouTubeAPI:
         except Exception as e:
             log.warning("background cache failed: %s", e)
 
+    # ✅ الإضافة الصاروخية للقوائم (بلاي ليست) مدمجة مع درع الحماية
     async def playlist(self, link, limit, user_id=None, videoid: Union[bool, str] = None):
         if videoid:
             link = self.listbase + link
         if "&" in link:
             link = link.split("&")[0]
+            
+        cookie_cmd = f"--cookies {self.cookie}" if self.cookie else ""
+        mweb_cmd = "--extractor-args youtube:player_client=mweb"
+        
         cmd = (
             f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
+            f"{cookie_cmd} {mweb_cmd} --force-ipv4 "
             f"--get-id --flat-playlist --playlist-end {limit} --skip-download '{link}' "
             f"2>/dev/null"
         )
+        
         proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         out, _ = await proc.communicate()
         try:
-            result = [key for key in out.decode().split("\n") if key]
+            result = [key.strip() for key in out.decode().split("\n") if key.strip()]
         except Exception:
             result = []
         return result
