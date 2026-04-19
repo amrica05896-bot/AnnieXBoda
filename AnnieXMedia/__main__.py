@@ -1,16 +1,23 @@
-# Authored By Certified Coders © 2026
-# System: Main Launcher (Ultra Optimized for Python 3.13+ & Global Loop Sync)
-
 import sys
 import os
 import asyncio
+
+# 🚀 الضربة الاستباقية: إنشاء Event Loop وتثبيتها قبل استدعاء أي ملف!
+# ده بيجبر MongoDB و Pyrogram وكل المكتبات إنها تستخدم نفس الـ Loop دي من البداية.
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
 import importlib
 from pyrogram import idle
 from pytgcalls.exceptions import NoActiveGroupCall
 
-# إصلاح المسارات لتجنب مشاكل الاستيراد في البيئات الحديثة
+# إصلاح المسارات
 sys.path.insert(0, os.getcwd())
 
+# دلوقتي لما الملفات دي تتعملها Import، هتمسك في الـ Loop اللي جهزناها فوق بأمان تام
 import config
 from AnnieXMedia import LOGGER, app, userbot
 from AnnieXMedia.core.call import StreamController
@@ -24,19 +31,16 @@ from config import BANNED_USERS
 async def init():
     LOGGER("AnnieXMedia").info("🚀 Starting Annie Music Bot with Synchronized Event Loop...")
 
-    # 1. التحقق من الجلسات (Sessions)
     if not any([config.STRING1, config.STRING2, config.STRING3, config.STRING4, config.STRING5]):
         LOGGER(__name__).error("❌ Assistant session not filled, please fill a Pyrogram session...")
         sys.exit()
 
-    # 2. محاولة جلب الكوكيز من يوتيوب
     try:
         await fetch_and_store_cookies()
         LOGGER("AnnieXMedia").info("✅ YouTube Cookies Loaded Successfully.")
     except Exception as e:
         LOGGER("AnnieXMedia").warning(f"⚠️ Cookie Error: {e}")
 
-    # 3. تحميل إعدادات المطور وقواعد البيانات
     await sudo()
     try:
         users = await get_gbanned()
@@ -48,13 +52,11 @@ async def init():
     except Exception:
         pass
 
-    # 4. تشغيل البوت وتحميل الإضافات
     await app.start()
     for all_module in ALL_MODULES:
         importlib.import_module("AnnieXMedia.plugins" + all_module)
     LOGGER("AnnieXMedia.plugins").info("✅ Modules Loaded Successfully.")
 
-    # 5. تشغيل الحساب المساعد ومتحكم المكالمات
     await userbot.start()
     await StreamController.start()
 
@@ -69,22 +71,16 @@ async def init():
     await StreamController.decorators()
     LOGGER("AnnieXMedia").info("✅ Annie Music Bot Started Successfully.")
     
-    # 6. وضع الخمول (انتظار الأوامر من المستخدمين)
     await idle()
     
-    # 7. الإغلاق النظيف عند إيقاف البوت
     await app.stop()
     await userbot.stop()
     LOGGER("AnnieXMedia").info("🛑 Stopping Annie Music Bot...")
 
 
 if __name__ == "__main__":
-    # 🚀 الضربة القاضية لمشكلة (different loop)
-    # هنجيب اللوب الأساسية اللي اتعملت وقت استدعاء الملفات (واللي MongoDB مسكت فيها)
-    loop = asyncio.get_event_loop_policy().get_event_loop()
-    
     try:
-        # نشغل البوت على نفس اللوب بدون ما نعمل واحدة جديدة تتعارض مع القديمة
+        # نشغل البوت على اللوب اللي جهزناها فوق خالص، ومفيش أي تعارض هيحصل!
         loop.run_until_complete(init())
     except KeyboardInterrupt:
         LOGGER("AnnieXMedia").info("🛑 Bot process killed by user (Ctrl+C).")
