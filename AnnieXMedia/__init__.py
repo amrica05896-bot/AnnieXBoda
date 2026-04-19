@@ -1,4 +1,4 @@
-# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2026
 
 # --- تفعيل مود الانتظار (هام جداً لملف song.py) ---
 import pyromod.listen
