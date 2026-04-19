@@ -1,25 +1,18 @@
 # file: AnnieXMedia/platforms/Youtube.py
-# Optimized for Abdullah's 10-Core Server (Internal Turbo Extraction 2026)
-# Fully Compatible with Docker & Node.js Runtime
+# Optimized for Abdullah's 10-Core Server (Native Subprocess + Android Client)
 
 import asyncio
 import re
 import logging
 import os
-import time
 from typing import Any, Dict, List, Optional, Tuple, Union
-
 import aiohttp
 import aiofiles
-import yt_dlp
 from pyrogram import enums
 from youtubesearchpython.aio import VideosSearch
-import config
+import time
 
-# إعداد السجلات
 log = logging.getLogger("AnnieXMedia.YouTube")
-
-# مسار الكوكيز الخاص بك لتخطي القيود
 COOKIES_PATH = "AnnieXMedia/assets/cookies.txt"
 
 class YouTubeAPI:
@@ -30,7 +23,6 @@ class YouTubeAPI:
             r"(youtube\.com/(watch\?v=|shorts/|playlist\?list=)|youtu\.be/)"
             r"([A-Za-z0-9_-]{11}|PL[A-Za-z0-9_-]+)([&?][^\s]*)?"
         )
-        # السماح بـ 15 عملية استخراج متوازية لقوة الـ 10 كور
         self._api_sema = None
 
     async def get_sema(self) -> asyncio.Semaphore:
@@ -97,47 +89,47 @@ class YouTubeAPI:
         videoid: Union[bool, str] = None,
         **kwargs
     ) -> Optional[str]:
-        """
-        🚀 محرك الاستخراج الداخلي المطور (Turbo Mode)
-        يستخدم Node.js لفك التشفير وتنسيق 140 للسرعة القصوى.
-        """
+        """محرك الاستخراج الصاروخي (Android Client + Subprocess)"""
         vid = str(videoid) if videoid and str(videoid) not in ["True", "False"] else ""
         if not vid and "v=" in link:
             vid = link.split("v=")[1].split("&")[0]
         
         target_url = f"https://www.youtube.com/watch?v={vid}" if vid else link
+        # ضفنا صيغة 18 كبديل سريع لو 140 مش موجودة (زي ما حصل في VEVO)
+        media_format = "best[ext=mp4]/best" if video else "140/18/bestaudio[ext=m4a]/bestaudio/best"
         
-        # ⚡ إعدادات الاستخراج
-        ydl_opts = {
-            "format": "best[ext=mp4]/best" if video else "140", 
-            "quiet": True,
-            "no_warnings": True,
-            "noprogress": True,
-            "noplaylist": True,
-            "geo_bypass": True,
-            "nocheckcertificate": True,
-            "javascript_executor": "node",
-        }
+        args = [
+            "yt-dlp",
+            "--force-ipv4",
+            "--extractor-args", "youtube:player_client=android,web", # أندرويد للسرعة، ويب احتياطي للحظر
+            "--quiet", "--no-warnings", "--no-playlist",
+            "-f", media_format,
+            "-g", target_url
+        ]
 
         if os.path.isfile(COOKIES_PATH):
-            ydl_opts["cookiefile"] = COOKIES_PATH
+            args.insert(2, "--cookies")
+            args.insert(3, COOKIES_PATH)
 
         sema = await self.get_sema()
-        loop = asyncio.get_running_loop()
-
-        def _extract():
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(target_url, download=False)
-                    return info.get("url")
-            except Exception as ex:
-                log.error(f"Turbo extraction error: {ex}")
-                return None
-
         try:
             async with sema:
-                direct_url = await loop.run_in_executor(None, _extract)
-                return direct_url
+                process = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=20.0)
+                
+                if process.returncode == 0:
+                    direct_url = stdout.decode().strip()
+                    if direct_url: return direct_url
+                else:
+                    log.error(f"yt-dlp Error: {stderr.decode().strip()}")
+        except asyncio.TimeoutError:
+            log.error(f"yt-dlp Timeout for {target_url}")
+            try: process.kill() 
+            except: pass
         except Exception as e:
             log.error(f"Internal Engine Failure: {e}")
         return None
@@ -151,14 +143,10 @@ class YouTubeAPI:
             return [{"title": d["title"], "vidid": d["id"], "duration": d["duration"]} for d in res.get("result", [])]
         except: return []
 
-    # 🚀 الدالة اللي كانت ناقصة وتم إرجاعها بتحديث صاروخي (لتحميل صور الأغاني)
     async def download_thumb(self, thumbnail_url: str) -> Optional[str]:
-        if not thumbnail_url:
-            return None
-            
+        if not thumbnail_url: return None
         os.makedirs("downloads", exist_ok=True)
         path = f"downloads/thumb_{int(time.time())}.jpg"
-        
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(thumbnail_url) as resp:
@@ -166,8 +154,7 @@ class YouTubeAPI:
                         async with aiofiles.open(path, "wb") as f:
                             await f.write(await resp.read())
                         return path
-        except Exception as e:
-            log.error(f"Thumb download error: {e}")
+        except: pass
         return None
 
 YouTube = YouTubeAPI()
