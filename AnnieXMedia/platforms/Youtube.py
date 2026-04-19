@@ -1,5 +1,6 @@
 # file: AnnieXMedia/platforms/Youtube.py
 # Optimized for Abdullah's 10-Core Fly.io API (2026 Edition)
+# Python 3.13+ Lazy Loading Fixed
 
 import asyncio
 import re
@@ -24,18 +25,24 @@ log = logging.getLogger("AnnieXMedia.YouTube")
 # ==========================================
 # ⚡ إعدادات API السيرفر الـ 10 كور الخاص بك
 # ==========================================
-# تم تثبيت الرابط الخاص بك مباشرة لضمان أعلى سرعة استجابة
 API_URL = "https://api-tx-stq.fly.dev"
 
-# استخدام TCPConnector للحفاظ على "الماسورة" مفتوحة دائماً
-_aio_connector = aiohttp.TCPConnector(limit=100, ssl=False, keepalive_timeout=300)
+# تعريف المتغيرات بـ None عشان نمنع بايثون 3.13 من الاعتراض
+_aio_connector: Optional[aiohttp.TCPConnector] = None
 _aio_session: Optional[aiohttp.ClientSession] = None
 
+# ✅ (Lazy Loading) تهيئة الـ Session والـ Connector جوه الـ Loop فقط
 async def get_session() -> aiohttp.ClientSession:
-    global _aio_session
+    global _aio_session, _aio_connector
+    
+    if _aio_connector is None or _aio_connector.closed:
+        _aio_connector = aiohttp.TCPConnector(limit=100, ssl=False, keepalive_timeout=300)
+        
     if _aio_session is None or _aio_session.closed:
         _aio_session = aiohttp.ClientSession(connector=_aio_connector)
+        
     return _aio_session
+
 
 class YouTubeAPI:
     def __init__(self):
@@ -45,8 +52,14 @@ class YouTubeAPI:
             r"(youtube\.com/(watch\?v=|shorts/|playlist\?list=)|youtu\.be/)"
             r"([A-Za-z0-9_-]{11}|PL[A-Za-z0-9_-]+)([&?][^\s]*)?"
         )
-        # السماح بـ 15 طلب متوازي لاستغلال الـ 10 كور بكفاءة
-        self._api_sema = asyncio.Semaphore(15)
+        # السماح بـ 15 طلب متوازي (متروك بـ None للتهيئة الآمنة)
+        self._api_sema = None
+
+    # ✅ (Lazy Loading) تهيئة السيميفور جوه الـ Loop
+    async def get_sema(self) -> asyncio.Semaphore:
+        if self._api_sema is None:
+            self._api_sema = asyncio.Semaphore(15)
+        return self._api_sema
 
     async def valid(self, url: str) -> bool:
         return bool(re.match(self.regex, url))
@@ -133,8 +146,10 @@ class YouTubeAPI:
         file_type = "video" if video else "audio"
         
         session = await get_session()
+        sema = await self.get_sema()  # جلب السيميفور بأمان
+        
         try:
-            async with self._api_sema:
+            async with sema:
                 params = {"url": target_url, "type": file_type}
                 async with session.get(f"{API_URL}/download", params=params, timeout=15) as resp:
                     if resp.status == 200:
