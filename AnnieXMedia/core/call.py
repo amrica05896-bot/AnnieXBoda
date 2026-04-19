@@ -43,7 +43,7 @@ from AnnieXMedia.utils.database import (
 )
 from AnnieXMedia.utils.exceptions import AssistantErr
 from AnnieXMedia.utils.stream.autoclear import auto_clean
-from AnnieXMedia.utils.thumbnails import get_thumb
+# شلنا استدعاء get_thumb لأننا هنستخدم الرابط المباشر
 from AnnieXMedia.utils.errors import capture_internal_err
 
 
@@ -71,7 +71,7 @@ async def _maybe_await(value):
 
 def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> MediaStream:
     path = str(path)
-    # 🚀 التعديل الصاروخي هنا: قللنا القراءة لـ 2M عشان الـ m4a يشتغل في فيمتو ثانية
+    # 🚀 سرعة البرق: تقليل probesize لضمان التشغيل الفوري
     base_flags = (
         "-threads 0 "
         "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
@@ -111,11 +111,12 @@ class Call:
         self.userbot4 = getattr(userbot, "four", None)
         self.userbot5 = getattr(userbot, "five", None)
 
-        self.one = PyTgCalls(self.userbot1) if self.userbot1 else None
-        self.two = PyTgCalls(self.userbot2) if self.userbot2 else None
-        self.three = PyTgCalls(self.userbot3) if self.userbot3 else None
-        self.four = PyTgCalls(self.userbot4) if self.userbot4 else None
-        self.five = PyTgCalls(self.userbot5) if self.userbot5 else None
+        # 🚀 (Lazy Loading) إيقاف تشغيل PyTgCalls هنا لمنع كراش Python 3.13
+        self.one = None
+        self.two = None
+        self.three = None
+        self.four = None
+        self.five = None
 
         self.active_calls: set[int] = set()
         self.chat_locks: dict[int, Lock] = {}
@@ -307,6 +308,14 @@ class Call:
 
     async def start(self) -> None:
         LOGGER(__name__).info("Starting PyTgCalls Clients (2.2.11)...")
+        
+        # 🚀 (Lazy Loading) تفعيل PyTgCalls بعد ما الـ Loop تكون اشتغلت
+        if self.userbot1: self.one = PyTgCalls(self.userbot1)
+        if self.userbot2: self.two = PyTgCalls(self.userbot2)
+        if self.userbot3: self.three = PyTgCalls(self.userbot3)
+        if self.userbot4: self.four = PyTgCalls(self.userbot4)
+        if self.userbot5: self.five = PyTgCalls(self.userbot5)
+
         for assistant, enabled in (
             (self.one, config.STRING1),
             (self.two, config.STRING2),
@@ -420,6 +429,7 @@ class Call:
             stream = _build_stream(final_link, video=is_video)
 
             try:
+                # 🚀 الخطوة 1: تشغيل الصوت فوراً بدون أي تأخير!
                 await _maybe_await(client.play(chat_id, stream))
 
                 if is_video:
@@ -427,33 +437,40 @@ class Call:
                 else:
                     await remove_active_video_chat(chat_id)
 
-                img = await get_thumb(videoid)
-                from AnnieXMedia.utils.inline import stream_markup
-                button = stream_markup(get_string(await get_lang(chat_id)), chat_id)
+                # 🚀 الخطوة 2: فصل إرسال الصورة في وظيفة خلفية (Background Task)
+                async def send_fast_message():
+                    try:
+                        # جلب رابط الصورة المباشر من يوتيوب لعدم استهلاك المعالج
+                        img_url = f"https://i.ytimg.com/vi/{videoid}/hqdefault.jpg" if videoid else config.START_IMG_URL
+                        
+                        from AnnieXMedia.utils.inline import stream_markup
+                        button = stream_markup(get_string(await get_lang(chat_id)), chat_id)
 
-                try:
-                    if db[chat_id][0].get("mystic"):
-                        await db[chat_id][0].get("mystic").delete()
-                except Exception:
-                    pass
+                        if db[chat_id][0].get("mystic"):
+                            await db[chat_id][0].get("mystic").delete()
 
-                caption_text = get_string(await get_lang(chat_id))["stream_1"].format(
-                    f"https://t.me/{app.username}?start=info_{videoid}",
-                    title[:23],
-                    duration_str,
-                    user,
-                )
+                        caption_text = get_string(await get_lang(chat_id))["stream_1"].format(
+                            f"https://t.me/{app.username}?start=info_{videoid}",
+                            title[:23],
+                            duration_str,
+                            user,
+                        )
 
-                run = await self._send_photo_with_retry(
-                    chat_id=original_chat_id,
-                    photo=img,
-                    caption=caption_text,
-                    reply_markup=InlineKeyboardMarkup(button),
-                )
+                        run = await self._send_photo_with_retry(
+                            chat_id=original_chat_id,
+                            photo=img_url,
+                            caption=caption_text,
+                            reply_markup=InlineKeyboardMarkup(button),
+                        )
 
-                if run:
-                    db[chat_id][0]["mystic"] = run
-                    db[chat_id][0]["markup"] = "stream"
+                        if run:
+                            db[chat_id][0]["mystic"] = run
+                            db[chat_id][0]["markup"] = "stream"
+                    except Exception as e:
+                        LOGGER(__name__).error(f"Error in background photo: {e}")
+
+                # رمي الوظيفة دي تشتغل مع نفسها عشان البوت يفضل خفيف
+                asyncio.create_task(send_fast_message())
 
             except Exception as e:
                 LOGGER(__name__).error(f"Queue Play Error: {e}")
