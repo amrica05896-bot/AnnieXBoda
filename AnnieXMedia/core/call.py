@@ -279,6 +279,11 @@ class Call:
                         continue
                     raise AssistantErr(_["call_8"])
                 except Exception as e:
+                    # 🚨 أداة كشف الأخطاء في الانضمام للمكالمة
+                    import traceback
+                    print("\n🚨🚨🚨 ERROR IN JOIN_CALL 🚨🚨🚨")
+                    traceback.print_exc()
+                    
                     last_error = e
                     msg = str(e).lower()
                     if "group call not found" in msg or "cannot be initialized" in msg:
@@ -473,6 +478,11 @@ class Call:
                 asyncio.create_task(send_fast_message())
 
             except Exception as e:
+                # 🚨 أداة كشف الأخطاء في التشغيل من قائمة الانتظار
+                import traceback
+                print("\n🚨🚨🚨 ERROR IN PLAY QUEUE 🚨🚨🚨")
+                traceback.print_exc()
+                
                 LOGGER(__name__).error(f"Queue Play Error: {e}")
                 await _clear_(chat_id)
                 try:
