@@ -11,9 +11,24 @@ from .methods.utilities import idle as idle_module
 from .mtproto import MtProtoClient
 
 
+def _get_loop():
+    """دالة مخصصة لجلب أو إنشاء Event Loop بأمان متوافقة مع بايثون 3.13+"""
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            loop = asyncio.get_event_loop_policy().get_event_loop()
+            if loop.is_closed():
+                raise RuntimeError
+            return loop
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop
+
+
 def async_to_sync(obj, name):
     function = getattr(obj, name)
-    main_loop = asyncio.get_event_loop()
 
     def async_to_sync_gen(agen, loop, is_main_thread):
         async def a_next(a):
@@ -40,11 +55,13 @@ def async_to_sync(obj, name):
     def async_to_sync_wrap(*args, **kwargs):
         coroutine = function(*args, **kwargs)
 
+        # ✅ (Lazy Loading) جلب اللوب وقت التشغيل الفعلي لمنع كراش بايثون 3.13
+        loop = _get_loop()
+        
         try:
-            loop = asyncio.get_event_loop()
+            main_loop = asyncio.get_event_loop_policy().get_event_loop()
         except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            main_loop = loop
 
         if threading.current_thread() is threading.main_thread() or \
                 not main_loop.is_running():
