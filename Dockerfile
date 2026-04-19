@@ -29,8 +29,8 @@ COPY requirements.txt .
 RUN grep -v -E -i '^(py-tgcalls|pytgcalls|deepai|numba|llvmlite|quimb)' requirements.txt > filtered.txt && \
     uv pip install --no-cache -r filtered.txt
 
+# 🚀 تم إزالة uvloop من هنا
 RUN uv pip install --no-cache \
-    uvloop \
     g4f \
     curl_cffi
 
@@ -41,4 +41,5 @@ RUN yt-dlp "ytsearch1:test" --dump-json > /dev/null 2>&1 || true
 
 COPY . .
 
-CMD ["python3", "run.py"]
+# 🚀 تم تعديل أمر التشغيل ليقوم بتشغيل الفولدر كـ Module
+CMD ["python3", "-m", "AnnieXMedia"]
