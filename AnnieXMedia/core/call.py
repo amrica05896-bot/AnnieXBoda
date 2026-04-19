@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 from typing import Union, Optional
 from asyncio import Lock
 
-import yt_dlp
 from pyrogram import enums, errors
 from pyrogram.types import InlineKeyboardMarkup, InputMediaPhoto
 from pyrogram.errors import ChatAdminRequired
@@ -28,8 +27,6 @@ from pytgcalls.types import (
 from pytgcalls.exceptions import (
     NoActiveGroupCall,
     NotInCallError,
-    NoAudioSourceFound,
-    NoVideoSourceFound,
     PyTgCallsAlreadyRunning
 )
 
@@ -66,29 +63,6 @@ logging.getLogger('pyrogram.dispatcher').addFilter(PyTgCallsErrorFilter())
 
 autoend = {}
 counter = {}
-
-
-async def get_direct_link(videoid: str, video: bool = False):
-    """جلب الرابط المباشر باستخدام yt_dlp لدعم السرعة القصوى"""
-    if not videoid: return None
-    link = f"https://www.youtube.com/watch?v={videoid}"
-    fmt = "best[ext=mp4]/best" if video else "bestaudio/best"
-    opts = {
-        "format": fmt,
-        "quiet": True,
-        "no_warnings": True,
-        "geo_bypass": True,
-        "nocheckcertificate": True
-    }
-    try:
-        loop = asyncio.get_running_loop()
-        def _extract():
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(link, download=False)
-                return info.get("url")
-        return await loop.run_in_executor(None, _extract)
-    except Exception: 
-        return link
 
 
 def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> MediaStream:
@@ -371,11 +345,13 @@ class Call:
             is_video = str(streamtype) == "video"
             
             final_link = queued
-            if "youtube" in str(queued):
+            # 🚀 تم ربط ملف الكول بمحرك Youtube.py المطور مباشرة للسرعة القصوى واستخدام الكوكيز
+            if "youtube" in str(queued) or "vid_" in str(queued) or str(streamtype) == "youtube":
                  try:
-                    direct = await get_direct_link(videoid, video=is_video)
+                    direct = await YouTube.get_direct_link(f"https://www.youtube.com/watch?v={videoid}", prefer_audio=not is_video)
                     if direct: final_link = direct
-                 except Exception: pass
+                 except Exception as e:
+                     LOGGER(__name__).error(f"Failed direct link fetch: {e}")
 
             stream = _build_stream(final_link, video=is_video)
 
