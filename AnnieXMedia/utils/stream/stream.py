@@ -4,6 +4,7 @@
 
 import asyncio
 import contextlib
+import traceback
 from random import randint
 
 from pyrogram.types import InlineKeyboardMarkup
@@ -22,7 +23,6 @@ from AnnieXMedia.utils.inline import aq_markup, close_markup, stream_markup
 from AnnieXMedia.utils.inline.custom import custom_markup
 from AnnieXMedia.utils.pastebin import ANNIEBIN
 from AnnieXMedia.utils.stream.queue import put_queue, put_queue_index
-from AnnieXMedia.utils.thumbnails import get_thumb
 from AnnieXMedia.utils.errors import capture_internal_err
 
 
@@ -89,7 +89,9 @@ async def stream(
                     vidid, None, video=is_video, videoid=get_download_id(vidid)
                 )
                 direct = True
-            except Exception:
+            except Exception as e:
+                print(f"\n🚨 [CUSTOM MODE] Download Error: {type(e).__name__}")
+                traceback.print_exc()
                 return await app.send_message(original_chat_id, text=_["play_14"])
 
             if not file_path:
@@ -100,7 +102,9 @@ async def stream(
             except AssistantErr as e:
                 return await app.send_message(original_chat_id, text=str(e))
             except Exception as e:
-                return await app.send_message(original_chat_id, text=f"Error: {e}")
+                print(f"\n🚨 [CUSTOM MODE] Join Call Error: {type(e).__name__}")
+                traceback.print_exc()
+                return await app.send_message(original_chat_id, text=f"Error: [{type(e).__name__}] {e}")
 
             db[chat_id] = []
             await put_queue(
@@ -142,7 +146,9 @@ async def stream(
 
                 try:
                     title, duration_min, duration_sec, thumbnail, vidid = await YouTube.details(search, videoid=search)
-                except Exception:
+                except Exception as e:
+                    print(f"\n🚨 [PLAYLIST MODE] Fetch Details Error: {type(e).__name__}")
+                    traceback.print_exc()
                     continue
 
                 if str(duration_min) == "None":
@@ -179,7 +185,9 @@ async def stream(
                     if not file_path:
                         continue
                     await StreamController.join_call(chat_id, original_chat_id, file_path, video=is_video)
-                except Exception:
+                except Exception as e:
+                    print(f"\n🚨 [PLAYLIST MODE] Download/Join Error: {type(e).__name__}")
+                    traceback.print_exc()
                     continue
 
                 await put_queue(
@@ -195,7 +203,7 @@ async def stream(
                     forceplay=True,
                 )
 
-                img = await get_thumb(vidid)
+                img = f"https://i.ytimg.com/vi/{vidid}/hqdefault.jpg" if vidid else config.YOUTUBE_IMG_URL
                 button = stream_markup(_, chat_id)
                 await safe_delete(mystic)
 
@@ -340,8 +348,10 @@ async def stream(
                 await safe_delete(mystic)
                 return await app.send_message(original_chat_id, text=str(e))
             except Exception as e:
+                print(f"\n🚨🚨🚨 FATAL STREAM ENGINE ERROR (Type: {type(e).__name__}) 🚨🚨🚨")
+                traceback.print_exc()
                 await safe_delete(mystic)
-                return await app.send_message(original_chat_id, text=f"Error: {e}")
+                return await app.send_message(original_chat_id, text=f"Error: [{type(e).__name__}] {str(e)}")
 
             if is_index:
                 await put_queue_index(
@@ -385,7 +395,7 @@ async def stream(
                     photo = config.STREAM_IMG_URL
                     caption = _["stream_2"].format(user_name)
                 case _:
-                    photo = await get_thumb(vidid)
+                    photo = f"https://i.ytimg.com/vi/{vidid}/hqdefault.jpg" if vidid else config.YOUTUBE_IMG_URL
                     caption = _["stream_1"].format(
                         f"https://t.me/{app.username}?start=info_{vidid}",
                         title[:23],
