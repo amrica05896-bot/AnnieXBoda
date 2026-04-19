@@ -1,4 +1,3 @@
-
 aiofiles
 # تفعيل تسريع DNS و C-Parsin
 aiohttp[speedups]
@@ -43,7 +42,7 @@ pyromod
 fastapi
 flask
 # تفعيل Cython Parsers للسرعة القصوى
-uvicorn[standard]
+uvicorn
 python-multipart
 python-dotenv
 requests
