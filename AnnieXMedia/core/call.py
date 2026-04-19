@@ -1,6 +1,6 @@
 # Authored By Certified Coders © 2026
 # System: PyTgCalls V2.2.11 Core Call Controller
-# Optimized for Python 3.13+ Asyncio & NTgCalls Native Binds
+# Optimized for Python 3.13+ Asyncio & NTgCalls Native Binds (2026 Anti-Ban Edition)
 
 import asyncio
 import logging
@@ -66,7 +66,7 @@ counter = {}
 
 
 def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> MediaStream:
-    """بناء مجرى البيانات وفقاً لأحدث معايير MediaStream في V2.2.X"""
+    """بناء مجرى البيانات وفقاً لأحدث معايير MediaStream مع تخطي حمايات 2026"""
     path = str(path)
     base_flags = (
         "-threads 2 "
@@ -75,6 +75,12 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
     )
     final_ffmpeg = base_flags + ffmpeg_opts
     
+    # 🔥 تحديث 2026: إضافة هيدرز لتخطي حماية 403 Forbidden من يوتيوب
+    # نستخدم User-Agent أندرويد ليتطابق مع مخرجات yt-dlp
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
+    }
+    
     return MediaStream(
         media_path=path,
         audio_parameters=AudioQuality.HIGH, 
@@ -82,6 +88,7 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
         ffmpeg_parameters=final_ffmpeg,
+        headers=headers, # تمرير بطاقة التعارف الوهمية هنا
     )
 
 
