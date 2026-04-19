@@ -6,8 +6,11 @@ import asyncio
 import re
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import aiohttp
+import aiofiles
 import yt_dlp
 from pyrogram import enums
 from youtubesearchpython.aio import VideosSearch
@@ -104,16 +107,15 @@ class YouTubeAPI:
         
         target_url = f"https://www.youtube.com/watch?v={vid}" if vid else link
         
-        # ⚡ إعدادات الاستخراج (نفس منطق الـ Go API)
+        # ⚡ إعدادات الاستخراج
         ydl_opts = {
-            "format": "best[ext=mp4]/best" if video else "140", # 140 = m4a (أسرع شيء للبث)
+            "format": "best[ext=mp4]/best" if video else "140", 
             "quiet": True,
             "no_warnings": True,
             "noprogress": True,
             "noplaylist": True,
             "geo_bypass": True,
             "nocheckcertificate": True,
-            # 🚀 استغلال الدوكر: استخدام Node.js لفك التشفير
             "javascript_executor": "node",
         }
 
@@ -134,7 +136,6 @@ class YouTubeAPI:
 
         try:
             async with sema:
-                # تشغيل الاستخراج في Thread Pool لمنع تجميد البوت
                 direct_url = await loop.run_in_executor(None, _extract)
                 return direct_url
         except Exception as e:
@@ -149,5 +150,24 @@ class YouTubeAPI:
             res = await VideosSearch(query, limit=limit).next()
             return [{"title": d["title"], "vidid": d["id"], "duration": d["duration"]} for d in res.get("result", [])]
         except: return []
+
+    # 🚀 الدالة اللي كانت ناقصة وتم إرجاعها بتحديث صاروخي (لتحميل صور الأغاني)
+    async def download_thumb(self, thumbnail_url: str) -> Optional[str]:
+        if not thumbnail_url:
+            return None
+            
+        os.makedirs("downloads", exist_ok=True)
+        path = f"downloads/thumb_{int(time.time())}.jpg"
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(thumbnail_url) as resp:
+                    if resp.status == 200:
+                        async with aiofiles.open(path, "wb") as f:
+                            await f.write(await resp.read())
+                        return path
+        except Exception as e:
+            log.error(f"Thumb download error: {e}")
+        return None
 
 YouTube = YouTubeAPI()
