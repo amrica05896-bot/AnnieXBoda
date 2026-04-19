@@ -71,10 +71,11 @@ async def _maybe_await(value):
 
 def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> MediaStream:
     path = str(path)
+    # 🚀 التعديل الصاروخي هنا: قللنا القراءة لـ 2M عشان الـ m4a يشتغل في فيمتو ثانية
     base_flags = (
         "-threads 0 "
         "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
-        "-probesize 16M -analyzeduration 20M -rtbufsize 16M "
+        "-probesize 2M -analyzeduration 2M -rtbufsize 16M "
         "-fflags +genpts+igndts+fastseek -sync ext "
     )
     final_ffmpeg = base_flags + ffmpeg_opts
