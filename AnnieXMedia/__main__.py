@@ -1,5 +1,5 @@
 # Authored By Certified Coders © 2026
-# System: Main Launcher (Standard Asyncio - Python 3.13+ Optimized)
+# System: Main Launcher (Ultra Optimized for Python 3.13+ & Global Loop Sync)
 
 import sys
 import os
@@ -22,7 +22,7 @@ from config import BANNED_USERS
 
 
 async def init():
-    LOGGER("AnnieXMedia").info("🚀 Starting Annie Music Bot with Standard Asyncio...")
+    LOGGER("AnnieXMedia").info("🚀 Starting Annie Music Bot with Synchronized Event Loop...")
 
     # 1. التحقق من الجلسات (Sessions)
     if not any([config.STRING1, config.STRING2, config.STRING3, config.STRING4, config.STRING5]):
@@ -79,8 +79,14 @@ async def init():
 
 
 if __name__ == "__main__":
-    # الطريقة الحديثة والآمنة لتشغيل الـ Asyncio في Python 3.13+
+    # 🚀 الضربة القاضية لمشكلة (different loop)
+    # هنجيب اللوب الأساسية اللي اتعملت وقت استدعاء الملفات (واللي MongoDB مسكت فيها)
+    loop = asyncio.get_event_loop_policy().get_event_loop()
+    
     try:
-        asyncio.run(init())
+        # نشغل البوت على نفس اللوب بدون ما نعمل واحدة جديدة تتعارض مع القديمة
+        loop.run_until_complete(init())
     except KeyboardInterrupt:
-        LOGGER("AnnieXMedia").info("Bot process killed by user (Ctrl+C).")
+        LOGGER("AnnieXMedia").info("🛑 Bot process killed by user (Ctrl+C).")
+    except Exception as e:
+        LOGGER("AnnieXMedia").error(f"⚠️ Fatal Error Occurred: {e}")
