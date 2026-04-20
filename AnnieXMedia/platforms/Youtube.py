@@ -10,6 +10,9 @@ import aiofiles
 from pyrogram import enums
 from yt_dlp import YoutubeDL
 
+# 🚀 استيراد مكتبة البحث الصاروخية
+from youtubesearchpython.aio import VideosSearch
+
 log = logging.getLogger("AnnieXMedia.YouTube")
 
 class YouTubeAPI:
@@ -21,15 +24,14 @@ class YouTubeAPI:
             r"([A-Za-z0-9_-]{11}|PL[A-Za-z0-9_-]+)([&?][^\s]*)?"
         )
         
-        # الإعدادات الذهبية بناءً على نتيجة اختبار الـ Benchmark
+        # 🛡️ إعدادات yt-dlp "الثقيلة" مخصصة حصرياً للتحميل وفك التشفير
         self.base_opts = {
             "quiet": True,
             "no_warnings": True,
-            "source_address": "0.0.0.0",  # 🚀 قتل تأخير الـ IPv6
-            "js_runtimes": {"node": {}},  # تفعيل Node لفك التشفير
+            "source_address": "0.0.0.0", 
+            "js_runtimes": {"node": {}}, 
             "extractor_args": {
                 "youtube": {
-                    # ترتيب العملاء من الأسرع للأبطأ حسب اختبار سيرفرك
                     "player_client": ["android", "android_vr", "mweb", "web"], 
                     "remote_components": ["ejs:github"]
                 }
@@ -56,7 +58,7 @@ class YouTubeAPI:
                 except: continue
         return None
 
-    # التنفيذ المباشر والسريع داخل البايثون (بدون Subprocess)
+    # الدالة دي مبقتش تشتغل في البحث.. بتشتغل وقت التحميل بس
     async def _extract_native(self, query: str, opts: dict) -> dict:
         loop = asyncio.get_running_loop()
         def extract():
@@ -64,44 +66,84 @@ class YouTubeAPI:
                 return ydl.extract_info(query, download=False)
         return await loop.run_in_executor(None, extract)
 
+    # ==========================================
+    # 🚀 دوال البحث السريعة باستخدام youtubesearchpython
+    # ==========================================
+
     async def track(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[Dict[str, Any], str]:
         vid = str(videoid) if videoid and str(videoid) not in ["True", "False"] else ""
         if not vid and "v=" in link:
             try: vid = link.split("v=")[1].split("&")[0]
             except: pass
         
-        query = link if (link.startswith("http") or vid) else f"ytsearch1:{link}"
-        
-        opts = self.base_opts.copy()
-        opts["extract_flat"] = "in_playlist" 
-        
+        query = f"https://youtube.com/watch?v={vid}" if vid else link
+
         try:
-            info = await self._extract_native(query, opts)
-            if "entries" in info and info["entries"]: 
-                info = info["entries"][0]
+            # بحث فوري عن التفاصيل
+            search = VideosSearch(query, limit=1)
+            result = await search.next()
             
-            v_id = info.get("id", vid)
-            thumb = info.get("thumbnail", "")
-            dur_seconds = info.get("duration", 0)
-            duration = time.strftime('%M:%S', time.gmtime(dur_seconds)) if dur_seconds else "0:00"
-            
-            return {
-                "title": info.get("title", "Unknown"),
-                "link": f"https://www.youtube.com/watch?v={v_id}",
-                "vidid": v_id,
-                "duration_min": duration,
-                "thumb": thumb,
-            }, v_id
+            if result and "result" in result and len(result["result"]) > 0:
+                info = result["result"][0]
+                v_id = info.get("id", vid)
+                duration = info.get("duration", "0:00")
+                
+                # جلب أعلى جودة للغلاف
+                thumb_url = ""
+                if "thumbnails" in info and len(info["thumbnails"]) > 0:
+                    thumb_url = info["thumbnails"][-1].get("url", "")
+                    if "?" in thumb_url: thumb_url = thumb_url.split("?")[0] # تنظيف الرابط
+
+                return {
+                    "title": info.get("title", "Unknown"),
+                    "link": f"https://www.youtube.com/watch?v={v_id}",
+                    "vidid": v_id,
+                    "duration_min": duration,
+                    "thumb": thumb_url,
+                }, v_id
+            else:
+                return {"title": "Unknown", "duration_min": "0:00", "thumb": "", "vidid": vid, "link": link}, vid
         except Exception as e:
-            log.error(f"Search/Track error: {e}")
+            log.error(f"Track Search error: {e}")
             return {"title": "Unknown", "duration_min": "0:00", "thumb": "", "vidid": vid, "link": link}, vid
 
     async def details(self, link: str, videoid: Union[bool, str, None] = None) -> Tuple[str, Optional[str], int, str, str]:
         data, vid = await self.track(link, videoid)
         dur = data.get("duration_min", "0:00")
-        parts = [int(p) for p in str(dur).split(":")]
-        secs = sum(p * (60 ** i) for i, p in enumerate(reversed(parts)))
+        
+        # تحويل الدقائق لثواني للـ PyTgCalls
+        try:
+            parts = [int(p) for p in str(dur).split(":")]
+            secs = sum(p * (60 ** i) for i, p in enumerate(reversed(parts)))
+        except:
+            secs = 0
+            
         return data["title"], dur, secs, data["thumb"], str(vid)
+
+    async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
+        try:
+            # بحث فوري لإنشاء قائمة (ليست / كيبورد البحث)
+            search = VideosSearch(query, limit=limit)
+            result = await search.next()
+            
+            if not result or "result" not in result:
+                return []
+            
+            results = []
+            for d in result["result"]:
+                results.append({
+                    "title": d.get("title", "Unknown"), 
+                    "vidid": d.get("id"), 
+                    "duration": d.get("duration", "0:00")
+                })
+            return results
+        except Exception as e:
+            log.error(f"Search error: {e}")
+            return []
+
+    # ==========================================
+    # 🛡️ دوال التحميل المعقدة (بتستخدم yt-dlp)
+    # ==========================================
 
     async def download(self, link: str, mystic: Any, video: Union[bool, str] = None, videoid: Union[bool, str] = None, **kwargs) -> Optional[str]:
         vid = str(videoid) if videoid and str(videoid) not in ["True", "False"] else ""
@@ -110,8 +152,6 @@ class YouTubeAPI:
             except: pass
         
         target_url = f"https://www.youtube.com/watch?v={vid}" if vid else link
-        
-        # 🚀 أفضل جودة صوت، ولو مش موجودة يسحب أفضل جودة للصوت والفيديو معاً ويتخطى النقص
         media_format = "b" if video else "ba/b"
         
         opts = self.base_opts.copy()
@@ -127,28 +167,15 @@ class YouTubeAPI:
 
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
         return await self.download(link, None, video=not prefer_audio)
-
-    async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
-        opts = self.base_opts.copy()
-        opts["extract_flat"] = True
-        try:
-            info = await self._extract_native(f"ytsearch{limit}:{query}", opts)
-            results = info.get("entries", [])
-            return [
-                {
-                    "title": d.get("title", "Unknown"), 
-                    "vidid": d.get("id"), 
-                    "duration": time.strftime('%M:%S', time.gmtime(d.get("duration", 0))) if d.get("duration") else "0:00"
-                } 
-                for d in results if d.get("id")
-            ]
-        except Exception as e:
-            log.error(f"Search error: {e}")
-            return []
-            
+                
     async def get_playlist(self, url: str) -> List[str]:
-        opts = self.base_opts.copy()
-        opts["extract_flat"] = True
+        # لاستخراج البلاي ليست يفضل استخدام yt-dlp بخيار extract_flat لأنه أقوى
+        opts = {
+            "extract_flat": True,
+            "quiet": True,
+            "skip_download": True,
+            "no_warnings": True
+        }
         try:
             info = await self._extract_native(url, opts)
             return [f"https://www.youtube.com/watch?v={entry['id']}" for entry in info.get("entries", []) if entry.get("id")]
