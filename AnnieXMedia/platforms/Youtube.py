@@ -21,13 +21,12 @@ class YouTubeAPI:
             r"([A-Za-z0-9_-]{11}|PL[A-Za-z0-9_-]+)([&?][^\s]*)?"
         )
         
-        # الإعدادات الصاروخية المتكاملة (IPv4 + Node + WebSockets Bypass)
+        # الإعدادات الصاروخية المتكاملة (بدون Impersonate المزعج)
         self.base_opts = {
             "quiet": True,
             "no_warnings": True,
-            "source_address": "0.0.0.0", # إجبار IPv4 لإلغاء الـ 150 ثانية تأخير
+            "source_address": "0.0.0.0", # 🚀 إجبار IPv4 لإلغاء الـ 150 ثانية تأخير
             "js_runtimes": {"node": {}}, # تفعيل نود لفك التشفير
-            "impersonate": "chrome", # انتحال المتصفح وفتح دعم الويب سوكت (curl_cffi)
             "extractor_args": {
                 "youtube": {
                     "player_client": ["mweb"], # عميل الموبايل ويب الذهبي
@@ -78,7 +77,7 @@ class YouTubeAPI:
         
         try:
             info = await self._extract_native(query, opts)
-            if "entries" in info: 
+            if "entries" in info and info["entries"]: 
                 info = info["entries"][0]
             
             v_id = info.get("id", vid)
@@ -142,7 +141,8 @@ class YouTubeAPI:
                 } 
                 for d in results if d.get("id")
             ]
-        except:
+        except Exception as e:
+            log.error(f"Search error: {e}")
             return []
             
     # دالة البلاي ليست (هتسحب كل الروابط طلقة)
