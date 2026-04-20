@@ -21,15 +21,16 @@ class YouTubeAPI:
             r"([A-Za-z0-9_-]{11}|PL[A-Za-z0-9_-]+)([&?][^\s]*)?"
         )
         
-        # الإعدادات الصاروخية المتكاملة (بدون Impersonate المزعج)
+        # الإعدادات الذهبية بناءً على نتيجة اختبار الـ Benchmark
         self.base_opts = {
             "quiet": True,
             "no_warnings": True,
-            "source_address": "0.0.0.0", # 🚀 إجبار IPv4 لإلغاء الـ 150 ثانية تأخير
-            "js_runtimes": {"node": {}}, # تفعيل نود لفك التشفير
+            "source_address": "0.0.0.0",  # 🚀 قتل تأخير الـ IPv6
+            "js_runtimes": {"node": {}},  # تفعيل Node لفك التشفير
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["mweb"], # عميل الموبايل ويب الذهبي
+                    # ترتيب العملاء من الأسرع للأبطأ حسب اختبار سيرفرك
+                    "player_client": ["android", "android_vr", "mweb", "web"], 
                     "remote_components": ["ejs:github"]
                 }
             }
@@ -55,7 +56,7 @@ class YouTubeAPI:
                 except: continue
         return None
 
-    # دالة الاستخراج الأساسية (بتشتغل في الخلفية بدون ما توقف البوت)
+    # التنفيذ المباشر والسريع داخل البايثون (بدون Subprocess)
     async def _extract_native(self, query: str, opts: dict) -> dict:
         loop = asyncio.get_running_loop()
         def extract():
@@ -69,11 +70,10 @@ class YouTubeAPI:
             try: vid = link.split("v=")[1].split("&")[0]
             except: pass
         
-        # لو مش رابط يوتيوب، هنحوله لبحث سريع
         query = link if (link.startswith("http") or vid) else f"ytsearch1:{link}"
         
         opts = self.base_opts.copy()
-        opts["extract_flat"] = "in_playlist" # عشان البلاي ليست
+        opts["extract_flat"] = "in_playlist" 
         
         try:
             info = await self._extract_native(query, opts)
@@ -110,7 +110,9 @@ class YouTubeAPI:
             except: pass
         
         target_url = f"https://www.youtube.com/watch?v={vid}" if vid else link
-        media_format = "best[ext=mp4]/best" if video else "140/18/bestaudio[ext=m4a]/bestaudio/best"
+        
+        # 🚀 أفضل جودة صوت، ولو مش موجودة يسحب أفضل جودة للصوت والفيديو معاً ويتخطى النقص
+        media_format = "b" if video else "ba/b"
         
         opts = self.base_opts.copy()
         opts["format"] = media_format
@@ -126,7 +128,6 @@ class YouTubeAPI:
     async def get_direct_link(self, link: str, *, prefer_audio: bool = True) -> Optional[str]:
         return await self.download(link, None, video=not prefer_audio)
 
-    # مكتبة البحث الجديدة بالكامل مبنية على yt-dlp
     async def search(self, query: str, limit: int = 10) -> List[Dict[str, str]]:
         opts = self.base_opts.copy()
         opts["extract_flat"] = True
@@ -145,7 +146,6 @@ class YouTubeAPI:
             log.error(f"Search error: {e}")
             return []
             
-    # دالة البلاي ليست (هتسحب كل الروابط طلقة)
     async def get_playlist(self, url: str) -> List[str]:
         opts = self.base_opts.copy()
         opts["extract_flat"] = True
