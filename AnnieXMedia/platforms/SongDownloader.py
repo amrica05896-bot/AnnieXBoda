@@ -9,7 +9,7 @@ import yt_dlp
 from concurrent.futures import ThreadPoolExecutor
 
 # 🚀 استيراد مكتبة البحث الصاروخية لتفادي بطء yt-dlp
-from youtubesearchpython.__future__ import VideosSearch
+from youtubesearchpython.aio import VideosSearch
 
 logging.basicConfig(level=logging.ERROR)
 def LOGGER(name): return logging.getLogger(name)
