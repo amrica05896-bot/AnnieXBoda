@@ -1,7 +1,10 @@
+# Authored By Certified Systems Architect
+# Dedicated Song Downloader (Dynamic Quality Control & MAX SPEED 🚀)
+# Modified: Native Chunking + IPv4 Forced + Node.js Decryption
+
 import asyncio
 import os
 import logging
-import time
 import yt_dlp
 from concurrent.futures import ThreadPoolExecutor
 
@@ -55,8 +58,6 @@ class SongDownloaderAPI:
             if os.path.exists(p) and os.path.getsize(p) > 0:
                 return os.path.abspath(p)
         return None
-
-    # تم تعطيل دالة get_direct_url لأن تليجرام يرفض الروابط المباشرة ليوتيوب
     
     async def download(self, link: str, is_video: bool = False):
         if "googleusercontent.com" in link:
@@ -66,17 +67,21 @@ class SongDownloaderAPI:
         if not link.startswith(("http", "www")):
             link = f"ytsearch1:{link}"
 
-        # تم مسح شرط استدعاء الرابط المباشر لإجبار البرنامج على تحميل الملف محلياً لتفادي الأخطاء.
-
         loop = asyncio.get_running_loop()
         cookies = self.get_cookie_file()
         
+        # ========================================================
+        # 🎛️ التحكم في الجودة (متوافق مع أوامر رفع/قفل الجودة)
+        # ========================================================
         if is_video:
             if self.force_high_quality:
-                fmt = "bestvideo+bestaudio/best"
+                # أعلى جودة مع دمج الصوت
+                fmt = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best"
             else:
+                # السرعة العادية (480p)
                 fmt = "best[ext=mp4][height<=480]/best[ext=mp4][height<=360]/best[ext=mp4]"
         else:
+            # للصوت: أفضل جودة m4a
             fmt = "bestaudio[ext=m4a]/bestaudio/best"
 
         def _download_native():
@@ -87,19 +92,33 @@ class SongDownloaderAPI:
                 "outtmpl": out_tmpl,
                 "quiet": True,
                 "no_warnings": True,
-                "geo_bypass": True,
-                "force_ipv4": True,
                 "nocheckcertificate": True,
                 "cookiefile": cookies,
+                
+                # 🚀 1. السحر لقتل التأخير (IPv4 الإجباري)
+                "force_ipv4": True,
+                "source_address": "0.0.0.0",
+                "geo_bypass": False, # تم التعطيل لأنها تؤخر الاستخراج
+                
+                # 🔴 2. فك تشفير يوتيوب الإجباري (Node.js)
+                "js_runtimes": {"node": {}},
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "web", "mweb"],
+                        "remote_components": ["ejs:github"]
+                    }
+                },
+                
+                # ⚡ 3. المدفع الداخلي (Native Chunking) للسرعة الخارقة
+                "concurrent_fragment_downloads": 10,  # 10 اتصالات متوازية
+                "http_chunk_size": 10485760,         # السحب بقطع 10 ميجا
+                "buffersize": 1024 * 1024 * 5,       # 5 ميجا بافر للكتابة السريعة
+                "retries": 15,                       # تخطي إيرور 503 تلقائياً
+                
                 "noplaylist": False, 
                 "ignoreerrors": True,
-                "concurrent_fragment_downloads": 5, 
-                "buffersize": 1024 * 1024,
-                "retries": 10,
                 "trim_file_name": 50,
-                # استخدام عملاء لضمان التحميل السليم
-                "extractor_args": {"youtube": {"player_client": ["android", "mweb", "web"]}},
-                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
             }
             
             if "list=" in link and self.playlist_limit > 0:
@@ -125,7 +144,6 @@ class SongDownloaderAPI:
         try:
             file_path = await loop.run_in_executor(self.pool, _download_native)
             if file_path and os.path.exists(file_path):
-                # نُرجع False للمتغير الثاني لأن التحميل أصبح محلياً بالكامل وليس رابط مباشر
                 return file_path, False 
         except Exception:
             pass
