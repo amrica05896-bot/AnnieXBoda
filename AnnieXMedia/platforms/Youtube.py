@@ -43,8 +43,8 @@ META_CACHE_TTL = 3600
 _thread_pool = ThreadPoolExecutor(max_workers=MAX_YTDLP_THREADS)
 _extract_sema = asyncio.Semaphore(MAX_CONCURRENT_EXTRACTS)
 
-# 🛑 تعديل الجسر (Keep-Alive): زيادة وقت البقاء حياً لمنع الخمول
-_aio_connector = aiohttp.TCPConnector(limit=AIO_CONN_LIMIT, ssl=False, keepalive_timeout=300)
+# 🛑 تعديل الجسر (Keep-Alive): تأجيل الإنشاء لحين وجود Event Loop
+_aio_connector: Optional[aiohttp.TCPConnector] = None
 _aio_session: Optional[aiohttp.ClientSession] = None
 
 _direct_cache: Dict[str, Tuple[int, str]] = {}   # key -> (expiry_epoch, url)
@@ -71,7 +71,9 @@ def get_cookie_file() -> Optional[str]:
     return None
 
 async def _ensure_aio_session() -> aiohttp.ClientSession:
-    global _aio_session
+    global _aio_session, _aio_connector
+    if _aio_connector is None or _aio_connector.closed:
+        _aio_connector = aiohttp.TCPConnector(limit=AIO_CONN_LIMIT, ssl=False, keepalive_timeout=300)
     if _aio_session is None or _aio_session.closed:
         _aio_session = aiohttp.ClientSession(connector=_aio_connector, raise_for_status=False)
     return _aio_session
