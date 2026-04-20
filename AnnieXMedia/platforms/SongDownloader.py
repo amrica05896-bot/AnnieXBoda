@@ -1,12 +1,15 @@
 # Authored By Certified Systems Architect
 # Dedicated Song Downloader (Dynamic Quality Control & MAX SPEED 🚀)
-# Modified: Native Chunking + IPv4 Forced + Node.js Decryption
+# Modified: Native Chunking + IPv4 Forced + Node.js Decryption + Fast Search Integration
 
 import asyncio
 import os
 import logging
 import yt_dlp
 from concurrent.futures import ThreadPoolExecutor
+
+# 🚀 استيراد مكتبة البحث الصاروخية لتفادي بطء yt-dlp
+from youtubesearchpython.__future__ import VideosSearch
 
 logging.basicConfig(level=logging.ERROR)
 def LOGGER(name): return logging.getLogger(name)
@@ -64,25 +67,35 @@ class SongDownloaderAPI:
              try: link = f"https://www.youtube.com/watch?v={link.split('v=')[1]}"
              except: pass
 
+        # ========================================================
+        # 🚀 البحث الذكي والسريع (لو المدخل مش رابط مباشر)
+        # ========================================================
         if not link.startswith(("http", "www")):
-            link = f"ytsearch1:{link}"
+            try:
+                search = VideosSearch(link, limit=1)
+                result = await search.next()
+                if result and "result" in result and len(result["result"]) > 0:
+                    vid = result["result"][0]["id"]
+                    link = f"https://www.youtube.com/watch?v={vid}"
+                else:
+                    link = f"ytsearch1:{link}" # احتياطي
+            except Exception as e:
+                LOGGER("SongDownloader").error(f"Fast Search Error: {e}")
+                link = f"ytsearch1:{link}" # احتياطي لو المكتبة فشلت
 
         loop = asyncio.get_running_loop()
         cookies = self.get_cookie_file()
         
         # ========================================================
-        # 🎛️ التحكم في الجودة (متوافق مع أوامر رفع/قفل الجودة)
+        # 🎛️ التحكم في الجودة (الصيغة المرنة لتفادي 403 Forbidden)
         # ========================================================
         if is_video:
             if self.force_high_quality:
-                # أعلى جودة مع دمج الصوت
-                fmt = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best"
+                fmt = "bv*+ba/b"
             else:
-                # السرعة العادية (480p)
-                fmt = "best[ext=mp4][height<=480]/best[ext=mp4][height<=360]/best[ext=mp4]"
+                fmt = "b[height<=480]/b[height<=360]/b"
         else:
-            # للصوت: أفضل جودة m4a
-            fmt = "bestaudio[ext=m4a]/bestaudio/best"
+            fmt = "ba/b" 
 
         def _download_native():
             out_tmpl = os.path.join(Config.DOWNLOAD_PATH, "%(title)s.%(ext)s")
@@ -95,12 +108,12 @@ class SongDownloaderAPI:
                 "nocheckcertificate": True,
                 "cookiefile": cookies,
                 
-                # 🚀 1. السحر لقتل التأخير (IPv4 الإجباري)
+                # 🚀 1. قتل تأخير الـ IPv6 وتوجيه السيرفر
                 "force_ipv4": True,
                 "source_address": "0.0.0.0",
-                "geo_bypass": False, # تم التعطيل لأنها تؤخر الاستخراج
+                "geo_bypass": False, 
                 
-                # 🔴 2. فك تشفير يوتيوب الإجباري (Node.js)
+                # 🔴 2. فك تشفير يوتيوب الإجباري
                 "js_runtimes": {"node": {}},
                 "extractor_args": {
                     "youtube": {
@@ -109,11 +122,11 @@ class SongDownloaderAPI:
                     }
                 },
                 
-                # ⚡ 3. المدفع الداخلي (Native Chunking) للسرعة الخارقة
-                "concurrent_fragment_downloads": 10,  # 10 اتصالات متوازية
-                "http_chunk_size": 10485760,         # السحب بقطع 10 ميجا
-                "buffersize": 1024 * 1024 * 5,       # 5 ميجا بافر للكتابة السريعة
-                "retries": 15,                       # تخطي إيرور 503 تلقائياً
+                # ⚡ 3. المحمل الداخلي الخارق للسرعة
+                "concurrent_fragment_downloads": 10,  
+                "http_chunk_size": 10485760,         
+                "buffersize": 1024 * 1024 * 5,       
+                "retries": 15,                       
                 
                 "noplaylist": False, 
                 "ignoreerrors": True,
@@ -130,6 +143,11 @@ class SongDownloaderAPI:
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(link, download=True)
+                    
+                    # 🔴 تصليح ثغرة الكراش (NoneType)
+                    if not info:
+                        return None
+                        
                     if 'entries' in info:
                         entries = list(info['entries'])
                         valid_entries = [e for e in entries if e]
