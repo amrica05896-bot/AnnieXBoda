@@ -1,6 +1,6 @@
 # Authored By Certified Systems Architect
 # Dedicated Song Downloader (Dynamic Quality Control & MAX SPEED 🚀)
-# Modified: Native Chunking + IPv4 Forced + Node.js Decryption + Fast Search Integration
+# Modified: Native Chunking + IPv4 Forced + Node.js Decryption + Ignore Cookies
 
 import asyncio
 import os
@@ -8,7 +8,7 @@ import logging
 import yt_dlp
 from concurrent.futures import ThreadPoolExecutor
 
-# 🚀 استيراد مكتبة البحث الصاروخية لتفادي بطء yt-dlp
+# 🚀 استيراد مكتبة البحث الصاروخية
 from youtubesearchpython.aio import VideosSearch
 
 logging.basicConfig(level=logging.ERROR)
@@ -20,7 +20,6 @@ class Config:
     else:
         DOWNLOAD_PATH = os.path.abspath("downloads_songs")
 
-    COOKIE_PATH = "AnnieXMedia/assets/cookies.txt"
     MAX_WORKERS = 10 
 
 if not os.path.exists(Config.DOWNLOAD_PATH):
@@ -51,16 +50,6 @@ class SongDownloaderAPI:
     def disable_quality(self):
         self.force_high_quality = False
         LOGGER("SongDownloader").info("Speed Mode (480p): ACTIVATED")
-
-    def get_cookie_file(self):
-        paths = [
-            Config.COOKIE_PATH, "cookies.txt", "AnnieXMedia/cookies.txt",
-            "assets/cookies.txt", "platforms/cookies.txt", "/app/cookies.txt"
-        ]
-        for p in paths:
-            if os.path.exists(p) and os.path.getsize(p) > 0:
-                return os.path.abspath(p)
-        return None
     
     async def download(self, link: str, is_video: bool = False):
         if "googleusercontent.com" in link:
@@ -68,7 +57,7 @@ class SongDownloaderAPI:
              except: pass
 
         # ========================================================
-        # 🚀 البحث الذكي والسريع (لو المدخل مش رابط مباشر)
+        # 🚀 البحث الذكي والسريع لتفادي بطء yt-dlp
         # ========================================================
         if not link.startswith(("http", "www")):
             try:
@@ -78,16 +67,15 @@ class SongDownloaderAPI:
                     vid = result["result"][0]["id"]
                     link = f"https://www.youtube.com/watch?v={vid}"
                 else:
-                    link = f"ytsearch1:{link}" # احتياطي
+                    link = f"ytsearch1:{link}" 
             except Exception as e:
                 LOGGER("SongDownloader").error(f"Fast Search Error: {e}")
-                link = f"ytsearch1:{link}" # احتياطي لو المكتبة فشلت
+                link = f"ytsearch1:{link}" 
 
         loop = asyncio.get_running_loop()
-        cookies = self.get_cookie_file()
         
         # ========================================================
-        # 🎛️ التحكم في الجودة (الصيغة المرنة لتفادي 403 Forbidden)
+        # 🎛️ الجودة المرنة (لتخطي حظر يوتيوب للصيغ)
         # ========================================================
         if is_video:
             if self.force_high_quality:
@@ -106,23 +94,25 @@ class SongDownloaderAPI:
                 "quiet": True,
                 "no_warnings": True,
                 "nocheckcertificate": True,
-                "cookiefile": cookies,
                 
-                # 🚀 1. قتل تأخير الـ IPv6 وتوجيه السيرفر
+                # 🚫 تجاهل الكوكيز نهائياً لإطلاق وحش الأندرويد
+                "cookiefile": None,
+                
+                # 🚀 قتل التأخير وتوجيه الاتصال
                 "force_ipv4": True,
                 "source_address": "0.0.0.0",
                 "geo_bypass": False, 
                 
-                # 🔴 2. فك تشفير يوتيوب الإجباري
+                # 🔴 فك التشفير الإجباري (الإعدادات الصحيحة)
                 "js_runtimes": {"node": {}},
+                "remote_components": ["ejs:github"],
                 "extractor_args": {
                     "youtube": {
-                        "player_client": ["android", "web", "mweb"],
-                        "remote_components": ["ejs:github"]
+                        "player_client": ["android", "web", "mweb"]
                     }
                 },
                 
-                # ⚡ 3. المحمل الداخلي الخارق للسرعة
+                # ⚡ المحمل الداخلي المتوازي الخارق
                 "concurrent_fragment_downloads": 10,  
                 "http_chunk_size": 10485760,         
                 "buffersize": 1024 * 1024 * 5,       
@@ -144,7 +134,7 @@ class SongDownloaderAPI:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(link, download=True)
                     
-                    # 🔴 تصليح ثغرة الكراش (NoneType)
+                    # 🔴 منع الكراش في حالة الفشل (NoneType)
                     if not info:
                         return None
                         
