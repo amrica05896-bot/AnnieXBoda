@@ -68,15 +68,16 @@ counter = {}
 def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> MediaStream:
     """بناء مجرى البيانات وفقاً لأحدث معايير MediaStream مع تخطي حمايات 2026"""
     path = str(path)
+    
+    # 🔴 تم التعديل: إزالة "-threads 2" لفتح استهلاك الـ 10 كور بالكامل
+    # 🔴 تم التعديل: إضافة أوامر reconnect لمنع تقطيع الفيديو نهائياً
     base_flags = (
-        "-threads 2 "
+        "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
         "-probesize 10M -analyzeduration 10M -rtbufsize 5M "
         "-fflags +genpts+igndts+nobuffer -sync ext "
     )
     final_ffmpeg = base_flags + ffmpeg_opts
     
-    # 🔥 تحديث 2026: إضافة هيدرز لتخطي حماية 403 Forbidden من يوتيوب
-    # نستخدم User-Agent أندرويد ليتطابق مع مخرجات yt-dlp
     headers = {
         "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
     }
@@ -88,7 +89,7 @@ def _build_stream(path: str, video: bool = False, ffmpeg_opts: str = "") -> Medi
         video_flags=MediaStream.Flags.REQUIRED if video else MediaStream.Flags.IGNORE,
         audio_flags=MediaStream.Flags.REQUIRED,
         ffmpeg_parameters=final_ffmpeg,
-        headers=headers, # تمرير بطاقة التعارف الوهمية هنا
+        headers=headers,
     )
 
 
@@ -111,7 +112,6 @@ class Call:
         self.userbot4 = getattr(userbot, "four", None)
         self.userbot5 = getattr(userbot, "five", None)
 
-        # يتم التهيئة في دالة start حصرياً لمنع كراش Python 3.13 Event Loop
         self.one = None
         self.two = None
         self.three = None
@@ -143,7 +143,6 @@ class Call:
             except Exception: return None
         except Exception: return None
 
-    # --- استبدال دوال التحكم القديمة بالمسميات والتحديثات الجديدة ---
     async def pause_stream(self, chat_id: int) -> None:
         async with self.get_lock(chat_id):
             assistant = await group_assistant(self, chat_id)
@@ -185,7 +184,6 @@ class Call:
             await remove_active_chat(chat_id)
             await _clear_(chat_id)
             try: 
-                # تفعيل الميزة الجديدة close=True لتفريغ الرامات كلياً
                 await assistant.leave_call(chat_id, close=True)
             except Exception: pass
             finally: self.active_calls.discard(chat_id)
@@ -258,14 +256,12 @@ class Call:
             if await is_autoend():
                 counter[chat_id] = {}
                 try:
-                    # تفعيل ميزة no_update للكاش الصارمة (V2.2.X)
                     users = len(await assistant.get_participants(chat_id))
                     if users == 1: autoend[chat_id] = datetime.now() + timedelta(minutes=1)
                 except Exception: pass
 
     async def start(self) -> None:
         LOGGER(__name__).info("Starting PyTgCalls Clients (NTgCalls v2.2.11)...")
-        # التحميل المتأخر (Lazy Loading) ضروري هنا
         if self.userbot1: self.one = PyTgCalls(self.userbot1)
         if self.userbot2: self.two = PyTgCalls(self.userbot2)
         if self.userbot3: self.three = PyTgCalls(self.userbot3)
@@ -301,7 +297,6 @@ class Call:
             async def left_call_handler(client: PyTgCalls, update: Update):
                 await self.stop_stream(update.chat_id)
             
-            # ميزة التقاط طرد المساعد باستخدام UpdatedGroupCallParticipant (V2.2.X)
             @assistant.on_update(filters.call_participant(GroupCallParticipant.Action.KICKED))
             async def kicked_handler(client: PyTgCalls, update: Update):
                 await self.stop_stream(update.chat_id)
@@ -352,13 +347,20 @@ class Call:
             is_video = str(streamtype) == "video"
             
             final_link = queued
-            # 🚀 تم ربط ملف الكول بمحرك Youtube.py المطور مباشرة للسرعة القصوى واستخدام الكوكيز
-            if "youtube" in str(queued) or "vid_" in str(queued) or str(streamtype) == "youtube":
+
+            # 🔴 تم التعديل: حل مشكلة تخطي القائمة (Queue Skipping Fix)
+            if videoid and (str(queued).startswith("vid_") or str(queued).startswith("http") or str(streamtype) == "youtube"):
                  try:
                     direct = await YouTube.get_direct_link(f"https://www.youtube.com/watch?v={videoid}", prefer_audio=not is_video)
-                    if direct: final_link = direct
+                    if direct: 
+                        final_link = direct
+                    else:
+                        raise Exception("Direct link extraction returned None")
                  except Exception as e:
-                     LOGGER(__name__).error(f"Failed direct link fetch: {e}")
+                     LOGGER(__name__).error(f"Queue URL Fetch Error: {e}")
+                     # 🔴 خطوة الأمان: لو الرابط باظ، شغل اللي بعده بدل ما تبعت مسار وهمي يعطل FFmpeg
+                     await self.play(client, chat_id)
+                     return
 
             stream = _build_stream(final_link, video=is_video)
 
