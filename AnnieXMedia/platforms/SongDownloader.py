@@ -1,6 +1,5 @@
 # Authored By Certified Systems Architect
-# Dedicated Song Downloader (MAX SPEED 🚀 + IPv4 Forced + Node.js Decryption)
-# Optimization: Telegram Friendly Formats (M4A/MP4) & No-Cookie Policy
+# Zero-Latency Downloader (Dynamic Clients: tv_embedded / android + IPv4 Forced)
 
 import asyncio
 import os
@@ -8,9 +7,9 @@ import logging
 import yt_dlp
 from concurrent.futures import ThreadPoolExecutor
 
-# استيراد مكتبة البحث السريع لتجنب بطء yt-dlp في مرحلة الـ Extraction
 try:
-    from youtubesearchpython.__future__ import VideosSearch
+    # تم التعديل إلى aio لضمان التوافق مع الإصدار الحديث
+    from youtubesearchpython.aio import VideosSearch
     HAS_SEARCH = True
 except ImportError:
     HAS_SEARCH = False
@@ -19,7 +18,6 @@ logging.basicConfig(level=logging.ERROR)
 def LOGGER(name): return logging.getLogger(name)
 
 class Config:
-    # استخدام الرام ديسك لو متاح لتسريع العمليات
     if os.path.exists("/dev/shm"):
         DOWNLOAD_PATH = "/dev/shm/AnnieSongDownloads"
     else:
@@ -48,12 +46,11 @@ class SongDownloaderAPI:
         self.force_high_quality = False
     
     async def download(self, link: str, is_video: bool = False):
-        # تصحيح روابط جوجل لو وجدت
         if "googleusercontent.com" in link:
              try: link = f"https://www.youtube.com/watch?v={link.split('v=')[1]}"
              except: pass
 
-        # 🚀 المرحلة 1: البحث السريع (لو المدخل مش رابط)
+        # البحث السريع
         if not link.startswith(("http", "www")) and HAS_SEARCH:
             try:
                 search = VideosSearch(link, limit=1)
@@ -68,16 +65,17 @@ class SongDownloaderAPI:
 
         loop = asyncio.get_running_loop()
         
-        # 🎛️ المرحلة 2: تحديد الصيغ (M4A للصوت / MP4 للفيديو)
+        # 🎯 الذكاء في اختيار العميل بناءً على نتيجة الكونسول
         if is_video:
+            # tv_embedded: الأسرع في جلب الـ HQ (2.69s) وبدون أخطاء
+            target_clients = ["tv_embedded"]
             if self.force_high_quality:
-                # دمج أفضل فيديو mp4 مع أفضل صوت m4a
                 fmt = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
             else:
-                # جودة متوسطة سريعة للموبايل
                 fmt = "b[ext=mp4][height<=480]/b[ext=mp4][height<=360]/b[ext=mp4]/best"
         else:
-            # صوت فقط بصيغة m4a المفضلة لتليجرام
+            # android: الأسرع على الإطلاق (1.13s) للصوتيات
+            target_clients = ["android"]
             fmt = "ba[ext=m4a]/ba/b"
 
         def _download_native():
@@ -89,29 +87,26 @@ class SongDownloaderAPI:
                 "quiet": True,
                 "no_warnings": True,
                 "nocheckcertificate": True,
+                "cookiefile": None, 
                 
-                # 🚫 تجاهل الكوكيز تماماً لضمان عمل عميل الأندرويد بسرعة
-                "cookiefile": None,
-                
-                # ⚡ 3. قتل تأخير الدقيقة (إجبار IPv4)
                 "force_ipv4": True,
                 "source_address": "0.0.0.0",
                 "geo_bypass": False, 
                 
-                # 🔴 4. فك تشفير يوتيوب (Node.js + EJS)
                 "js_runtimes": {"node": {}},
                 "remote_components": ["ejs:github"],
+                
+                # توجيه العميل الفائز فقط لعدم إهدار الوقت
                 "extractor_args": {
                     "youtube": {
-                        "player_client": ["android", "web", "mweb"]
+                        "player_client": target_clients
                     }
                 },
                 
-                # 🚀 5. إعدادات السحب المتوازي (Native Chunking)
-                "concurrent_fragment_downloads": 10,  # 10 خطوط تحميل
-                "http_chunk_size": 10485760,         # قطع 10 ميجا
-                "buffersize": 1024 * 1024 * 5,       # بافر 5 ميجا للكتابة
-                "retries": 15,                       # محاولات لو السيرفر هنج
+                "concurrent_fragment_downloads": 10,  
+                "http_chunk_size": 10485760,         
+                "buffersize": 1024 * 1024 * 5,       
+                "retries": 15,                       
                 
                 "noplaylist": False, 
                 "ignoreerrors": True,
@@ -119,33 +114,26 @@ class SongDownloaderAPI:
                 "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
             }
             
-            # معالجة قوائم التشغيل
             if "list=" in link and self.playlist_limit > 0:
                 ydl_opts["playlistend"] = self.playlist_limit
             
-            # دمج الفيديو في mp4 لو كان عالي الجودة
             if is_video and self.force_high_quality:
                 ydl_opts["merge_output_format"] = "mp4"
 
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(link, download=True)
-                    
-                    # حماية من خطأ NoneType
-                    if not info:
-                        return None
+                    if not info: return None
                         
                     if 'entries' in info:
                         entries = [e for e in info['entries'] if e]
-                        if entries:
-                            return ydl.prepare_filename(entries[0])
+                        if entries: return ydl.prepare_filename(entries[0])
                     return ydl.prepare_filename(info)
             except Exception as e:
                 LOGGER("SongDownloader").error(f"Download Error: {e}")
             return None
 
         try:
-            # تنفيذ التحميل في Thread منفصل عشان ميعطلش البوت
             file_path = await loop.run_in_executor(self.pool, _download_native)
             if file_path and os.path.exists(file_path):
                 return file_path, False 
@@ -154,5 +142,4 @@ class SongDownloaderAPI:
 
         return None, False
 
-# إنشاء نسخة مفردة لاستخدامها في كل مكان
 SongDownloader = SongDownloaderAPI()
