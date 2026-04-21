@@ -24,16 +24,21 @@ class YouTubeAPI:
             r"([A-Za-z0-9_-]{11}|PL[A-Za-z0-9_-]+)([&?][^\s]*)?"
         )
         
-        # 🛡️ إعدادات yt-dlp "الثقيلة" مخصصة حصرياً للتحميل وفك التشفير
+        # 🚀 إعدادات التشغيل المباشر الصاروخية (InnerTube API فقط)
         self.base_opts = {
             "quiet": True,
             "no_warnings": True,
+            "cookiefile": None,           # تجاهل الكوكيز للسرعة
+            "force_ipv4": True,           # 🔴 حجب الـ IPv6 لمنع تهنيج سيرفر Fly.io
             "source_address": "0.0.0.0", 
-            "js_runtimes": {"node": {}}, 
+            
+            "js_runtimes": {"node": {}},  # 🟢 شغال للطوارئ لفك التشفير في كسر ثانية
+            "remote_components": ["ejs:github"],
+            
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "android_vr", "mweb", "web"], 
-                    "remote_components": ["ejs:github"]
+                    # 🎯 مسحنا web و mweb البطيئين، واعتمدنا وحوش الـ API المباشر
+                    "player_client": ["android_vr", "android"] 
                 }
             }
         }
@@ -58,7 +63,7 @@ class YouTubeAPI:
                 except: continue
         return None
 
-    # الدالة دي مبقتش تشتغل في البحث.. بتشتغل وقت التحميل بس
+    # الدالة دي بتشتغل وقت التحميل وجلب الرابط المباشر
     async def _extract_native(self, query: str, opts: dict) -> dict:
         loop = asyncio.get_running_loop()
         def extract():
@@ -142,7 +147,7 @@ class YouTubeAPI:
             return []
 
     # ==========================================
-    # 🛡️ دوال التحميل المعقدة (بتستخدم yt-dlp)
+    # 🛡️ دوال استخراج الرابط المباشر للتشغيل (InnerTube API)
     # ==========================================
 
     async def download(self, link: str, mystic: Any, video: Union[bool, str] = None, videoid: Union[bool, str] = None, **kwargs) -> Optional[str]:
@@ -152,6 +157,8 @@ class YouTubeAPI:
             except: pass
         
         target_url = f"https://www.youtube.com/watch?v={vid}" if vid else link
+        
+        # للتشغيل المباشر في الكول: نختار أسرع وأقل جودة (b) لضمان عدم التقطيع
         media_format = "b" if video else "ba/b"
         
         opts = self.base_opts.copy()
@@ -169,7 +176,6 @@ class YouTubeAPI:
         return await self.download(link, None, video=not prefer_audio)
                 
     async def get_playlist(self, url: str) -> List[str]:
-        # لاستخراج البلاي ليست يفضل استخدام yt-dlp بخيار extract_flat لأنه أقوى
         opts = {
             "extract_flat": True,
             "quiet": True,
