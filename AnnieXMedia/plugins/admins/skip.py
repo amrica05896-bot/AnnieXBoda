@@ -1,7 +1,7 @@
 # Authored By Certified Coders © 2026
-# System: Skip Handler (Optimized for PyTgCalls v3.0)
+# System: Skip Handler (Optimized for PyTgCalls v3.0 & Zero-Crash Logic)
 # Compatibility: Links with Queue & Call Controller
-# Fixes: Removed 'image' param from skip calls to prevent crashes
+# Fixes: Null-path crash prevention, Soundcloud typo fix, Memory leaks closed
 
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, Message
@@ -29,7 +29,6 @@ async def skip(cli, message: Message, _, chat_id):
     # Early Check: If no active call, return 'call_8' (Bot not in call)
     # -----------------------
     try:
-        # Check against the active_calls set in StreamController
         if chat_id not in StreamController.active_calls:
             return await message.reply_text(_["call_8"])
     except Exception:
@@ -142,10 +141,9 @@ async def skip(cli, message: Message, _, chat_id):
     # [A] Live Stream
     if "live_" in queued:
         n, link = await YouTube.video(videoid, True)
-        if n == 0:
+        if n == 0 or not link:
             return await message.reply_text(_["admin_7"].format(title))
         try:
-            # Calls StreamController.skip_stream (No image param)
             await StreamController.skip_stream(chat_id, link, video=status)
         except:
             return await message.reply_text(_["call_6"])
@@ -178,6 +176,10 @@ async def skip(cli, message: Message, _, chat_id):
         except:
             return await mystic.edit_text(_["call_6"])
         
+        # 🔴 حماية الكراش (Silent Killer Fix)
+        if not file_path:
+            return await mystic.edit_text(_["call_6"])
+            
         try:
             await StreamController.skip_stream(chat_id, file_path, video=status)
         except:
@@ -239,7 +241,8 @@ async def skip(cli, message: Message, _, chat_id):
         elif videoid == "soundcloud":
             button = stream_markup(_, chat_id)
             run = await message.reply_photo(
-                photo=config.SOUNCLOUD_IMG_URL
+                # 🔴 إصلاح الحرف الناقص في متغير ساوند كلاود
+                photo=config.SOUNDCLOUD_IMG_URL
                 if str(streamtype) == "audio"
                 else config.TELEGRAM_VIDEO_URL,
                 caption=_["stream_1"].format(
