@@ -1,7 +1,7 @@
 # Authored By Certified Coders © 2026
 # System: Skip Handler (Optimized for PyTgCalls v3.0 & Zero-Crash Logic)
 # Compatibility: Links with Queue & Call Controller
-# Fixes: Null-path crash prevention, Soundcloud typo fix, Memory leaks closed
+# Fixes: Null-path crash prevention, Soundcloud typo fix, Memory leaks closed, Unpacking Error Fixed
 
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, Message
@@ -167,7 +167,8 @@ async def skip(cli, message: Message, _, chat_id):
     elif "vid_" in queued:
         mystic = await message.reply_text(_["call_7"], disable_web_page_preview=True)
         try:
-            file_path, direct = await YouTube.download(
+            # 🔥 تم الإصلاح هنا: استلام قيمة واحدة (المسار/الرابط المباشر) لتجنب خطأ Unpacking
+            file_path = await YouTube.download(
                 videoid,
                 mystic,
                 videoid=True,
@@ -241,7 +242,6 @@ async def skip(cli, message: Message, _, chat_id):
         elif videoid == "soundcloud":
             button = stream_markup(_, chat_id)
             run = await message.reply_photo(
-                # 🔴 إصلاح الحرف الناقص في متغير ساوند كلاود
                 photo=config.SOUNDCLOUD_IMG_URL
                 if str(streamtype) == "audio"
                 else config.TELEGRAM_VIDEO_URL,
