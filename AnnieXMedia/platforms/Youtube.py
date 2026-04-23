@@ -203,4 +203,19 @@ class YouTubeAPI:
         except: pass
         return None
 
+    # ==========================================
+    # 🔥 إضافة دالة البث المباشر (المفقودة سابقاً)
+    # ==========================================
+    async def video(self, link: str, is_live: bool = False) -> Tuple[int, str]:
+        """دالة للتعامل مع طلبات البث المباشر (Live Streams) لتوافق ملفات التشغيل والتخطي"""
+        try:
+            # نجلب الرابط المباشر للبث
+            url = await self.get_direct_link(link, prefer_audio=True)
+            if url:
+                return 1, url # نرجع 1 كعلامة للنجاح مع الرابط
+            return 0, ""      # نرجع 0 كعلامة للفشل
+        except Exception as e:
+            log.error(f"Live Video extraction error: {e}")
+            return 0, ""
+
 YouTube = YouTubeAPI()
